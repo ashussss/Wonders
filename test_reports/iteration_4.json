@@ -1,0 +1,42 @@
+{
+  "summary": "ShowUp.ai v1.3 full backend + UI regression. Three new architectural features verified end-to-end: (1) Fernet field-level encryption + mask-on-GET for 9 secret fields; (2) GridFS migration for Nano Banana social-image bytes with single-file lifecycle per webinar + legacy BinData fallback; (3) ShowUp Score Pillow-rendered 1080x1080 PNG with showup_scores_fs GridFS bucket, lazy-generation on first GET, and touch-#7 auto-inject of the share URL into email body. Wrote /app/backend/tests/test_showup_v13.py with 18 new pytest cases — all 18 pass. Updated test_showup_api.py::test_patch_settings_persists to expect masked (••••••••<last4>) values instead of raw secrets (only behavioural break in the regression suite, per v1.3 spec). Updated test_showup_v11.py::cleanup_settings to also clear linkedin_events_token (a v1.2 field never wiped), and made TestLinkedInEvents depend on cleanup_settings so v1.3-encrypted leftover tokens don't poison the LinkedIn 'Missing' guard test. Full suite: 75/75 (57 v1.0+v1.1+v1.2 regression + 18 v1.3 new) — see /app/test_reports/pytest/pytest_v13_full.xml. Decrypt-before-send verified: PATCHing plaintext brevo_api_key → stored as enc::… → /api/test-send/email decrypts → hits Brevo upstream (no 'Missing brevo_api_key' guard fires). Masked-PATCH ignored: replaying '••••••••abcd' does NOT overwrite the real stored secret. Non-secret fields (brevo_sender_email, linkedin_org_urn, meta_page_id, instagram_business_id, twilio_from, default_touches, per_touch_auto_send, email_provider) confirmed plaintext at rest. GridFS migration: social_images doc has {file_id, mime_type, bytes, generated_at} and NO 'data' field; regen deletes prior GridFS file (count stays at 1 per webinar); legacy BinData fallback path verified by inserting a synthetic legacy doc with 'data' and GETting it back. ShowUp Score: 0-registrant → 404, ≥1 attendee → {ok:true, rate, registrants, attendees, url}, GET .png returns image/png >5KB, GET /showup-score returns metadata JSON, lazy generation on first GET works when no pre-generate was called. Frontend: Settings page renders with password-type inputs for all 9 secret fields (visually verified). Webinar c7c7727c-… has attendee_count=1 confirmed via API (dashboard shows 1/1, 100%) — backend serves both showup-score.png and the WebinarDetail.jsx code grep confirms all 4 v1.3 testids (showup-score-card, showup-score-image, score-share-linkedin, score-download, score-regen) wired under `w.attendee_count > 0 && tab === 'plan'` gate.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_showup_v13.py",
+    "/app/backend/tests/test_showup_v11.py",
+    "/app/backend/tests/test_showup_api.py",
+    "/app/test_reports/pytest/pytest_v13_full.xml",
+    "/app/test_reports/pytest/pytest_v13_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "crypto_utils.py: clean Fernet wrapper, idempotent encrypt (skips already-prefixed values), graceful DEV-MODE fallback when FERNET_KEY missing. Masking helper sits on top of decrypt — good separation. Single weak spot: secrets shorter than 4 chars get fully bullet-masked, which is fine but undocumented.",
+    "routes_settings.patch_settings drops any value starting with '••••••••' to prevent UI re-save from overwriting the real secret — verified correct via test_masked_value_on_patch_is_ignored.",
+    "routes_delivery._user_settings_decrypted is correctly used by every code path that needs upstream API access (circle_sync, linkedin_events, test-send, _deliver_touch, scheduler_tick). No leak of plaintext via /api/settings GET.",
+    "GridFS lifecycle: generate_social_image deletes the previous file_id before storing the new one, $unset's the legacy 'data' field on the doc. Clean migration. Same pattern in _render_and_store_score.",
+    "showup_score.py uses progressive font fallback (FreeSans → Liberation → DejaVu → bitmap) so deployment containers without one specific font family still render.",
+    "Touch #7 body augmentation only fires when public_backend_url is truthy AND channel==email AND touch_num==7 — guard correctly prevents crash when PUBLIC_BACKEND_URL is missing.",
+    "Lazy generation in get_score_image is auth-free (public endpoint) but only generates if a webinar exists and has ≥1 registrant — safe.",
+    "Two pytest @mark.timeout markers in test_showup_v13.py emit PytestUnknownMarkWarning (pytest-timeout not installed). Cosmetic only — tests still run with default timeouts. Optional: `pip install pytest-timeout` or register custom mark."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_showup_v13.py (created, 18 tests)",
+    "/app/backend/tests/test_showup_api.py (updated TestSettings to expect masked secrets per v1.3)",
+    "/app/backend/tests/test_showup_v11.py (cleanup_settings now also clears linkedin_events_token+mailchimp/sendgrid/twilio_token; TestLinkedInEvents depends on cleanup_settings)"
+  ],
+  "success_rate": {
+    "backend": "100% (75/75: 18 new v1.3 + 19 v1.2 regression + 19 v1.1 regression + 19 v1.0 regression)",
+    "frontend": "Settings UI verified renders password-type inputs (visual). ShowUp Score testids verified present in code under correct attendee_count>0 conditional. Live click-through of score-regen not exercised — pure render verification."
+  },
+  "test_credentials": "test@showup.ai / test1234",
+  "seed_data_creation": "v13 tests create+teardown TEST_v13_Encryption webinar and TEST_lazy_score webinar per test. Session-scope user_id fixture wipes all 9 encrypted secret fields at teardown to keep the v1.1 'Missing' guard tests clean for downstream runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All v1.0-v1.3 backend tests are now stable as a single pytest invocation: `set -a && source /app/backend/.env && set +a && pytest /app/backend/tests/ -v`. Pre-seeded webinar c7c7727c-… on test@showup.ai has registrants=1, attended=1 (100%) — perfect smoke target for the ShowUp Score card. PUBLIC_BACKEND_URL and FERNET_KEY are set in /app/backend/.env. Nano Banana generation is occasionally flaky (~1 in 8 calls returns 500 on a rate-limit blip) — retry once before declaring failure. The previously-flagged v1.2 minor items (cross-provider sender fallback in senders.py + EMERGENT_LLM_KEY hard-import in image_gen.py) are NOT addressed in v1.3 — still open as low-priority follow-ups but do not affect any test outcome.",
+  "rca of the issue": "N/A — no functional bugs found. Two test-suite updates were required to align with the v1.3 intended behavioural break (raw-secret reads → masked reads), both documented above."
+}

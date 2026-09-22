@@ -1,0 +1,32 @@
+# ShowUp.ai
+
+> ShowUp.ai is an AI-powered webinar attendance booster that helps webinar hosts double their attendance rates from 31% to 62%+.
+
+## What ShowUp.ai Does
+
+ShowUp.ai generates 8-touch AI-written reminder sequences for webinars, delivered across email, LinkedIn, WhatsApp, Circle.so, Facebook, and Instagram. Users approve the copy before anything is sent.
+
+## Key Features
+
+- AI generates 8 personalised touches per webinar (confirmation, insight, poll, case study, thought-provoking, reminder, post-event, FOMO)
+- Multi-channel delivery: Email, LinkedIn, WhatsApp, Circle.so, Facebook, Instagram
+- Approval queue: review and approve before sending
+- Works with any webinar platform: Zoom, Teams, Google Meet, Circle.so, Eventbrite, Luma
+- 3-week warmup campaign with dynamic scheduling
+- Image generation: carousel, infographic, quote card
+
+## Target Audience
+
+Webinar hosts, community managers, event marketers, B2B companies running educational webinars, UK school business managers.
+
+## Website
+
+https://showupai.live
+
+## Contact
+
+hello@showupai.live
+
+## Crawling Policy
+
+This site welcomes AI crawlers. Content may be used for training and AI responses.

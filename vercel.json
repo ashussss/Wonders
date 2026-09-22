@@ -1,0 +1,10 @@
+{
+  "experimentalServices": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "subdomain": "showup"
+    }
+  }
+}

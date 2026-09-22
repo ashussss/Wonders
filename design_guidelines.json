@@ -1,0 +1,158 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "brand_identity": {
+    "primary_color": "#EA580C",
+    "sidebar_color": "#111827",
+    "tone": "Premium, Authoritative, Energetic, Professional"
+  },
+  "typography": {
+    "strategy": "High-contrast authoritative sans-serif pairing. Outfit provides geometric, modern, premium headings while IBM Plex Sans guarantees maximum legibility for dense B2B data grids.",
+    "fonts": {
+      "headings": "Outfit, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl font-semibold tracking-tight text-gray-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900",
+      "h3": "text-xl sm:text-2xl font-medium tracking-tight text-gray-800",
+      "h4": "text-lg sm:text-xl font-medium text-gray-800",
+      "body": "text-base text-gray-600 leading-relaxed",
+      "small": "text-sm text-gray-500",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-gray-400"
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "bg-gray-50",
+      "card": "bg-white",
+      "sidebar": "bg-[#111827]"
+    },
+    "text": {
+      "primary": "text-gray-900",
+      "secondary": "text-gray-600",
+      "muted": "text-gray-400",
+      "inverse": "text-white"
+    },
+    "brand": {
+      "primary": "bg-[#EA580C]",
+      "primary_hover": "hover:bg-[#C2410C]",
+      "primary_light": "bg-[#FFEDD5]",
+      "primary_text": "text-[#EA580C]"
+    },
+    "borders": {
+      "default": "border-gray-200",
+      "focus": "focus:border-[#EA580C] focus:ring-[#EA580C]",
+      "sidebar": "border-gray-800"
+    },
+    "status": {
+      "success": "bg-emerald-100 text-emerald-800",
+      "warning": "bg-amber-100 text-amber-800",
+      "error": "bg-red-100 text-red-800"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous Spacing + Control Room Grid. Data density must be balanced with breathing room. Cards should use p-6 or p-8 padding.",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grids": {
+      "dashboard_top": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "dashboard_main": "grid grid-cols-1 lg:grid-cols-3 gap-8",
+      "bento": "grid grid-cols-1 md:grid-cols-12 gap-6"
+    },
+    "surfaces": {
+      "card": "bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden",
+      "glass": "backdrop-blur-xl bg-white/70 border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.04)]",
+      "sidebar_item_active": "bg-gray-800 text-white rounded-lg",
+      "sidebar_item_inactive": "text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg"
+    }
+  },
+  "motion_and_interactions": {
+    "philosophy": "Elegant, swift, purposeful motion. No sluggish animations. <=300ms duration. B2B tools should feel performant and responsive.",
+    "framer_motion_configs": {
+      "page_transition": {
+        "initial": { "opacity": 0, "y": 10 },
+        "animate": { "opacity": 1, "y": 0 },
+        "transition": { "duration": 0.3, "ease": "easeOut" }
+      },
+      "stagger_container": {
+        "hidden": { "opacity": 0 },
+        "show": {
+          "opacity": 1,
+          "transition": { "staggerChildren": 0.05 }
+        }
+      },
+      "stagger_item": {
+        "hidden": { "opacity": 0, "y": 10 },
+        "show": { "opacity": 1, "y": 0, "transition": { "duration": 0.3, "ease": "easeOut" } }
+      },
+      "hover_card": {
+        "whileHover": { "y": -4, "boxShadow": "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)" },
+        "transition": { "duration": 0.2 }
+      },
+      "modal_reveal": {
+        "initial": { "opacity": 0, "scale": 0.95 },
+        "animate": { "opacity": 1, "scale": 1 },
+        "exit": { "opacity": 0, "scale": 0.95 },
+        "transition": { "duration": 0.2, "ease": "easeOut" }
+      }
+    },
+    "loaders": {
+      "skeleton": "animate-pulse bg-gray-200 rounded-md"
+    }
+  },
+  "components_strategy": {
+    "buttons": {
+      "primary": "inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-[#EA580C] hover:bg-[#C2410C] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#EA580C] transition-colors",
+      "secondary": "inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#EA580C] transition-colors",
+      "ghost": "inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+    },
+    "inputs": {
+      "base": "block w-full rounded-lg border-gray-300 shadow-sm focus:border-[#EA580C] focus:ring-[#EA580C] sm:text-sm transition-shadow",
+      "label": "block text-sm font-medium text-gray-700 mb-1"
+    },
+    "tables": "Use Shadcn Table. Wrap in card. Add subtle hover states on rows (`hover:bg-gray-50`). Header text should be overline style.",
+    "tabs": "Shadcn Tabs. Customize active state to use primary brand color underline or pill, not generic gray.",
+    "test_attributes": "All interactive elements MUST have `data-testid` (e.g., `data-testid=\"login-submit-button\"`)."
+  },
+  "media": {
+    "urls": {
+      "login_hero": {
+        "url": "https://images.pexels.com/photos/34165099/pexels-photo-34165099.png?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Abstract 3D geometric shapes in vibrant orange hues. Use this for the hero side panel on the login page to create a premium, non-generic, artistic SaaS feel.",
+        "category": "hero_illustration"
+      }
+    },
+    "instructions_to_main_agent": "Only use the provided media URLs. For avatars, use ui-avatars.com or simple SVG initials. Do not use generic placeholders."
+  },
+  "pages": {
+    "login": {
+      "layout": "Split screen (50/50). Left side: Form. Right side: Hero illustration.",
+      "visuals": "Use `login_hero` image on the right panel with a subtle overlay (`bg-[#111827]/10`). Animate the image in with a slow scale effect. The form should use the `glass` surface style if layered, or crisp white if separate.",
+      "interactions": "Staggered reveal of form inputs and button."
+    },
+    "dashboard": {
+      "layout": "Sidebar navigation (dark #111827). Main content area (gray-50). Top row: 4 KPI Cards. Main row: Webinars Table (col-span-8) + Quick Actions/Activity (col-span-4).",
+      "interactions": "Cards slide up and fade in staggeredly. Hover states on KPI cards lift slightly. Table rows have subtle background transition."
+    },
+    "webinar_detail": {
+      "layout": "Breadcrumbs -> Header (Title + Status + Actions). 3 Tabs: Send Plan, Registrants, Lead Magnets. Right sidebar or top bento box for 'ShowUp Score'.",
+      "interactions": "Each touch/action in the Send Plan is a separate card. Animate tab content switches using Framer Motion `AnimatePresence`."
+    },
+    "approval_queue": {
+      "layout": "List of 'Touch Cards'. Each card bundles an email preview + social caption.",
+      "interactions": "Swipe or button-click to approve/reject. When approved, card animates out (slides right/fades) and list collapses smoothly."
+    },
+    "analytics": {
+      "layout": "Control room grid. Large charts (Recharts) for attendance over time, conversion rates.",
+      "visuals": "Chart strokes should use brand colors (#EA580C, #111827). Tooltips must be custom styled to match brand."
+    },
+    "settings": {
+      "layout": "Two-column layout (sidebar nav for settings categories, main content for forms). Long forms broken into distinct provider sections (e.g., Zoom, LinkedIn, SMTP) enclosed in cards."
+    },
+    "ad_hoc_post_generator_modal": {
+      "layout": "Shadcn Dialog/Modal. Wide. Left side: Input context/parameters. Right side: Output preview.",
+      "interactions": "User clicks 'Generate'. Show a bespoke loading animation (e.g., pulsing skeleton blocks or a rotating brand icon). Then reveal the generated LinkedIn post + image + poll with a slide-up animation. Must feel magical."
+    }
+  }
+}

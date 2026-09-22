@@ -1,0 +1,7 @@
+[build]
+  base = "frontend"
+  command = "npm install --legacy-peer-deps && npm install lucide-react@0.400.0 --legacy-peer-deps && DISABLE_ESLINT_PLUGIN=true npm run build"
+  publish = "build"
+
+[build.environment]
+  NODE_VERSION = "20"

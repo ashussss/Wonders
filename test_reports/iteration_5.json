@@ -1,0 +1,35 @@
+{
+  "summary": "ShowUp.ai v1.4 full backend + UI regression. Created /app/backend/tests/test_showup_v14.py with 21 new pytest cases covering: (1) Circle.so test-send graceful error paths (missing api_key, missing space_id, fake-creds → upstream 4xx not 5xx), (2) Buzz.ai email + LinkedIn routing via per-channel provider toggles (email_provider='BuzzAI', linkedin_provider='buzzai'), (3) Buzz.ai api_key encryption + masking + SECRET_FIELDS membership, (4) Buzz.ai auth header customization code-path verification, (5) Circle webhook dual payload shape — both official community_member_created shape and legacy flat {email,name} work; registrant has source='circle' + community_joined=true; dedup on second post returns deduped:true, (6) GET /api/circle/spaces helper missing-key + fake-key graceful error, (7) per-touch send-now regression for channel='circle' + linkedin_provider='buzzai' (delivery_log carries Missing-* detail, no 500), (8) AGENTS.md exists and is well-formed. All 21/21 v1.4 tests pass. Full suite 96/96 passes (19 v1.0 + 19 v1.1 + 19 v1.2 + 18 v1.3 + 21 v1.4) in 189s — no regressions. Frontend Settings page UI verified live: all 9 v1.4 testids present (test-send-circle, set-circle_space_id, circle-spaces-picker, set-buzzai_email_endpoint, set-buzzai_linkedin_endpoint, set-buzzai_auth_header_name, set-buzzai_auth_header_prefix, set-buzzai_api_key, set-linkedin_provider); email provider <select> has all 4 options (Brevo, Mailchimp, SendGrid, BuzzAI); linkedin_provider <select> has 2 options (marketing_api, buzzai); Buzz.ai banner 'Buzz.ai does not publish a public REST API' displays; clicking test-send-circle with no creds renders inline message 'Missing circle_api_key — add it in Settings → Circle.so'; clicking circle-spaces-picker with no creds opens circle-spaces-list dropdown showing 'Missing circle_api_key'. TipTap rich-text body shape verified in senders._circle_tiptap_body (body.type='doc', paragraph with hardBreak nodes between lines). Dispatch path for circle channel correctly routes to post_circle_space(); LinkedIn channel routes via settings.linkedin_provider (marketing_api → post_linkedin_company, buzzai → send_buzzai('linkedin')). send_email() routes BuzzAI → send_buzzai_email(). Auth header customization: header_prefix=None → defaults to 'Bearer ', empty string '' is honoured as zero-prefix (verified by inspect.getsource).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_showup_v14.py",
+    "/app/test_reports/pytest/pytest_v14_results.xml",
+    "/app/test_reports/pytest/pytest_v14_full.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "senders.send_buzzai correctly distinguishes header_prefix=None (default 'Bearer ') vs empty-string '' (no prefix) — required to support raw-key auth headers like X-Buzz-Key.",
+    "senders.dispatch routes linkedin via settings.linkedin_provider; circle channel routes to post_circle_space — clean separation.",
+    "senders._circle_tiptap_body emits TipTap doc structure required by Circle Admin API v2 (type='doc' → paragraph → text + hardBreak nodes). Empty input still produces a valid doc with a single empty text node — robust.",
+    "routes_webinars.circle_webhook now accepts BOTH payload shapes via `payload.get('community_member') or payload`. Backward-compatible with v1.3 flat shape. Sets community_joined=true on the registrant.",
+    "routes_delivery.list_circle_spaces gracefully returns {spaces:[], error:str} on any exception — never raises 500. Same defensive pattern as circle_sync.",
+    "crypto_utils.SECRET_FIELDS includes buzzai_api_key — Buzz key is encrypted at rest with the enc:: prefix, masked on GET, and decrypted via _user_settings_decrypted before dispatch.",
+    "models.SettingsIn adds buzzai_api_key, buzzai_email_endpoint, buzzai_linkedin_endpoint, buzzai_auth_header_name, buzzai_auth_header_prefix, linkedin_provider, circle_space_id — all Optional[str]. No required-field break for existing PATCH callers.",
+    "Two pytest @mark.timeout markers in test_showup_v13.py still emit PytestUnknownMarkWarning (pytest-timeout not installed) — cosmetic only, carryover from v1.3.",
+    "Minor: senders.send_email's 'buzzai' branch passes ics_bytes through but post_linkedin_company branch (when linkedin_provider='buzzai') routes via send_buzzai which doesn't currently accept ics — by design since LinkedIn posts don't carry attachments."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_showup_v14.py (created, 21 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (96/96: 21 v1.4 + 18 v1.3 + 19 v1.2 + 19 v1.1 + 19 v1.0)",
+    "frontend": "100% on the v1.4 Settings surface — all 9 testids present, both selects render correct options, Buzz.ai banner shown, Circle test-send + spaces-picker buttons fire and surface graceful missing-key errors."
+  },
+  "test_credentials": "test@showup.ai / test1234 (seeded)",
+  "seed_data_creation": "v14 tests create+teardown TEST_v14 webinars per test. Session-scope user_id fixture wipes circle_api_key, circle_space_id, all 5 buzzai_* fields, linkedin_provider and email_provider at teardown so downstream suites aren't polluted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Full v1.0-v1.4 backend suite runs in ~3min: `set -a && source /app/backend/.env && set +a && pytest /app/backend/tests/ -v`. Tests use sys.path.insert in test_showup_v14.py to import senders/crypto_utils directly from /app/backend (rootdir is /app/backend so direct module imports otherwise fail under pytest). PUBLIC_BACKEND_URL + FERNET_KEY are set in /app/backend/.env. Circle.so / Buzz.ai have no real keys — all 'happy-path' upstream calls are intentionally exercised against fake/invalid creds to confirm graceful 4xx + missing-key error messages instead of 5xx crashes.",
+  "rca of the issue": "N/A — no functional bugs found in v1.4 scope."
+}

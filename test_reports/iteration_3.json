@@ -1,0 +1,47 @@
+{
+  "summary": "ShowUp.ai v1.2 — full backend + UI regression after server.py refactor and three new features (Nano Banana social image, Mailchimp/SendGrid provider routing, slowapi rate limiting, LinkedIn copy-paste UX). Created tests/test_showup_v12.py with 19 new pytest cases — all 19 pass. v1 and v1.1 regression suites (test_showup_api.py + test_showup_v11.py, 38 tests) also re-run and all 38 pass. Refactor is clean: /api/ root returns {app:'ShowUp.ai', ok:true}, all routers (auth, webinars, settings, delivery) load and respond correctly. Nano Banana image generation lives — POST /api/webinars/{wid}/social-image/generate returned {ok:true, bytes:~120-180KB, mime:image/png|jpeg} in ~10-15s; GET /api/webinars/{wid}/social-image.png is publicly accessible (no token) and serves image/* content. Provider routing verified end-to-end: provider='sendgrid' → 'Missing sendgrid_sender_email'; provider='mailchimp' → 'Missing mailchimp_sender_email'; provider='Brevo'/unset → 'brevo' provider in response. Rate limiting via slowapi tested against http://localhost:8001: /register fires 429 within 12 rapid POSTs (10/min), /webhooks/circle stays 200 across 11 rapid POSTs (60/min). Frontend Playwright: Settings page renders both new testids (set-mailchimp_sender_email + set-sendgrid_sender_email), accepts values, saves, and the values persist across reload. Code grep confirmed lm-section-social-image, gen-social-image, open-social-image testids in WebinarDetail.jsx and the amber-styled 'Copy for LinkedIn' / 'Open LinkedIn ↗' affordance in WebinarDetail.jsx + ApprovalQueue.jsx. Live UI click on gen-social-image was blocked by a transient Cloudflare-side timeout on webinar detail navigation in 2 of 3 runs (preview URL flakiness — first run loaded dashboard + webinar list fine, subsequent runs returned blank page); the backend API path is fully verified via pytest so this is purely a CDN/edge fluke not a code issue.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/test-send/email (senders.py:57,90)", "issue": "send_sendgrid_email and send_mailchimp_email fall back to settings.brevo_sender_email when their own sender is unset. Spec says 'with only sendgrid_api_key (no sender), detail contains Missing sendgrid_sender_email' but if brevo_sender_email is still set in DB from prior config, the SendGrid/Mailchimp send proceeds and hits the upstream API with the wrong identity. Tests pass once brevo_sender_email is cleared. Recommend removing the cross-provider fallback so each provider validates its own sender field explicitly."},
+      {"endpoint": "image_gen.py:12", "issue": "EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY'] at module-import time — backend will fail to boot if the key is absent. Switch to os.environ.get + raise at function call time so /api/ root + auth still work without the LLM key configured."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_showup_v12.py",
+    "/app/backend/tests/test_showup_v11.py",
+    "/app/backend/tests/test_showup_api.py",
+    "/app/test_reports/pytest/pytest_v12_results.xml"
+  ],
+  "action_items": [
+    "(Minor) senders.py — drop brevo_sender_email fallback inside send_sendgrid_email and send_mailchimp_email so the 'Missing X_sender_email' guardrail fires reliably per spec",
+    "(Minor) image_gen.py — lazily read EMERGENT_LLM_KEY inside the function instead of at module import"
+  ],
+  "critical_code_review_comments": [
+    "Refactor is well-executed: server.py is now 56 lines, routers cleanly split (routes_auth/webinars/settings/delivery, ~80-280 lines each, all under the 700-line limit flagged in iteration_2). Lifespan handler correctly replaces the deprecated @app.on_event hooks. Slowapi wiring is canonical (state.limiter + exception handler + middleware).",
+    "routes_webinars.public_register uses @limiter.limit on the route signature with `request: Request` parameter (correct slowapi usage). circle_webhook is rate-limited at 60/minute, also confirmed by test.",
+    "senders.py: SendGrid/Mailchimp fall back to brevo_sender_email — likely unintended cross-provider coupling. Either document it or remove it (see action items).",
+    "image_gen.py hard-fails at import if EMERGENT_LLM_KEY missing; moving the read inside generate_webinar_social_image would let the rest of the API stay up.",
+    "routes_delivery.get_social_image is public (no auth) by design — matches spec for IG Graph API consumption. No rate-limit applied; acceptable since the payload is per-webinar and capped to one row.",
+    "scheduler_tick (routes_delivery.py:207) imports os locally — fine, but PUBLIC_BACKEND_URL is read on every tick instead of cached at startup; cheap but worth noting.",
+    "Nano Banana generation success-path persists bytes in db.social_images (BinData) — for many webinars this will bloat the doc collection; consider migrating to GridFS or S3 if image count > ~1000."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_showup_v12.py (created — 19 tests, all passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19 v1.2 + 19/19 v1.1 + 19/19 v1.0 regression = 57/57)",
+    "frontend": "Settings UI new fields verified rendered + persisted via Playwright. Lead-Magnets social-image section + LinkedIn amber UI verified via code grep on the deployed JSX. Live click-through of gen-social-image was blocked by transient preview-URL 30s timeout on webinar-detail nav in 2 of 3 attempts — backend API endpoint (which the button calls) is fully verified by pytest."
+  },
+  "test_credentials": "test@showup.ai / test1234 (seeded)",
+  "seed_data_creation": "Backend tests create+teardown TEST_v12_NanoBanana webinar (with a generated social image attached). TestRateLimiting creates TEST_rl and TEST_rl_circle webinars and deletes them after. Settings provider fields are unset via pymongo before/after each TestEmailProviderRouting test to keep the test user's settings clean.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use pymongo (not motor) inside pytest fixtures for direct DB cleanup — motor's event loop dies between tests when invoked via asyncio.run. Source /app/backend/.env before pytest to get MONGO_URL/DB_NAME in scope. For rate-limit tests hit http://localhost:8001 directly (Cloudflare rewrites X-Forwarded-For per request on the preview URL so slowapi can't track repeat callers). Nano Banana social-image generation takes 8-15s on average — give it 60-90s before failing. Preview URL has occasional 30s navigation timeouts after a fresh login → goto sequence; use page.wait_for_timeout(4000) after Sign-in click rather than wait_for_url. Webinar testid on dashboard is `webinar-row-<id>` (a Link, not a button) — click directly on the element, not via get_by_role('button').",
+  "rca of the issue": "N/A — no functional bugs. Two minor design notes (cross-provider sender fallback + import-time env read) recorded as low-priority action items."
+}

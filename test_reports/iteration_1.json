@@ -1,0 +1,34 @@
+{
+  "summary": "Full backend + frontend smoke test for ShowUp.ai v1. 19/19 pytest backend tests pass (auth, webinar create + 8-touch auto-create + lead-magnet doc, registrants with cross-source dedupe, Circle webhook, bulk import, attendance patch, settings persistence, approval queue enrichment, touch approval, analytics overview, AI lead-magnets populated within 100s, varied touch angles). Frontend Playwright run verified login, dashboard with seeded webinar, New Webinar dialog -> create -> detail page with 3 tabs and 8 touch-cards, lead-magnets warning banner, Approval Queue (16 pending cards, banner present), Settings (all 12 API key fields + 8 touch rows + save), Analytics (all 3 chart/table testids), Public Register success state, and Logout redirect.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Webinar detail -> Lead Magnets tab", "issues": ["lm-section-case-study/snippets/one-pager only render after AI content arrives (~30-60s). During wait only the spinner+banner are shown. This is expected v1 UX but means those testids are not visible immediately after webinar creation. The warning banner (lm-warning) is correctly visible at all times."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_showup_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 618 lines - approaching the 700 line soft limit. Consider splitting into modules (auth, webinars, registrants, touches, analytics, ai_generators) before more features are added.",
+    "Background AI generation (_bg_generate_all) runs touches sequentially via Claude (8 round trips). For better UX consider asyncio.gather across touches; currently touches can take 60-180s to fully populate.",
+    "Public POST /api/webinars/{wid}/register has no rate limiting - could be abused to flood registrants. Acceptable for v1 but flag for v2.",
+    "Circle webhook accepts raw Dict[str, Any] - no Pydantic schema. Works but loses validation. Consider a CircleWebhookIn model.",
+    "@app.on_event startup/shutdown is deprecated in FastAPI in favour of lifespan handlers - works for now but will warn on newer FastAPI versions.",
+    "scheduler tick marks touches sent without doing real third-party deliveries (per v1 mock note). Add structured log so devs spot this in production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_showup_api.py (created)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% of testable flows"},
+  "test_credentials": "test@showup.ai / test1234 (already seeded)",
+  "seed_data_creation": "Test created several TEST_-prefixed registrants and one TEST_Webinar_PyTest webinar (auto-deleted in fixture teardown). UI test left one extra 'UI Test Webinar' + 'uitest_reg@example.com' registrant on the seeded user's account - main agent may want to clean these.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests use BASE_URL from REACT_APP_BACKEND_URL and require domains valid per EmailStr (use example.com, NOT .test or .local). Background AI generation can take 60-180s; the lead-magnets AI test waits up to 100s and the touch-angles test up to 150s. The lead-magnet tab UI only renders lm-section-* once ai_content.case_study is non-empty - not a bug.",
+  "rca of the issue": "N/A - no functional bugs found."
+}

@@ -1,0 +1,196 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ─────────────────────────────────── */
+:root {
+  --brand:        #EA580C;
+  --brand-light:  #FB923C;
+  --brand-dim:    rgba(234, 88, 12, 0.12);
+
+  /* Light mode */
+  --bg-base:      #FFFFFF;
+  --bg-surface:   #FFFFFF;
+  --bg-elevated:  #FFFFFF;
+  --bg-sunken:    #F5F5F5;
+  --border:       rgba(0, 0, 0, 0.08);
+  --border-strong:rgba(0, 0, 0, 0.15);
+  --text-primary: #0A0A0A;
+  --text-secondary:#555555;
+  --text-muted:   #999999;
+  --border-strong:rgba(0,0,0,0.15);
+  --shadow-sm:    0 1px 3px rgba(13,11,31,0.06), 0 1px 2px rgba(13,11,31,0.04);
+  --shadow-md:    0 4px 16px rgba(13,11,31,0.08), 0 2px 4px rgba(13,11,31,0.04);
+  --shadow-lg:    0 8px 32px rgba(13,11,31,0.10), 0 2px 8px rgba(13,11,31,0.06);
+}
+
+html.dark {
+  --bg-base:      #000000;
+  --bg-surface:   #0A0A0A;
+  --bg-elevated:  #111111;
+  --bg-sunken:    #1A1A1A;
+  --border:       rgba(255,255,255,0.08);
+  --border-strong:rgba(255,255,255,0.15);
+  --text-primary: #F5F5F5;
+  --text-secondary:#999999;
+  --text-muted:   #555555;
+  --shadow-sm:    0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md:    0 4px 16px rgba(0,0,0,0.4);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ── Base ───────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── Subtle noise texture on base bg ───────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+html.dark body::before { opacity: 0.25; }
+
+/* ── Utility classes using CSS vars ────────────────── */
+.bg-base      { background: var(--bg-base); }
+.bg-surface   { background: var(--bg-surface); }
+.bg-elevated  { background: var(--bg-elevated); }
+.bg-sunken    { background: var(--bg-sunken); }
+.text-primary { color: var(--text-primary); }
+.text-secondary{ color: var(--text-secondary); }
+.text-muted   { color: var(--text-muted); }
+.border-token { border-color: var(--border); }
+.shadow-token { box-shadow: var(--shadow-md); }
+
+/* ── Card elevation system ──────────────────────────── */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card-elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--brand); }
+
+/* ── Typography ─────────────────────────────────────── */
+h1, h2, h3, h4 {
+  font-family: 'Outfit', sans-serif;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* ── Selection ──────────────────────────────────────── */
+::selection {
+  background: rgba(234, 88, 12, 0.2);
+  color: var(--text-primary);
+}
+
+/* ── Focus ring ─────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* ── Inputs ─────────────────────────────────────────── */
+input, textarea, select {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  transition: border-color 0.15s;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: rgba(234, 88, 12, 0.5);
+  outline: none;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── Animations ─────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(234,88,12,0.3); }
+  50%       { box-shadow: 0 0 40px rgba(234,88,12,0.6); }
+}
+
+/* ── Brand button ───────────────────────────────────── */
+.btn-brand {
+  background: var(--brand);
+  color: white;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.2s;
+  box-shadow: 0 0 0 rgba(234,88,12,0);
+}
+.btn-brand:hover {
+  background: #F97316;
+  box-shadow: 0 0 24px rgba(234,88,12,0.4);
+  transform: translateY(-1px);
+}
+.btn-brand:active { transform: translateY(0); }
+
+/* ── Sidebar specific ───────────────────────────────── */
+.sidebar-nav-item {
+  color: var(--text-secondary);
+  border-radius: 10px;
+  transition: all 0.15s;
+}
+.sidebar-nav-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.sidebar-nav-item.active {
+  background: var(--brand-dim);
+  color: var(--brand);
+}
+
+/* ── Reduce motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

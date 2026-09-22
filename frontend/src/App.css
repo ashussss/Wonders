@@ -1,0 +1,6 @@
+.app-shell {
+  min-height: 100vh;
+  background: #000000;
+  color: #FFFFFF;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}

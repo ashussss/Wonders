@@ -1,0 +1,80 @@
+# Cloud Scheduler Jobs - ShowUp AI Live Programmatic SEO
+# These 8 jobs run on your exact timeline: 2AM-9AM daily/weekly
+# Deploy with: gcloud scheduler jobs import --file=cron_jobs.yaml
+
+# ── JOB 1: Daily Keyword Discovery (2:00 AM) ──────────────────────────
+- job_id: keyword-discovery
+  description: "Discover high-intent keywords via Gemini API"
+  http_target:
+    http_method: POST
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/research
+    body: '{"keyword": "webinar attendance software", "intent": "commercial"}'
+    headers:
+      Content-Type: application/json
+  schedule: "0 2 * * *"  # Daily at 2:00 AM UTC
+  time_zone: "UTC"
+
+# ── JOB 2: Generate Content Briefs (3:00 AM) ──────────────────────────
+- job_id: content-briefs
+  description: "Generate research + outlines for new keywords"
+  http_target:
+    http_method: POST
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/generate
+    headers:
+      Content-Type: application/json
+  schedule: "0 3 * * *"  # Daily at 3:00 AM UTC
+
+# ── JOB 3: Generate HTML Pages (4:00 AM) ───────────────────────────────
+- job_id: generate-html
+  description: "Generate full page HTML from approved briefs"
+  http_target:
+    http_method: POST
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/generate
+    headers:
+      Content-Type: application/json
+  schedule: "0 4 * * *"  # Daily at 4:00 AM UTC
+
+# ── JOB 4: QA Check (5:00 AM) ─────────────────────────────────────────
+- job_id: qa-check
+  description: "Check for duplicates, errors, missing links → flag issues"
+  http_target:
+    http_method: GET
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/performance
+  schedule: "0 5 * * *"  # Daily at 5:00 AM UTC
+
+# ── JOB 5: Auto Publish (6:00 AM) ─────────────────────────────────────
+- job_id: auto-publish
+  description: "Approved pages → React rebuild or sitemap update → Google ping"
+  http_target:
+    http_method: POST
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/publish
+    headers:
+      Content-Type: application/json
+  schedule: "0 6 * * *"  # Daily at 6:00 AM UTC
+
+# ── JOB 6: GSC Sync (Sunday 7:00 AM) ──────────────────────────────────
+- job_id: gs-sync
+  description: "Fetch Search Console data → update performance collection"
+  http_target:
+    http_method: GET
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/performance
+    # Query params added at runtime: ?type=gsc_sync
+  schedule: "0 7 * * 0"  # Every Sunday at 7:00 AM UTC
+
+# ── JOB 7: GA4 Sync (Sunday 8:00 AM) ──────────────────────────────────
+- job_id: ga-sync
+  description: "Fetch GA4 conversion data → calculate CAC from organic"
+  http_target:
+    http_method: GET
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/performance
+    # Query params added at runtime: ?type=ga_sync
+  schedule: "0 8 * * 0"  # Every Sunday at 8:00 AM UTC
+
+# ── JOB 8: Competitor Analysis (Monday 9:00 AM) ──────────────────────
+- job_id: competitor-monitor
+  description: "Monitor competitor rankings → find gaps → add to opportunities"
+  http_target:
+    http_method: GET
+    uri: https://showup-backend-2bfj.onrender.com/api/seo/performance
+    # Query params: ?type=competitor
+  schedule: "0 9 * * 1"  # Every Monday at 9:00 AM UTC
