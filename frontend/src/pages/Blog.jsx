@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { AiOutlineStar, AiFillStar } from "react-icons/ai";
 
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/api";
