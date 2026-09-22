@@ -1,25 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-<<<<<<< HEAD
-        xmlns:xhtml="http://www.w3.org/1999/xhtml">
-  <url>
-    <loc>https://showupai.live/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-    <xhtml:link rel="alternate" hreflang="en" href="https://showupai.live/"/>
-  </url>
-  <url>
-    <loc>https://showupai.live/register</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://showupai.live/login</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-</urlset>
-=======
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <!-- ================================================= -->
   <!--       MARKETING PAGES (keep these as-is)          -->
@@ -46,10 +26,10 @@
   <!-- These are generated dynamically by the blog system -->
   <!-- The blog routes /blog and /blog/:slug are handled   -->
   <!-- by the React app fetching from the FastAPI backend  -->
-  <!-- 
+  <!--
   When blog posts are published, add individual URLs:
   -->
-  <!-- 
+  <!--
   <url>
     <loc>https://showupai.live/blog/webinar-attendance-rate</loc>
     <priority>0.7</priority>
@@ -89,4 +69,3 @@
   <!-- ================================================= -->
 
 </urlset>
->>>>>>> 49ad411 (Implement SEO endpoints for cron jobs)

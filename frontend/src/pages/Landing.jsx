@@ -440,6 +440,7 @@ export default function Landing() {
             <a href="#features" className="hover:text-gray-400 transition-colors">Features</a>
             <a href="#pricing" className="hover:text-gray-400 transition-colors">Pricing</a>
             <a href="#about" className="hover:text-gray-400 transition-colors">About</a>
+            <Link to="/blog" className="hover:text-gray-400 transition-colors">Blog</Link>
             <Link to="/login" className="hover:text-gray-400 transition-colors">Sign in</Link>
           </div>
           <div className="flex items-center gap-4">

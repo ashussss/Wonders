@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # IDE and editors
@@ -88,7 +87,5 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/0.pack
-=======
+
 backend/gcp-credentials.json
-.DS_Store
->>>>>>> 49ad411 (Implement SEO endpoints for cron jobs)

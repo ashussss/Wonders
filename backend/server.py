@@ -13,6 +13,7 @@ from routes_webinars import router as webinars_router, limiter as web_limiter
 from routes_auth import router as auth_router
 from routes_settings import router as settings_router
 from routes_delivery import router as delivery_router, scheduler_tick
+from routes_blog import router as blog_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("showup")
@@ -48,6 +49,7 @@ app.include_router(auth_router)
 app.include_router(webinars_router)
 app.include_router(settings_router)
 app.include_router(delivery_router)
+app.include_router(blog_router)
 
 
 @app.get("/api/")

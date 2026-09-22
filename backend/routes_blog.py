@@ -152,9 +152,9 @@ async def create_blog_post(data: BlogPostIn, user=Depends(get_user)):
         "og_image": data.og_image or "/blog-featured.jpg",
         "twitter_card": data.twitter_card or "summary_large_image",
         "twitter_title": data.twitter_title or data.title,
-        twitter_description: data.twitter_description 
+        "twitter_description": data.twitter_description
             or (data.excerpt[:120] + "..." if data.excerpt else ""),
-        twitter_image: data.twitter_image or "/blog-featured.jpg",
+        "twitter_image": data.twitter_image or "/blog-featured.jpg",
         
         # ✅ AEO Fields (Answer Engine Optimization)
         "faq_items": data.faq_items or [],

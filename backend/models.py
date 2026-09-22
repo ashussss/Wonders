@@ -100,3 +100,62 @@ class SettingsIn(BaseModel):
     brand_audience: Optional[str] = None      # global audience description
     brand_banned_phrases: Optional[str] = None # comma separated
     brand_always_include: Optional[str] = None # things to always mention
+
+class BlogPostIn(BaseModel):
+    slug: str
+    title: str
+    excerpt: Optional[str] = ""
+    content: Optional[str] = ""
+    meta_description: Optional[str] = ""
+    meta_keywords: Optional[str] = ""
+    published: Optional[bool] = False
+    reading_time: Optional[int] = 5
+    seo_title: Optional[str] = ""
+    seo_description: Optional[str] = ""
+    seo_keywords: Optional[str] = ""
+    og_title: Optional[str] = ""
+    og_description: Optional[str] = ""
+    og_image: Optional[str] = ""
+    twitter_card: Optional[str] = "summary_large_image"
+    twitter_title: Optional[str] = ""
+    twitter_description: Optional[str] = ""
+    twitter_image: Optional[str] = ""
+    faq_items: Optional[List[Dict]] = []
+    common_questions: Optional[List[str]] = []
+    entities: Optional[List[str]] = []
+    related_topics: Optional[List[str]] = []
+    answer_focus: Optional[str] = ""
+    authority_signals: Optional[List[str]] = []
+    problem_statement: Optional[str] = ""
+    solution_framework: Optional[str] = ""
+    actionable_takeaways: Optional[List[str]] = []
+    case_studies: Optional[List[Dict]] = []
+
+class BlogPostPatch(BaseModel):
+    title: Optional[str] = None
+    excerpt: Optional[str] = None
+    content: Optional[str] = None
+    meta_description: Optional[str] = None
+    meta_keywords: Optional[str] = None
+    published: Optional[bool] = None
+    reading_time: Optional[int] = None
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    seo_keywords: Optional[str] = None
+    og_title: Optional[str] = None
+    og_description: Optional[str] = None
+    og_image: Optional[str] = None
+    twitter_card: Optional[str] = None
+    twitter_title: Optional[str] = None
+    twitter_description: Optional[str] = None
+    twitter_image: Optional[str] = None
+    faq_items: Optional[List[Dict]] = None
+    common_questions: Optional[List[str]] = None
+    entities: Optional[List[str]] = None
+    related_topics: Optional[List[str]] = None
+    answer_focus: Optional[str] = None
+    authority_signals: Optional[List[str]] = None
+    problem_statement: Optional[str] = None
+    solution_framework: Optional[str] = None
+    actionable_takeaways: Optional[List[str]] = None
+    case_studies: Optional[List[Dict]] = None
