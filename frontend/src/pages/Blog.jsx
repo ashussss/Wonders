@@ -6,7 +6,6 @@ import { motion } from "framer-motion";
 
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/api";
-import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useTheme } from "@/lib/theme";
 import { usePathname } from "@/lib/router";
 
