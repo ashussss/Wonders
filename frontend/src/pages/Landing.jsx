@@ -104,6 +104,7 @@ function Nav() {
           {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
             <a key={href} href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</a>
           ))}
+          <Link to="/blog" className="text-sm text-gray-400 hover:text-white transition-colors">Blog</Link>
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -127,6 +128,7 @@ function Nav() {
             {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
               <a key={href} href={href} onClick={() => setOpen(false)} className="text-gray-300 py-1">{label}</a>
             ))}
+            <Link to="/blog" onClick={() => setOpen(false)} className="text-gray-300 py-1">Blog</Link>
             <div className="flex gap-3 pt-2 border-t border-white/[0.06]">
               <Link to="/login" className="flex-1 text-center py-2 text-gray-400 border border-white/[0.1] rounded-lg text-sm">Sign in</Link>
               <Link to="/waitlist" className="flex-1 text-center py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold">Start free</Link>
