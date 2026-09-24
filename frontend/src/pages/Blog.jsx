@@ -51,6 +51,13 @@ export default function BlogPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
+      <div className="mb-6 flex items-center justify-between text-sm">
+        <Link to="/" className="font-semibold">ShowUp.ai</Link>
+        <Link to="/waitlist" className="px-4 py-1.5 rounded-full border hover:bg-secondary/10 transition-colors">
+          Get started
+        </Link>
+      </div>
+
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: "Outfit" }}>
           Blog

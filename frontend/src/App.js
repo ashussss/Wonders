@@ -47,6 +47,8 @@ export default function App() {
               <Route path="/register" element={<Register />} />
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
+              <Route path="/blog" element={<Blog />} />
+              <Route path="/blog/:slug" element={<BlogPost />} />
 
               {/* Protected app */}
               <Route element={<Protected><Layout /></Protected>}>
@@ -59,8 +61,6 @@ export default function App() {
                 <Route path="/app/library" element={<ContentLibrary />} />
                 <Route path="/app/admin" element={<AdminDashboard />} />
                 <Route path="/app/email" element={<EmailAnalytics />} />
-                <Route path="/blog" element={<Blog />} />
-                <Route path="/blog/:slug" element={<BlogPost />} />
               </Route>
 
               {/* Legacy redirects */}
