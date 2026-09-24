@@ -1,4 +1,4 @@
-"""ShowUp.ai — slim FastAPI app factory. Routes live in routes_*.py."""
+"""ShowUpAI — slim FastAPI app factory. Routes live in routes_*.py."""
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -15,7 +15,9 @@ from routes_settings import router as settings_router
 from routes_delivery import router as delivery_router, scheduler_tick
 from routes_blog import router as blog_router
 from routes_gsc import router as gsc_router
+from routes_blog import publish_due
 import pseo
+from datetime import datetime, timezone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("showup")
@@ -24,6 +26,9 @@ logger = logging.getLogger("showup")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     scheduler.add_job(scheduler_tick, "interval", minutes=1, id="touch-tick", replace_existing=True)
+    # Blog: publish scheduled posts (and seed hand-written ones) every 10 minutes
+    scheduler.add_job(publish_due, "interval", minutes=10, id="blog-publish-due", replace_existing=True,
+                      coalesce=True, next_run_time=datetime.now(timezone.utc))
     # Programmatic SEO: draft new blog posts daily at 03:30 UTC (09:00 IST)
     scheduler.add_job(pseo.run_pipeline, "cron", hour=3, minute=30, id="pseo-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
@@ -37,7 +42,7 @@ async def lifespan(_app: FastAPI):
         logger.info("Scheduler stopped")
 
 
-app = FastAPI(title="ShowUp.ai API", lifespan=lifespan)
+app = FastAPI(title="ShowUpAI API", lifespan=lifespan)
 app.state.limiter = web_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -60,7 +65,7 @@ app.include_router(gsc_router)
 
 @app.get("/api/")
 async def root():
-    return {"app": "ShowUp.ai", "ok": True}
+    return {"app": "ShowUpAI", "ok": True}
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])

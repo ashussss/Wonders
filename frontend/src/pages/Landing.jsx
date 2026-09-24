@@ -95,7 +95,7 @@ function Nav() {
             <Zap size={16} strokeWidth={2.5} className="text-white" />
           </div>
           <span className="font-bold text-lg text-white tracking-tight" style={{ fontFamily: "Outfit" }}>
-            ShowUp<span className="text-orange-500">.ai</span>
+            ShowUp<span className="text-orange-500">AI</span>
           </span>
         </Link>
 
@@ -201,7 +201,7 @@ export default function Landing() {
 
           <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
             className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed mb-10">
-            You spent weeks building your webinar. 65% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUp.ai fixes that.
+            You spent weeks building your webinar. 65% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
           </motion.p>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }}
@@ -256,7 +256,7 @@ export default function Landing() {
               </div>
             </div>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Most webinar tools send one reminder. ShowUp.ai sends eight — each one different, each one AI-written for your specific audience, each one designed to move someone from "maybe" to "there." It's not an email tool. It's not a webinar platform. It's the only system built exclusively to fix no-shows.
+              Most webinar tools send one reminder. ShowUpAI sends eight — each one different, each one AI-written for your specific audience, each one designed to move someone from "maybe" to "there." It's not an email tool. It's not a webinar platform. It's the only system built exclusively to fix no-shows.
             </p>
           </motion.div>
         </div>
@@ -398,10 +398,10 @@ export default function Landing() {
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-orange-500 mb-4">About</div>
             <h2 className="text-4xl sm:text-5xl font-bold mb-6 text-white" style={{ fontFamily: "Outfit" }}>Built by marketers, for marketers.</h2>
             <p className="text-gray-200 text-lg leading-relaxed mb-4 max-w-2xl mx-auto">
-              ShowUp.ai was built after running webinars across education, healthcare and law enforcement communities in the UK, US and Europe — and watching the same thing happen every single time. Good topic. Good speaker. 100 registrations. 5 people show up.
+              ShowUpAI was built after running webinars across education, healthcare and law enforcement communities in the UK, US and Europe — and watching the same thing happen every single time. Good topic. Good speaker. 100 registrations. 5 people show up.
             </p>
             <p className="text-gray-300 leading-relaxed max-w-2xl mx-auto">
-              The difference between a 5% week and a 35% week had nothing to do with the topic or the speaker. It was entirely what happened in the 7 days before the event. ShowUp.ai automates exactly that — and it takes 30 seconds to set up.
+              The difference between a 5% week and a 35% week had nothing to do with the topic or the speaker. It was entirely what happened in the 7 days before the event. ShowUpAI automates exactly that — and it takes 30 seconds to set up.
             </p>
           </motion.div>
         </div>
@@ -434,7 +434,7 @@ export default function Landing() {
             <div className="w-6 h-6 rounded-md bg-orange-600 flex items-center justify-center">
               <Zap size={12} className="text-white" strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-white text-sm" style={{ fontFamily: "Outfit" }}>ShowUp<span className="text-orange-500">.ai</span></span>
+            <span className="font-bold text-white text-sm" style={{ fontFamily: "Outfit" }}>ShowUp<span className="text-orange-500">AI</span></span>
           </div>
           <div className="flex gap-6 text-sm text-gray-400">
             <a href="#features" className="hover:text-gray-400 transition-colors">Features</a>
@@ -451,7 +451,7 @@ export default function Landing() {
               <img src="https://fazier.com/api/v1//public/badges/launch_badges.svg?badge_type=featured&theme=light" width={120} alt="Fazier badge" />
             </a>
           </div>
-          <div className="text-xs text-gray-500">© {new Date().getFullYear()} ShowUp.ai. All rights reserved.</div>
+          <div className="text-xs text-gray-500">© {new Date().getFullYear()} ShowUpAI. All rights reserved.</div>
         </div>
       </footer>
 

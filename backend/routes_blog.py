@@ -76,6 +76,39 @@ async def _trigger_rebuild(reason: str):
         return False
 
 
+async def publish_slug(slug: str) -> bool:
+    """Publish one post: clean, relink site-wide, rebuild Netlify, ping IndexNow."""
+    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
+    if not post:
+        return False
+    pseo.clean_post_fields(post)
+    ts = now_iso()
+    post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts,
+                 "updated_at": ts, "publish_at": None})
+    await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    await pseo.relink_all(slug)
+    await _trigger_rebuild(f"published {slug}")
+    _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
+    return True
+
+
+async def publish_due() -> list:
+    """Scheduler job: seed hand-written posts, then publish every post whose publish_at has passed."""
+    try:
+        await pseo.seed_content_posts()
+    except Exception:
+        pass
+    now = now_iso()
+    due = await db.blog_posts.find(
+        {"published": {"$ne": True}, "publish_at": {"$ne": None, "$lte": now}}, {"_id": 0, "slug": 1}
+    ).to_list(50)
+    done = []
+    for d in due:
+        if await publish_slug(d["slug"]):
+            done.append(d["slug"])
+    return done
+
+
 def _require_key(request: Request):
     """Admin/cron endpoints: require X-API-KEY == SUPERADMIN_SECRET."""
     if not SUPERADMIN_SECRET or request.headers.get("X-API-KEY") != SUPERADMIN_SECRET:
@@ -179,16 +212,8 @@ async def seo_publish(request: Request, payload: dict = Body(default={})):
     slug = payload.get("slug")
     if not slug:
         raise HTTPException(400, "Slug required")
-    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
-    if not post:
+    if not await publish_slug(slug):
         raise HTTPException(404, "Draft not found")
-    pseo.clean_post_fields(post)
-    ts = now_iso()
-    post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts, "updated_at": ts})
-    await db.blog_posts.update_one({"slug": slug}, {"$set": post})
-    await pseo.relink_all(slug)  # this post + older posts get contextual links + showupai.live link
-    await _trigger_rebuild(f"published {slug}")
-    _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
     return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}
 
 
@@ -219,7 +244,7 @@ async def seo_edit(request: Request, payload: dict = Body(default={})):
         if payload.get(k):
             post[k] = payload[k]
     if payload.get("title"):
-        post["seo_title"] = f"{payload['title']} | ShowUp.ai"[:70]
+        post["seo_title"] = f"{payload['title']} | ShowUpAI"[:70]
     if payload.get("meta_description"):
         post["seo_description"] = payload["meta_description"]
     pseo.clean_post_fields(post)
@@ -229,6 +254,38 @@ async def seo_edit(request: Request, payload: dict = Body(default={})):
         await _trigger_rebuild(f"edited {slug}")
         _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}"])
     return {"ok": True, "results": results, "word_count": post["word_count"]}
+
+
+@router.post("/seo/schedule")
+async def seo_schedule(request: Request, payload: dict = Body(default={})):
+    """Schedule a draft. Body: {"slug": "...", "publish_at": "2026-09-25T04:30:00+00:00"} (UTC ISO), or
+    {"slug": "...", "publish_at": null} to unschedule. Checked every 10 minutes."""
+    _require_key(request)
+    slug, when = payload.get("slug"), payload.get("publish_at")
+    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0, "published": 1})
+    if not post:
+        raise HTTPException(404, "Post not found")
+    if post.get("published"):
+        raise HTTPException(400, "Already published")
+    if when:
+        from datetime import datetime
+        try:
+            dt = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "publish_at must be an ISO date-time, e.g. 2026-09-25T04:30:00+00:00")
+        if dt.tzinfo is None:
+            raise HTTPException(400, "Include a timezone, e.g. +00:00 (UTC) or +05:30 (IST)")
+        from datetime import timezone as _tz
+        when = dt.astimezone(_tz.utc).isoformat()
+    await db.blog_posts.update_one({"slug": slug}, {"$set": {"publish_at": when or None, "status": "scheduled" if when else "draft"}})
+    return {"ok": True, "slug": slug, "publish_at_utc": when}
+
+
+@router.get("/seo/scheduled")
+async def seo_scheduled(request: Request):
+    _require_key(request)
+    return await db.blog_posts.find({"published": {"$ne": True}, "publish_at": {"$ne": None}},
+                                    {"_id": 0, "slug": 1, "title": 1, "publish_at": 1}).sort("publish_at", 1).to_list(100)
 
 
 @router.post("/seo/unpublish")
@@ -337,7 +394,7 @@ async def blog_cover_image(slug: str):
     if not post:
         raise HTTPException(404, "Post not found")
     title = post.get("title") or slug.replace("-", " ").title()
-    key = hashlib.md5((title + "|v1").encode()).hexdigest()
+    key = hashlib.md5((title + "|v3").encode()).hexdigest()  # bump to regenerate all covers
     cached = await db.blog_covers.find_one({"slug": slug})
     if cached and cached.get("key") == key:
         png = bytes(cached["png"])

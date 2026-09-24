@@ -61,7 +61,7 @@ export default function Login() {
             <Zap size={20} className="text-white" strokeWidth={2.5} />
           </div>
           <span className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: 'Outfit' }}>
-            ShowUp.ai
+            ShowUpAI
           </span>
           </div>
         </motion.div>
@@ -91,7 +91,7 @@ export default function Login() {
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}
           className="text-xs text-white/30">
-          © {new Date().getFullYear()} ShowUp.ai
+          © {new Date().getFullYear()} ShowUpAI
         </motion.div>
       </div>
 

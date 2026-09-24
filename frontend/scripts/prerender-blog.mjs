@@ -104,21 +104,21 @@ async function main() {
     if (p && p.slug) posts.push(p);
   }
 
-  const nav = `<p><a href="/">ShowUp.ai</a> · <a href="/blog">Blog</a></p>`;
+  const nav = `<p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a></p>`;
   for (const p of posts) {
     const url = `${SITE}/blog/${p.slug}`;
     const image = `${API}/blog/${p.slug}/cover.png`;
     const desc = p.seo_description || p.meta_description || p.excerpt || "";
     const faqs = (p.faq_items || []).filter((f) => f.question && f.answer);
     const related = posts.filter((x) => x.slug !== p.slug).slice(0, 3);
-    const person = p.author && p.author !== "ShowUp.ai Team";
+    const person = p.author && p.author !== "ShowUpAI Team";
     const graph = [
       {
         "@type": "Article", headline: p.title, description: desc, image, url,
         datePublished: p.published_at, dateModified: p.updated_at || p.published_at,
         author: person ? { "@type": "Person", name: p.author, description: p.author_bio, ...(p.author_url ? { url: p.author_url } : {}) }
-                       : { "@type": "Organization", name: "ShowUp.ai" },
-        publisher: { "@type": "Organization", name: "ShowUp.ai", url: SITE },
+                       : { "@type": "Organization", name: "ShowUpAI" },
+        publisher: { "@type": "Organization", name: "ShowUpAI", url: SITE },
         mainEntityOfPage: url,
       },
       { "@type": "BreadcrumbList", itemListElement: [
@@ -137,20 +137,20 @@ ${faqs.length ? `<h2>Frequently asked questions</h2>${faqs.map((f) => `<h3>${esc
 ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p.author_bio || "")}</p></aside>` : ""}
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
-<p><a href="/waitlist">Try ShowUp.ai free</a></p></article>`;
+<p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
-    const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUp.ai`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);
+    const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);
     const dir = path.join(BUILD, "blog", p.slug);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "index.html"), page);
   }
 
-  const listHtml = `${nav}<h1>ShowUp.ai Blog</h1><p>Insights on webinars, attendance, and growing your audience.</p>
+  const listHtml = `${nav}<h1>ShowUpAI Blog</h1><p>Insights on webinars, attendance, and growing your audience.</p>
 <ul>${posts.map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a><p>${esc(p.excerpt || "")}</p></li>`).join("")}</ul>`;
-  const listPage = withRoot(setHead(shell, { title: "Blog | ShowUp.ai — Webinar Attendance Insights",
-    description: "Practical guides on webinar attendance, reminder sequences and no-show reduction from ShowUp.ai.",
+  const listPage = withRoot(setHead(shell, { title: "Blog | ShowUpAI — Webinar Attendance Insights",
+    description: "Practical guides on webinar attendance, reminder sequences and no-show reduction from ShowUpAI.",
     url: `${SITE}/blog`, type: "website",
-    jsonld: { "@context": "https://schema.org", "@type": "Blog", name: "ShowUp.ai Blog", url: `${SITE}/blog`,
+    jsonld: { "@context": "https://schema.org", "@type": "Blog", name: "ShowUpAI Blog", url: `${SITE}/blog`,
       blogPost: posts.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: `${SITE}/blog/${p.slug}`, datePublished: p.published_at })) } }), listHtml);
   fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
   fs.writeFileSync(path.join(BUILD, "blog", "index.html"), listPage);
@@ -158,7 +158,7 @@ ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a hr
   const rfc = (d) => { try { return new Date(d).toUTCString(); } catch (e) { return ""; } };
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
-<title>ShowUp.ai Blog</title><link>${SITE}/blog</link>
+<title>ShowUpAI Blog</title><link>${SITE}/blog</link>
 <description>Practical, number-backed guides on webinar attendance, reminders and no-shows.</description>
 <language>en</language><atom:link href="${SITE}/rss.xml" rel="self" type="application/rss+xml" />
 ${posts.map((p) => `<item><title>${esc(p.title)}</title><link>${SITE}/blog/${esc(p.slug)}</link><guid>${SITE}/blog/${esc(p.slug)}</guid>${p.published_at ? `<pubDate>${rfc(p.published_at)}</pubDate>` : ""}<description>${esc(p.excerpt || p.meta_description || "")}</description>${p.author ? `<author>hello@showupai.live (${esc(p.author)})</author>` : ""}</item>`).join("\n")}

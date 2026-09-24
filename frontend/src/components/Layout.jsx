@@ -36,7 +36,7 @@ export default function Layout() {
         </div>
         <div>
           <div className="font-bold text-lg leading-none" style={{ fontFamily: "Outfit", color: "var(--text-primary)" }}>
-            ShowUp<span className="text-orange-500">.ai</span>
+            ShowUp<span className="text-orange-500">AI</span>
           </div>
           <div className="text-[9px] uppercase tracking-[0.2em] mt-0.5" style={{ color: "var(--text-muted)" }}>
             Webinar Booster
@@ -144,7 +144,7 @@ export default function Layout() {
             <Zap size={13} className="text-white" strokeWidth={2.5} />
           </div>
           <span className="font-bold text-sm" style={{ fontFamily: "Outfit", color: "var(--text-primary)" }}>
-            ShowUp<span className="text-orange-500">.ai</span>
+            ShowUp<span className="text-orange-500">AI</span>
           </span>
         </div>
         <button onClick={() => setOpenMobile(o => !o)} data-testid="mobile-menu-toggle"

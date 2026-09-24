@@ -1,10 +1,10 @@
-# ShowUp.ai
+# ShowUpAI
 
-> ShowUp.ai is an AI-powered webinar attendance booster that helps webinar hosts double their attendance rates from 31% to 62%+.
+> ShowUpAI is an AI-powered webinar attendance booster that helps webinar hosts double their attendance rates from 31% to 62%+.
 
-## What ShowUp.ai Does
+## What ShowUpAI Does
 
-ShowUp.ai generates 8-touch AI-written reminder sequences for webinars, delivered across email, LinkedIn, WhatsApp, Circle.so, Facebook, and Instagram. Users approve the copy before anything is sent.
+ShowUpAI generates 8-touch AI-written reminder sequences for webinars, delivered across email, LinkedIn, WhatsApp, Circle.so, Facebook, and Instagram. Users approve the copy before anything is sent.
 
 ## Key Features
 

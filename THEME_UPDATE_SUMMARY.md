@@ -1,7 +1,7 @@
-# 🎨 ShowUp.ai Theme Update — Sleek Black & White
+# 🎨 ShowUpAI Theme Update — Sleek Black & White
 
 ## Overview
-The entire ShowUp.ai application has been redesigned with a **pure black and white aesthetic** with cosmic/space elements. All orange accents (#EA580C) have been completely removed and replaced with white (#FFFFFF) for emphasis and grayscale tones for hierarchy.
+The entire ShowUpAI application has been redesigned with a **pure black and white aesthetic** with cosmic/space elements. All orange accents (#EA580C) have been completely removed and replaced with white (#FFFFFF) for emphasis and grayscale tones for hierarchy.
 
 ## Key Design Changes
 

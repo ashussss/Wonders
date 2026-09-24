@@ -51,7 +51,7 @@ export default function SubscribeBox({ variant = "card", slug = "", placement = 
   const firstName = name.trim().split(" ")[0];
   const done = (
     <p className="text-sm font-medium" role="status">
-      You're in{firstName ? `, ${firstName}` : ""}! New guides will land in your inbox.
+      You're in{firstName ? `, ${firstName}` : ""}! Your next attendance guide will land in your inbox.
     </p>
   );
 
@@ -92,7 +92,7 @@ export default function SubscribeBox({ variant = "card", slug = "", placement = 
       <div className="fixed bottom-0 inset-x-0 z-40 border-t bg-white/95 backdrop-blur shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         <div className="max-w-4xl mx-auto px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 text-black">
-          <p className="text-sm font-semibold md:w-64 shrink-0">Get webinar attendance guides by email</p>
+          <p className="text-sm font-semibold md:w-64 shrink-0">Make people actually show up: get the guides by email</p>
           <div className="flex-1">{state === "done" ? done : fields(true)}{error}</div>
           <button onClick={close} aria-label="Close" className="absolute md:static top-2 right-3 text-xl leading-none opacity-60 hover:opacity-100">×</button>
         </div>
@@ -103,8 +103,8 @@ export default function SubscribeBox({ variant = "card", slug = "", placement = 
   if (variant === "inline") {
     return (
       <aside className="my-10 p-5 rounded-xl border-l-4 border-orange-600 bg-orange-50 text-black not-prose">
-        <p className="font-semibold">Enjoying this? Get the next guide in your inbox.</p>
-        <p className="text-sm opacity-80 mb-3">Data-backed tactics for getting registrants to actually show up.</p>
+        <p className="font-semibold">Want more registrants to actually show up?</p>
+        <p className="text-sm opacity-80 mb-3">Get number-backed guides to increase your webinar attendance, straight to your inbox.</p>
         {state === "done" ? done : fields(true)}
         {error}
         {state !== "done" && legal}
@@ -116,10 +116,11 @@ export default function SubscribeBox({ variant = "card", slug = "", placement = 
     <section className="my-10 p-6 md:p-8 rounded-2xl bg-[#0F0F12] text-white">
       <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-500 mb-2">Newsletter</p>
       <h2 className="text-xl md:text-2xl font-bold mb-2" style={{ fontFamily: "Outfit" }}>
-        Get more people to show up to your webinars
+        Make people actually show up for your webinar
       </h2>
       <p className="text-sm text-gray-300 mb-5">
-        Practical, number-backed guides on reminders, timing and no-shows. One email when there's something worth reading.
+        Practical, number-backed guides on reminders, timing and no-shows that increase webinar attendance.
+        One email when there's something worth reading.
       </p>
       {state === "done" ? <div className="text-white">{done}</div> : fields(false)}
       {error}

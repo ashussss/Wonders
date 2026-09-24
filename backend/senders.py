@@ -1,4 +1,4 @@
-"""Outbound delivery functions for ShowUp.ai. Reads per-user settings from MongoDB."""
+"""Outbound delivery functions for ShowUpAI. Reads per-user settings from MongoDB."""
 from __future__ import annotations
 import base64
 import logging
@@ -17,7 +17,7 @@ class DeliveryResult(dict):
 
 
 
-def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUp.ai",
+def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI",
                      unsubscribe_url: str = "") -> str:
     """Wrap plain text body in a clean branded HTML email template."""
     # Convert newlines to <br> and handle placeholders
@@ -76,7 +76,7 @@ async def send_brevo_email(settings: Dict[str, Any], to_email: str, subject: str
         return DeliveryResult(False, "brevo", "Missing brevo_api_key — add it in Settings → Email provider")
     if not sender:
         return DeliveryResult(False, "brevo", "Missing brevo_sender_email — add a verified sender email in Settings → Email provider")
-    sender_name = settings.get("brevo_sender_name") or "ShowUp.ai"
+    sender_name = settings.get("brevo_sender_name") or "ShowUpAI"
     # Wrap in branded template if plain text passed
     if html and not html.strip().startswith("<!DOCTYPE") and not html.strip().startswith("<html"):
         html = build_email_html(html, subject=subject, sender_name=sender_name)
@@ -108,7 +108,7 @@ async def send_sendgrid_email(settings: Dict[str, Any], to_email: str, subject: 
                               ics_bytes: Optional[bytes] = None) -> DeliveryResult:
     api_key = settings.get("sendgrid_api_key")
     sender = settings.get("sendgrid_sender_email")
-    name = settings.get("sendgrid_sender_name") or "ShowUp.ai"
+    name = settings.get("sendgrid_sender_name") or "ShowUpAI"
     if not api_key:
         return DeliveryResult(False, "sendgrid", "Missing sendgrid_api_key — add it in Settings → Email provider")
     if not sender:
@@ -143,7 +143,7 @@ async def send_mailchimp_email(settings: Dict[str, Any], to_email: str, subject:
                                ics_bytes: Optional[bytes] = None) -> DeliveryResult:
     api_key = settings.get("mailchimp_api_key")
     sender = settings.get("mailchimp_sender_email")
-    name = settings.get("mailchimp_sender_name") or "ShowUp.ai"
+    name = settings.get("mailchimp_sender_name") or "ShowUpAI"
     if not api_key:
         return DeliveryResult(False, "mailchimp", "Missing mailchimp_api_key — add it in Settings → Email provider")
     if not sender:

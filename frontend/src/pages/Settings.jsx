@@ -60,7 +60,7 @@ export default function Settings() {
         </select></Row>
         <Field label="Brevo API Key" k="brevo_api_key" s={s} set={set}/>
         <Row label="Brevo Sender Email"><input data-testid="set-brevo_sender_email" type="email" value={s.brevo_sender_email||""} onChange={e=>set("brevo_sender_email", e.target.value)} placeholder="hello@yourbrand.com" className="input"/></Row>
-        <Row label="Brevo Sender Name"><input data-testid="set-brevo_sender_name" value={s.brevo_sender_name||""} onChange={e=>set("brevo_sender_name", e.target.value)} placeholder="ShowUp.ai" className="input"/></Row>
+        <Row label="Brevo Sender Name"><input data-testid="set-brevo_sender_name" value={s.brevo_sender_name||""} onChange={e=>set("brevo_sender_name", e.target.value)} placeholder="ShowUpAI" className="input"/></Row>
         <Field label="Mailchimp API Key" k="mailchimp_api_key" s={s} set={set} hint="Mandrill transactional API key (e.g. md-xxx)."/>
         <Row label="Mailchimp Sender Email"><input data-testid="set-mailchimp_sender_email" type="email" value={s.mailchimp_sender_email||""} onChange={e=>set("mailchimp_sender_email", e.target.value)} className="input" placeholder="hello@yourbrand.com"/></Row>
         <Field label="SendLayoutDashboard API Key" k="sendgrid_api_key" s={s} set={set} hint="Starts with 'SG.'"/>
@@ -149,7 +149,7 @@ export default function Settings() {
       </Group>
 
       <Group title="Video Conferencing">
-        <Banner>ShowUp.ai auto-detects Zoom, Google Meet, Microsoft Teams, Webex, Calendly and Whereby links — no API integration needed. Just paste the join link when creating a webinar and the correct platform icon and label will appear automatically.</Banner>
+        <Banner>ShowUpAI auto-detects Zoom, Google Meet, Microsoft Teams, Webex, Calendly and Whereby links — no API integration needed. Just paste the join link when creating a webinar and the correct platform icon and label will appear automatically.</Banner>
         <div className="rounded-md p-3 text-xs" style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
           <div className="font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Supported platforms (auto-detected from URL):</div>
           <div className="flex flex-wrap gap-2">
@@ -239,7 +239,7 @@ function TestSend({label, channel, testId, needPhone}) {
   const fire = async () => {
     setBusy(true);
     try {
-      const body = needPhone ? { to_phone: to, body: "ShowUp.ai test message ✓" } : { subject: "ShowUp.ai test", body: "If you see this, your integration works ✓" };
+      const body = needPhone ? { to_phone: to, body: "ShowUpAI test message ✓" } : { subject: "ShowUpAI test", body: "If you see this, your integration works ✓" };
       const r = await api.post(`/test-send/${channel}`, body);
       if (r.data.ok) toast.success(`${channel} test sent ✓`);
       else toast.error(`${channel} test failed: ${r.data.detail}`);

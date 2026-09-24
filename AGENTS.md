@@ -1,9 +1,9 @@
-# ShowUp.ai — Codebase Map for AI Assistants
+# ShowUpAI — Codebase Map for AI Assistants
 
 This file is the **primary entry point for AI coding agents** (Claude, GPT, Cursor, Aider, etc.) to understand and safely extend this codebase. Read it first.
 
 ## What the product does
-ShowUp.ai is a B2B webinar attendance booster. It generates an 8-touch reminder sequence per webinar (registration → 7d → 3d → 1d → 3h → 15min → post-event thank-you → post-event re-engagement), produces AI-written copy with two variants (safe/casual) per channel, coordinates sends across email + LinkedIn + Facebook + Instagram + WhatsApp + Circle.so, and tracks attendance-rate-by-channel + community conversion. Final product name: **ShowUp.ai**.
+ShowUpAI is a B2B webinar attendance booster. It generates an 8-touch reminder sequence per webinar (registration → 7d → 3d → 1d → 3h → 15min → post-event thank-you → post-event re-engagement), produces AI-written copy with two variants (safe/casual) per channel, coordinates sends across email + LinkedIn + Facebook + Instagram + WhatsApp + Circle.so, and tracks attendance-rate-by-channel + community conversion. Final product name: **ShowUpAI**.
 
 ## Tech stack
 - **Backend**: Python 3.11 + FastAPI + Motor (async MongoDB) + APScheduler + slowapi (rate limiting) + httpx + Pydantic v2

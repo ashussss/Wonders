@@ -1,5 +1,5 @@
 """
-ShowUp.ai Image Generator — Professional Social Media Images
+ShowUpAI Image Generator — Professional Social Media Images
 - Multi-page Carousel (6 slides, 1080x1080 each, returned as ZIP or first slide)
 - Topic Infographic (1080x1920 vertical)  
 - Quote Card (1080x1080)
@@ -106,7 +106,7 @@ def make_slide(slide_num: int, total: int, heading: str, body: str,
         _wrap_text(draw, body, f_sub, W-120, 40, 700, (180,180,200), 8)
         # Logo
         _rr(draw, [40, H-110, 40+200, H-50], 30, ORANGE)
-        draw.text((60, H-98), "⚡ ShowUp.ai", font=_font(FONT_BOLD, 32), fill=WHITE)
+        draw.text((60, H-98), "⚡ ShowUpAI", font=_font(FONT_BOLD, 32), fill=WHITE)
 
     elif is_last:
         # CTA slide
@@ -114,7 +114,7 @@ def make_slide(slide_num: int, total: int, heading: str, body: str,
         f_big = _font(FONT_BOLD, 88)
         draw.text((80, 200), "Ready to double your\nattendance?", font=f_big, fill=WHITE)
         f_sub = _font(FONT_REG, 40)
-        draw.text((80, 600), "ShowUp.ai writes your entire pre-webinar sequence.", font=f_sub, fill=(255,220,200))
+        draw.text((80, 600), "ShowUpAI writes your entire pre-webinar sequence.", font=f_sub, fill=(255,220,200))
         draw.text((80, 720), "showupai.app", font=_font(FONT_BOLD, 48), fill=WHITE)
 
     else:
@@ -275,7 +275,7 @@ Return ONLY JSON:
     
     # Orange header
     _rr(draw, [0, 0, W, 420], 0, ORANGE)
-    draw.text((50, 40), "⚡ ShowUp.ai", font=_font(FONT_BOLD, 36), fill=(255,220,200))
+    draw.text((50, 40), "⚡ ShowUpAI", font=_font(FONT_BOLD, 36), fill=(255,220,200))
     _rr(draw, [50, 85, 280, 125], 20, (180,60,5))
     draw.text((65, 90), touch_type.upper().replace("_"," "), font=_font(FONT_BOLD, 28), fill=WHITE)
     f_title = _font(FONT_BOLD, 64 if len(title) < 35 else 50)
@@ -337,7 +337,7 @@ def make_quote_card(title: str, audience: str = "", starts_at: str = "",
     if audience:
         draw.text((80, y+75), f"For {audience}", font=_font(FONT_REG, 34), fill=(200,150,100))
     _rr(draw, [0, H-110, W, H], 0, ORANGE)
-    draw.text((50, H-95), "⚡ ShowUp.ai — webinar attendance, boosted", font=_font(FONT_BOLD, 38), fill=WHITE)
+    draw.text((50, H-95), "⚡ ShowUpAI — webinar attendance, boosted", font=_font(FONT_BOLD, 38), fill=WHITE)
     
     buf = io.BytesIO()
     img.save(buf, "PNG", quality=95)
@@ -461,7 +461,7 @@ async def generate_showup_score_image(webinar_id: str, score: int, title: str) -
         color = (16,185,129) if score>=80 else (245,158,11) if score>=60 else (239,68,68)
         draw.text((560, 420), label, font=_font(FONT_BOLD, 48), fill=color)
         draw.line([(560,500),(W-60,500)], fill=ORANGE, width=2)
-        draw.text((560, 520), "⚡ ShowUp.ai", font=_font(FONT_BOLD, 36), fill=ORANGE)
+        draw.text((560, 520), "⚡ ShowUpAI", font=_font(FONT_BOLD, 36), fill=ORANGE)
         
         buf = io.BytesIO()
         img.save(buf, "PNG", quality=95)

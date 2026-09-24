@@ -1,4 +1,4 @@
-"""ShowUp.ai v1.3 backend tests — encryption + masking, GridFS social-image, ShowUp Score share image.
+"""ShowUpAI v1.3 backend tests — encryption + masking, GridFS social-image, ShowUp Score share image.
 
 Verifies:
 - 9 secret fields encrypted at rest with 'enc::' prefix; masked '••••••••<last4>' on GET
@@ -89,7 +89,7 @@ class TestSanity:
     def test_root(self):
         r = requests.get(f"{API}/", timeout=10)
         assert r.status_code == 200
-        assert r.json() == {"app": "ShowUp.ai", "ok": True}
+        assert r.json() == {"app": "ShowUpAI", "ok": True}
 
     def test_auth_me(self, hdrs):
         r = requests.get(f"{API}/auth/me", headers=hdrs, timeout=10)

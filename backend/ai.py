@@ -1,5 +1,5 @@
 """
-ShowUp.ai — AI copy generation using Google Gemini
+ShowUpAI — AI copy generation using Google Gemini
 """
 import os
 import json
@@ -208,7 +208,7 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
     }
     ch_rule = channel_rules.get(channel, "Write engaging social copy. 3 sentences. Platform-appropriate.")
     
-    prompt = f"""You are writing pre-webinar campaign content for ShowUp.ai.
+    prompt = f"""You are writing pre-webinar campaign content for ShowUpAI.
 
 WEBINAR: {webinar.get('title', '')}
 DATE: {webinar.get('starts_at', '')}  

@@ -7,7 +7,7 @@ const TOUR_KEY = "showup_tour_done";
 const STEPS = [
   {
     id: "welcome",
-    title: "Welcome to ShowUp.ai! ⚡",
+    title: "Welcome to ShowUpAI! ⚡",
     body: "Let's get you set up in 2 minutes. This quick tour will show you everything you need to double your webinar attendance.",
     target: null,
     position: "center",
@@ -108,7 +108,7 @@ function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) 
           <div className="flex items-center gap-2">
             <Zap size={16} color="white" />
             <span className="text-white text-xs font-bold uppercase tracking-wider">
-              ShowUp.ai Tour
+              ShowUpAI Tour
             </span>
           </div>
           <button onClick={onSkip} className="text-white/70 hover:text-white transition-colors">

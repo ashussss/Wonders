@@ -1,4 +1,4 @@
-"""ShowUp.ai v1.1 backend API tests — ICS/PDF, test-send guardrails, circle sync, linkedin events,
+"""ShowUpAI v1.1 backend API tests — ICS/PDF, test-send guardrails, circle sync, linkedin events,
 send-now, community analytics, settings new fields."""
 import os
 import time
@@ -71,7 +71,7 @@ class TestICS:
         assert "DTEND" in body
         assert "SUMMARY" in body
         assert "TEST_v11_Webinar" in body
-        assert f"showup-{webinar}@showup.ai" in body
+        assert f"showup-{webinar}@showupai.live" in body
         assert len(body.encode()) > 200
 
 

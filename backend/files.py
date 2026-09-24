@@ -26,7 +26,7 @@ def build_ics(webinar: Dict[str, Any]) -> bytes:
     e.end = start + timedelta(hours=1)
     if webinar.get("join_link"):
         e.url = webinar["join_link"]
-    e.uid = f"showup-{webinar['id']}@showup.ai"
+    e.uid = f"showup-{webinar['id']}@showupai.live"
     c.events.add(e)
     return str(c).encode("utf-8")
 
@@ -49,7 +49,7 @@ def build_one_pager_pdf(webinar: Dict[str, Any], one_pager: Dict[str, Any]) -> b
     muted = ParagraphStyle("muted", parent=body, textColor=HexColor("#9CA3AF"), fontSize=8.5)
 
     flow = []
-    flow.append(Paragraph("ShowUp.ai · Companion Guide", muted))
+    flow.append(Paragraph("ShowUpAI · Companion Guide", muted))
     flow.append(Paragraph(one_pager.get("title") or webinar.get("title", "Guide"), h1))
     flow.append(Paragraph(f"<b>Webinar:</b> {webinar.get('title','')}", body))
     if webinar.get("speaker"):

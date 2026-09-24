@@ -1,4 +1,4 @@
-"""ShowUp.ai backend API tests."""
+"""ShowUpAI backend API tests."""
 import os
 import time
 import uuid
@@ -52,7 +52,7 @@ class TestAuth:
 def created_webinar(hdrs):
     payload = {
         "title": "TEST_Webinar_PyTest",
-        "description": "Pytest-created webinar for ShowUp.ai integration verification.",
+        "description": "Pytest-created webinar for ShowUpAI integration verification.",
         "speaker": "Test Speaker",
         "target_audience": "School business managers",
         "starts_at": "2030-06-01T10:00:00+00:00",

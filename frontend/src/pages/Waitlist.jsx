@@ -98,7 +98,7 @@ export default function Waitlist() {
             <Zap size={17} strokeWidth={2.5} className="text-white" />
           </div>
           <span className="text-xl font-bold text-white" style={{ fontFamily: "Outfit" }}>
-            ShowUp.ai
+            ShowUpAI
           </span>
         </Link>
         <Link to="/login" className="text-sm text-white/40 hover:text-white/70 transition-colors">
@@ -235,7 +235,7 @@ export default function Waitlist() {
                 {/* Share2 nudge */}
                 <div className="rounded-xl p-4 mb-6" style={{ background: "rgba(234,88,12,0.08)", border: "1px solid rgba(234,88,12,0.2)" }}>
                   <p className="text-xs text-orange-400/80 font-semibold mb-2 uppercase tracking-wider">Move up the list</p>
-                  <p className="text-xs text-white/50 mb-3">Share2 ShowUp.ai with others who run webinars — every referral moves you up.</p>
+                  <p className="text-xs text-white/50 mb-3">Share2 ShowUpAI with others who run webinars — every referral moves you up.</p>
                   <div className="flex gap-2">
                     <button onClick={() => {
                       navigator.clipboard.writeText("https://showupai.app/waitlist");
@@ -244,7 +244,7 @@ export default function Waitlist() {
                       style={{ background: "#EA580C" }}>
                       Copy referral link
                     </button>
-                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUp.ai — AI that makes people actually show up to your webinar. 62%+ attendance rate. Check it out: https://showupai.app/waitlist")}`}
+                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUpAI — AI that makes people actually show up to your webinar. 62%+ attendance rate. Check it out: https://showupai.app/waitlist")}`}
                       target="_blank" rel="noreferrer"
                       className="flex-1 text-xs py-2 rounded-lg font-semibold text-white text-center transition-colors"
                       style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)" }}>

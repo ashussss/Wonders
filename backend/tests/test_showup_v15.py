@@ -1,4 +1,4 @@
-"""ShowUp.ai v1.5 backend tests — OpenAI ad-hoc post + poll + image generator.
+"""ShowUpAI v1.5 backend tests — OpenAI ad-hoc post + poll + image generator.
 Endpoints:
 - POST /api/webinars/{wid}/adhoc-post/generate
 - GET  /api/webinars/{wid}/adhoc-post

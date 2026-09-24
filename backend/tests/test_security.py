@@ -1,5 +1,5 @@
 """
-ShowUp.ai Security Tests — Multi-tenant data isolation
+ShowUpAI Security Tests — Multi-tenant data isolation
 Tests that User A cannot access User B's data.
 """
 import pytest

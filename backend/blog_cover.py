@@ -108,6 +108,35 @@ def _fit_title(draw, title, max_w, max_h):
     return f, lines, int(40 * 1.18)
 
 
+_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+
+
+def _logo(size: int):
+    try:
+        return Image.open(_LOGO_PATH).convert("RGBA").resize((size, size), Image.LANCZOS)
+    except Exception:  # fallback: orange tile with a bolt
+        tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        g = ImageDraw.Draw(tile)
+        g.rounded_rectangle([0, 0, size, size], radius=size // 4, fill=_hex("#EA580C"))
+        g.polygon([(size * .56, size * .2), (size * .38, size * .52), (size * .5, size * .52), (size * .42, size * .8),
+                   (size * .64, size * .44), (size * .52, size * .44)], fill=_hex("#FFFFFF"))
+        return tile
+
+
+def _logo_inverted(size: int):
+    """White tile with the logo's bolt in orange."""
+    src = _logo(size)
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).rounded_rectangle([0, 0, size - 1, size - 1], radius=size // 4, fill=_hex("#FFFFFF"))
+    px_src, px = src.load(), tile.load()
+    for y in range(size):
+        for x in range(size):
+            r, g, b, a = px_src[x, y]
+            if a > 0 and r > 200 and g > 200 and b > 200:  # white bolt pixels -> orange
+                px[x, y] = (234, 88, 12, 255)
+    return tile
+
+
 # ---------- motifs (right-hand illustration area) ----------
 
 def _motif_bars(d, t, box):
@@ -213,15 +242,21 @@ def render_cover(title: str, slug: str, keyword: str = "") -> bytes:
         d.text((PAD, y), line, font=f, fill=_hex(t["fg"]))
         y += lh
 
-    # footer: logo mark + wordmark, url
-    fy = H - PAD - 36
-    d.rounded_rectangle([PAD, fy, PAD + 36, fy + 36], radius=10, fill=_hex(t["accent"]))
-    mf = _font("bold", 22)
-    d.text((PAD + 18, fy + 18), "S", font=mf, fill=_hex(t["bg"] if t["accent"] != "#111111" else "#FFFFFF"), anchor="mm")
-    d.text((PAD + 50, fy + 18), "ShowUp.ai", font=_font("semi", 24), fill=_hex(t["fg"]), anchor="lm")
+    # footer: real ShowUpAI logo + "ShowUp" + accent "AI" wordmark, url
+    fy = H - PAD - 40
+    if t["bg"].upper() == "#EA580C":  # orange theme: inverted logo (white tile, orange bolt) so it stays visible
+        img.alpha_composite(_logo_inverted(40), (PAD, fy))
+    else:
+        img.alpha_composite(_logo(40), (PAD, fy))
+    d = ImageDraw.Draw(img)
+    wf = _font("bold", 26)
+    d.text((PAD + 54, fy + 20), "ShowUp", font=wf, fill=_hex(t["fg"]), anchor="lm")
+    ai_x = PAD + 54 + int(d.textlength("ShowUp", font=wf))
+    ai_col = "#FFFFFF" if t["bg"].upper() == "#EA580C" else t["accent"]
+    d.text((ai_x, fy + 20), "AI", font=wf, fill=_hex(ai_col if ai_col != "#111111" else "#FFFFFF"), anchor="lm")
     uf = _font("reg", 20)
     url = "showupai.live/blog"
-    d.text((W - PAD, fy + 18), url, font=uf, fill=_hex(t["muted"]), anchor="rm")
+    d.text((W - PAD, fy + 20), url, font=uf, fill=_hex(t["muted"]), anchor="rm")
 
     out = io.BytesIO()
     img.convert("RGB").save(out, "PNG", optimize=True)

@@ -28,7 +28,7 @@ export default function PublicRegister() {
       <div className="bg-[#0A0A0A] border border-white/[0.1] rounded-md shadow-lg max-w-md w-full p-8">
         <div className="flex items-center gap-2 mb-6">
           <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center"><Zap size={18} className="text-black"/></div>
-          <span className="font-bold text-lg text-white" style={{fontFamily:'Outfit'}}>ShowUp.ai</span>
+          <span className="font-bold text-lg text-white" style={{fontFamily:'Outfit'}}>ShowUpAI</span>
         </div>
         {done ? (
           <div className="text-center py-6" data-testid="reg-success">

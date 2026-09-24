@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { api, fmtDate, API_BASE } from "@/lib/api";
 import { parseMarkdown, splitInline, headingId, tocFrom } from "@/lib/markdown";
 import SubscribeBox from "@/components/SubscribeBox";
+import BlogHeader from "@/components/BlogHeader";
 
 function setMeta(name, content, attr = "name") {
   if (!content) return;
@@ -227,7 +228,7 @@ export default function BlogPostPage() {
 
   useEffect(() => {
     if (!post) return;
-    const title = post.seo_title || `${post.title} | ShowUp.ai`;
+    const title = post.seo_title || `${post.title} | ShowUpAI`;
     const desc = post.seo_description || post.meta_description || post.excerpt || "";
     document.title = title;
     setMeta("description", desc);
@@ -250,10 +251,10 @@ export default function BlogPostPage() {
         description: desc,
         datePublished: post.published_at,
         dateModified: post.updated_at || post.published_at,
-        author: post.author && post.author !== "ShowUp.ai Team"
+        author: post.author && post.author !== "ShowUpAI Team"
           ? { "@type": "Person", name: post.author, ...(post.author_url ? { url: post.author_url } : {}), description: post.author_bio }
-          : { "@type": "Organization", name: "ShowUp.ai" },
-        publisher: { "@type": "Organization", name: "ShowUp.ai", url: "https://showupai.live" },
+          : { "@type": "Organization", name: "ShowUpAI" },
+        publisher: { "@type": "Organization", name: "ShowUpAI", url: "https://showupai.live" },
         image: `${API_BASE}/blog/${post.slug}/cover.png`,
         mainEntityOfPage: `https://showupai.live/blog/${post.slug}`,
       },
@@ -321,6 +322,8 @@ export default function BlogPostPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
+      <BlogHeader />
+
       <nav className="mb-6 text-sm" aria-label="breadcrumb">
         <Link to="/blog" className="hover:underline">
           Blog
@@ -389,7 +392,7 @@ export default function BlogPostPage() {
 
       <SubscribeBox variant="card" slug={post.slug} placement="end-of-post" />
 
-      {post.author && post.author !== "ShowUp.ai Team" && (
+      {post.author && post.author !== "ShowUpAI Team" && (
         <aside className="mt-12 p-5 border rounded-xl flex gap-4 items-start">
           <div className="w-12 h-12 shrink-0 rounded-full bg-orange-600 text-white flex items-center justify-center font-bold text-lg">
             {post.author.split(" ").map((w) => w[0]).slice(0, 2).join("")}
@@ -422,16 +425,17 @@ export default function BlogPostPage() {
       )}
 
       <section className="mt-12 pt-8 border-t">
-        <h2 className="text-lg font-bold mb-3">Turn your webinar attendance around</h2>
+        <h2 className="text-lg font-bold mb-3">Make people actually show up for your webinar</h2>
         <p className="text-muted-foreground mb-5">
-          Most registrants never show up — ShowUp.ai's 8-touch AI reminder sequence helps change that.
+          ShowUpAI writes and schedules an 11-touch reminder sequence across email, LinkedIn, WhatsApp, Circle and calendar
+          invites, so more of your registrants turn into live attendees. You approve every message before it goes out.
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <Link
             to="/waitlist"
             className="flex-1 text-center px-5 py-3 rounded-full bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity"
           >
-            Start free →
+            Increase my attendance →
           </Link>
           <Link
             to="/blog"

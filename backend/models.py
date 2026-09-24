@@ -1,4 +1,4 @@
-"""Pydantic input models for the ShowUp.ai API."""
+"""Pydantic input models for the ShowUpAI API."""
 from typing import List, Optional, Dict
 from pydantic import BaseModel, EmailStr
 

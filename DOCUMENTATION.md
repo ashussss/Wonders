@@ -1,8 +1,8 @@
-# ShowUp.ai: Project Documentation
+# ShowUpAI: Project Documentation
 
 _Last updated: 24 September 2026_
 
-ShowUp.ai (live at **https://showupai.live**) is a B2B SaaS that raises webinar attendance. A host adds a webinar, and ShowUp.ai builds an AI-written, multi-channel reminder sequence. The sequence covers email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites, timed from three weeks before the event through to post-event follow-up. Registrants therefore keep getting well-timed nudges instead of forgetting.
+ShowUpAI (live at **https://showupai.live**) is a B2B SaaS that raises webinar attendance. A host adds a webinar, and ShowUpAI builds an AI-written, multi-channel reminder sequence. The sequence covers email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites, timed from three weeks before the event through to post-event follow-up. Registrants therefore keep getting well-timed nudges instead of forgetting.
 
 This document explains how the whole system fits together: where code runs, where data lives, how each feature works and how to operate it. `AGENTS.md` is an older, AI-agent-oriented codebase map. Where the two disagree, this document is newer.
 
@@ -232,7 +232,14 @@ After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published
 - The prerender step also writes **`/rss.xml`** and appends a **Blog articles** list to **`/llms.txt`**.
 
 ### Links inside articles (added 24 Sep)
-Every published article is guaranteed to contain (a) a link to https://showupai.live and (b) contextual links to other published posts. The writer prompt lists published articles and asks for 2-3 natural in-text links; then `pseo.autolink()` runs on publish and fills any gaps: it links the first plain mention of ShowUp.ai, links another post's keyword/title phrase where it appears in a paragraph or list (never in headings, bold, code or tables; max 4; never self-links), and if fewer than 2 internal links exist adds a **Related reading** line before the third section. `pseo.relink_all()` runs on every publish, so older posts also gain links to the new one. `POST /api/seo/relink` runs it on demand. All in-article links open in a new tab.
+Every published article is guaranteed to contain (a) a link to https://showupai.live and (b) contextual links to other published posts. The writer prompt lists published articles and asks for 2-3 natural in-text links; then `pseo.autolink()` runs on publish and fills any gaps: it links the first plain mention of ShowUpAI, links another post's keyword/title phrase where it appears in a paragraph or list (never in headings, bold, code or tables; max 4; never self-links), and if fewer than 2 internal links exist adds a **Related reading** line before the third section. `pseo.relink_all()` runs on every publish, so older posts also gain links to the new one. `POST /api/seo/relink` runs it on demand. All in-article links open in a new tab.
+
+### Brand name
+The product name is **ShowUpAI** (no dot); the domain is **showupai.live**. The wordmark is "ShowUp" + orange "AI". `pseo.rebrand()` converts any "ShowUp.ai" the AI writes (and in older posts) to `BRAND_NAME` (env, default `ShowUpAI`); `POST /api/seo/relink` applies it to every stored post.
+
+### Scheduled and hand-written posts
+- `POST /api/seo/schedule` `{"slug": "...", "publish_at": "2026-09-25T10:00:00+05:30"}` schedules a draft (timezone required; `null` unschedules). `GET /api/seo/scheduled` lists the queue. A scheduler job runs every 10 minutes and publishes anything due (same path as manual publish: relink, Netlify rebuild, IndexNow).
+- Hand-written posts live in `backend/content/*.md` (frontmatter: slug, title, keyword, meta_description, excerpt, publish_at; a trailing `## FAQ` with `### Question` blocks becomes FAQ schema). They are inserted as scheduled drafts on the next job run if the slug doesn't exist yet. First one: `what-is-showupai-features` (features + USP), scheduled for 25 Sep 2026 10:00 IST.
 
 ### Email capture (blog subscribers)
 `frontend/src/components/SubscribeBox.jsx` collects first name + email in four places: the top of `/blog`, mid-article (before the first H2 after ~40% of the post), end of each post, and a dismissible sticky bar that appears after 45% scroll. It posts to `POST /api/blog/subscribe` (public, 5/min per IP, honeypot field, emails de-duplicated, every signup's post and placement recorded) into the `blog_subscribers` collection. Export with `GET /api/seo/subscribers.csv` (admin key) and import into Brevo/Mailchimp; `GET /api/seo/subscribers` lists them.

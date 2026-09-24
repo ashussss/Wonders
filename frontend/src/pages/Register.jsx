@@ -49,7 +49,7 @@ export default function Register() {
               <Zap size={17} strokeWidth={2.5} className="text-black" />
             </div>
             <span className="text-xl font-bold tracking-tight text-white" style={{ fontFamily: "Outfit" }}>
-              ShowUp.ai
+              ShowUpAI
             </span>
           </Link>
           <Link to="/" className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors">
@@ -61,7 +61,7 @@ export default function Register() {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.15 }}>
-          <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400 mb-4">Join ShowUp.ai</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400 mb-4">Join ShowUpAI</div>
           <h1 className="text-4xl sm:text-5xl font-bold leading-tight tracking-tight text-white mb-4" style={{ fontFamily: "Outfit" }}>
             Your next webinar<br />
             <span className="text-white">deserves a full room.</span>
@@ -82,7 +82,7 @@ export default function Register() {
           </div>
         </motion.div>
 
-        <div className="text-xs text-white/20">© {new Date().getFullYear()} ShowUp.ai</div>
+        <div className="text-xs text-white/20">© {new Date().getFullYear()} ShowUpAI</div>
       </div>
 
       {/* Right panel — form */}

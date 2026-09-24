@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, fmtDate, API_BASE } from "@/lib/api";
 import SubscribeBox from "@/components/SubscribeBox";
+import BlogHeader from "@/components/BlogHeader";
 
 function setMeta(name, content, attr = "name") {
   let el = document.head.querySelector(`meta[${attr}="${name}"]`);
@@ -21,9 +22,9 @@ export default function BlogPage() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    document.title = "Blog | ShowUp.ai — Webinar Attendance Insights";
-    setMeta("description", "Insights on webinars, attendance, and growing your audience from ShowUp.ai.");
-    setMeta("og:title", "ShowUp.ai Blog", "property");
+    document.title = "Blog | ShowUpAI — Make People Actually Show Up to Your Webinar";
+    setMeta("description", "Guides to increase webinar attendance and make people actually show up from ShowUpAI.");
+    setMeta("og:title", "ShowUpAI Blog", "property");
   }, []);
 
   useEffect(() => {
@@ -52,19 +53,14 @@ export default function BlogPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="mb-6 flex items-center justify-between text-sm">
-        <Link to="/" className="font-semibold">ShowUp.ai</Link>
-        <Link to="/waitlist" className="px-4 py-1.5 rounded-full border hover:bg-secondary/10 transition-colors">
-          Get started
-        </Link>
-      </div>
+      <BlogHeader />
 
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: "Outfit" }}>
           Blog
         </h1>
         <p className="text-muted-foreground mt-1">
-          Insights on webinars, attendance, and growing your audience
+          Guides to increase webinar attendance and make people actually show up
         </p>
       </div>
 

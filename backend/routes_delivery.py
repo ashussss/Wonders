@@ -358,8 +358,8 @@ async def test_send(channel: str, payload: Dict[str, Any], user=Depends(get_user
         channel, s,
         to_email=payload.get("to_email") or user["email"],
         to_phone=payload.get("to_phone"),
-        subject=payload.get("subject") or "ShowUp.ai test",
-        body=payload.get("body") or "This is a ShowUp.ai test message.",
+        subject=payload.get("subject") or "ShowUpAI test",
+        body=payload.get("body") or "This is a ShowUpAI test message.",
         image_url=image_url,
     )
     return res

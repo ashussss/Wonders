@@ -1,4 +1,4 @@
-# ShowUp.ai: Tasks & Latest Updates
+# ShowUpAI: Tasks & Latest Updates
 
 _Last updated: 24 September 2026_
 Priorities: **P0** = do now / blocking · **P1** = next · **P2** = soon · **P3** = later
@@ -34,12 +34,13 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 ## P1: Next
 
 - [x] **Prerender blog pages** (done 24 Sep: `scripts/prerender-blog.mjs` + Netlify build hook). Needs `NETLIFY_BUILD_HOOK` set on Render.
+- [ ] **Landing page says "8 touches" and "All 6 channels"**; the product sends 11 touches across 7 channels (LinkedIn personal is copy-paste). Align Landing.jsx plans/feature cards with the product.
 - [ ] **Fix unverified claims in `frontend/public/index.html`** ("62%+ average attendance", "31% industry average", "uses Claude AI", "8-touch" vs the actual 11 touches). They appear in meta tags and schema on every page, including prerendered blog pages.
 - [ ] **Bing Webmaster Tools**: verify showupai.live, submit the sitemap (ChatGPT search uses Bing's index).
 - [ ] **Content freshness**: review and update each post's stats every ~3 months (AI answers favour recently updated pages); edits bump dateModified and re-ping IndexNow.
 - [ ] **Newsletter sending**: subscribers are only collected (`blog_subscribers`). Connect Brevo/Mailchimp (list + double opt-in + welcome email) and send new posts weekly.
 - [ ] **Comparison pages**: approved fact sheets per competitor (see COMPETITORS.md), then a comparison template.
-- [ ] **Original data**: publish anonymised aggregate attendance data from ShowUp.ai once there is enough.
+- [ ] **Original data**: publish anonymised aggregate attendance data from ShowUpAI once there is enough.
 - [ ] **Off-site presence**: G2/Capterra listings, LinkedIn posts per article, community answers.
 - [ ] **Draft review screen** in the admin area (`/app/admin` → Blog tab): list drafts, preview, edit, publish/unpublish, add keywords. Currently this is done with curl.
 - [ ] **Search Console**: verify `showupai.live` in GSC, submit `https://showupai.live/sitemap.xml`, create a service account, and set `GSC_SERVICE_ACCOUNT_BASE64` on Render.

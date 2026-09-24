@@ -1,4 +1,4 @@
-"""ShowUp.ai v1.2 backend tests — Nano Banana social image, email provider routing (Mailchimp/SendGrid/Brevo),
+"""ShowUpAI v1.2 backend tests — Nano Banana social image, email provider routing (Mailchimp/SendGrid/Brevo),
 rate limiting, and refactor sanity."""
 import os
 import time
@@ -53,7 +53,7 @@ class TestRefactorSanity:
     def test_root_endpoint(self):
         r = requests.get(f"{API}/", timeout=10)
         assert r.status_code == 200
-        assert r.json() == {"app": "ShowUp.ai", "ok": True}
+        assert r.json() == {"app": "ShowUpAI", "ok": True}
 
     def test_auth_me(self, hdrs):
         r = requests.get(f"{API}/auth/me", headers=hdrs, timeout=10)

@@ -1,4 +1,4 @@
-# ShowUp.ai — Product Requirements Document
+# ShowUpAI — Product Requirements Document
 
 ## Original problem statement
 Build a webinar attendance booster app per the attached PDF spec, including:
@@ -12,7 +12,7 @@ Build a webinar attendance booster app per the attached PDF spec, including:
 - Settings page with all API credential fields from doc
 - Use Claude (Anthropic API) for every AI task
 
-Final product name: **ShowUp.ai**
+Final product name: **ShowUpAI**
 
 ## Architecture
 - **Backend**: FastAPI + Motor (Mongo) + APScheduler + emergentintegrations (Claude Sonnet 4.5)

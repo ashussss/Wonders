@@ -1,4 +1,4 @@
-"""ShowUp.ai — production configuration.
+"""ShowUpAI — production configuration.
 
 All secrets are read from environment variables.
 No hardcoded fallbacks for production secrets.

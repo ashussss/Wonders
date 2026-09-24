@@ -1,4 +1,4 @@
-"""Programmatic SEO pipeline for ShowUp.ai.
+"""Programmatic SEO pipeline for ShowUpAI.
 
 Flow:  keyword queue (seo_candidates) -> AI long-form draft (blog_posts, published=False)
        -> human review -> publish -> appears on /blog and in /api/sitemap.xml
@@ -27,7 +27,7 @@ AUTHOR_NAME = os.environ.get("AUTHOR_NAME", "Ashutosh Kumar Singh")
 AUTHOR_BIO = os.environ.get(
     "AUTHOR_BIO",
     "B2B marketer with 13+ years across SEO, content and demand generation. "
-    "Builds ShowUp.ai to help webinar hosts turn more registrants into live attendees.",
+    "Builds ShowUpAI to help webinar hosts turn more registrants into live attendees.",
 )
 AUTHOR_URL = os.environ.get("AUTHOR_URL", "")  # e.g. LinkedIn profile
 
@@ -116,6 +116,17 @@ SEED_KEYWORDS = [
 ]
 
 
+BRAND = os.environ.get("BRAND_NAME", "ShowUpAI")
+# "ShowUp.ai", "Showup.ai", "SHOWUP.AI", "ShowUp AI" ... -> BRAND (never touches showupai.live or emails)
+_OLD_BRAND = re.compile(r"(?<![@/\w.])show\s?up\.ai\b(?!\.live)", re.I)
+
+
+def rebrand(t):
+    if not isinstance(t, str):
+        return t
+    return _OLD_BRAND.sub(BRAND, t)
+
+
 _CHAR_MAP = {
     "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u00ad": "",
     "\u00a0": " ", "\u202f": " ", "\u2009": " ", "\u200b": "",
@@ -127,7 +138,7 @@ def normalize_text(t: str) -> str:
         return t
     for k, v in _CHAR_MAP.items():
         t = t.replace(k, v)
-    return t
+    return rebrand(t)
 
 
 def clean_content(content: str, has_faq: bool) -> str:
@@ -143,7 +154,7 @@ def clean_content(content: str, has_faq: bool) -> str:
 
 def clean_post_fields(doc: dict) -> dict:
     """Normalise every text field of a post in place and return it."""
-    for k in ("title", "seo_title", "meta_description", "seo_description", "excerpt"):
+    for k in ("title", "seo_title", "meta_description", "seo_description", "excerpt", "author", "author_bio"):
         if isinstance(doc.get(k), str):
             doc[k] = normalize_text(doc[k]).strip()
     faqs = [
@@ -152,7 +163,7 @@ def clean_post_fields(doc: dict) -> dict:
     ]
     doc["faq_items"] = faqs
     doc["content"] = clean_content(doc.get("content", ""), bool(faqs))
-    if doc.get("author") in (None, "", "ShowUp.ai Team"):
+    if doc.get("author") in (None, "", f"{BRAND} Team"):
         doc["author"], doc["author_bio"], doc["author_url"] = AUTHOR_NAME, AUTHOR_BIO, AUTHOR_URL
     doc["word_count"] = len(doc["content"].split())
     doc["reading_time"] = max(1, round(doc["word_count"] / 200))
@@ -211,11 +222,11 @@ def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> st
     others: [{"slug", "title", "keyword"}] of published posts (self excluded here). Idempotent."""
     c = content or ""
     home = SITE_URL
-    # 1) ShowUp.ai -> homepage
+    # 1) ShowUpAI -> homepage
     if not re.search(r"\]\(" + re.escape(home) + r"/?\)", c):
-        c, done = _link_first(c, "ShowUp.ai", home)
+        c, done = _link_first(c, BRAND, home)
         if not done:
-            c = c.rstrip() + f"\n\nWant this reminder sequence built and scheduled for you? [Try ShowUp.ai]({home})."
+            c = c.rstrip() + f"\n\nWant more of your registrants to actually show up? [Try {BRAND}]({home})."
     # 2) contextual internal links
     others = [o for o in others if o.get("slug") and o["slug"] != slug]
     linked = {o["slug"] for o in others if f"/blog/{o['slug']})" in c}
@@ -248,14 +259,20 @@ def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> st
 
 
 async def relink_all(changed_slug: str = "") -> int:
-    """Re-run autolink on every published post so older posts also link to newer ones. Returns posts changed."""
-    pubs = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1, "content": 1}).to_list(5000)
-    meta = [{"slug": p["slug"], "title": p.get("title", ""), "keyword": p.get("keyword", "")} for p in pubs]
+    """Clean + rebrand every post, and re-run autolink on published ones so older posts also link to newer ones.
+    Returns number of posts changed."""
+    docs = await db.blog_posts.find({}, {"_id": 0}).to_list(5000)
+    pubs = [d for d in docs if d.get("published")]
+    meta = [{"slug": p["slug"], "title": rebrand(p.get("title", "")), "keyword": p.get("keyword", "")} for p in pubs]
     n = 0
-    for p in pubs:
-        new = autolink(p.get("content", ""), p["slug"], meta)
-        if new != p.get("content", ""):
-            await db.blog_posts.update_one({"slug": p["slug"]}, {"$set": {"content": new}})
+    for d in docs:
+        before = {k: d.get(k) for k in d}
+        clean_post_fields(d)
+        if d.get("published"):
+            d["content"] = autolink(d.get("content", ""), d["slug"], meta)
+        changed = {k: v for k, v in d.items() if before.get(k) != v and k not in ("word_count", "reading_time")}
+        if changed:
+            await db.blog_posts.update_one({"slug": d["slug"]}, {"$set": d})
             n += 1
     return n
 
@@ -310,10 +327,10 @@ PROMPT = """You are a senior B2B marketer who has run hundreds of webinars. Writ
 
 Target keyword: "{keyword}"
 Search intent: {intent}
-Product context: ShowUp.ai (showupai.live) helps webinar hosts get more registrants to actually attend, using an
+Product context: ShowUpAI (showupai.live) helps webinar hosts get more registrants to actually attend, using an
 AI-written, multi-channel reminder sequence (email, LinkedIn, WhatsApp/SMS, calendar) timed around the event.
-Mention ShowUp.ai naturally at most twice, near the end. The article must be genuinely useful without the product.
-Only describe ShowUp.ai with these true facts: it generates an 11-touch reminder sequence timed from about three weeks
+Mention ShowUpAI naturally at most twice, near the end. The article must be genuinely useful without the product.
+Only describe ShowUpAI with these true facts: it generates an 11-touch reminder sequence timed from about three weeks
 before the event to after it; channels are email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar
 invites; the host reviews and approves messages before they send; it tracks attendance by channel. Do NOT claim it adapts
 timing to engagement, personalises send times per person, matches brand tone, or anything else not listed.
@@ -332,7 +349,7 @@ Rules:
   Simple markdown tables and ``` code blocks (for email templates) are allowed.
 - No H1 (the title is shown separately). No images, no emojis. Use plain ASCII hyphens "-".
 - Links (markdown [text](url)) allowed ONLY to: the fact URLs above, https://showupai.live, and the published
-  articles listed below. Link the first natural mention of ShowUp.ai to https://showupai.live.
+  articles listed below. Link the first natural mention of ShowUpAI to https://showupai.live.
 - Where it genuinely fits, link 2-3 of the related articles below inside sentences, using descriptive anchor text
   (never "click here"). Do not invent other URLs.
 - Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
@@ -433,7 +450,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "keyword": keyword,
         "intent": intent,
         "title": title,
-        "seo_title": f"{title} | ShowUp.ai"[:70],
+        "seo_title": f"{title} | ShowUpAI"[:70],
         "meta_description": (data.get("meta_description") or "")[:160],
         "seo_description": (data.get("meta_description") or "")[:160],
         "excerpt": (data.get("excerpt") or "")[:220],
@@ -503,6 +520,61 @@ async def retry_failed() -> int:
         {"status": {"$in": ["failed", "processing"]}}, {"$set": {"status": "pending"}, "$unset": {"error": ""}}
     )
     return res.modified_count
+
+
+CONTENT_DIR = os.path.join(os.path.dirname(__file__), "content")
+
+
+def _parse_content_file(path: str) -> dict:
+    raw = open(path, encoding="utf-8").read()
+    meta, body = {}, raw
+    if raw.startswith("---"):
+        _, fm, body = raw.split("---", 2)
+        for line in fm.strip().splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                meta[k.strip()] = v.strip()
+    body = body.strip()
+    faqs = []
+    m = re.search(r"^## FAQ\s*$", body, re.M)
+    if m:
+        faq_md, body = body[m.end():], body[:m.start()].rstrip()
+        for q in re.split(r"^### ", faq_md, flags=re.M)[1:]:
+            q_line, _, ans = q.partition("\n")
+            if q_line.strip() and ans.strip():
+                faqs.append({"question": q_line.strip(), "answer": " ".join(ans.split())})
+    meta["content"], meta["faq_items"] = body, faqs
+    return meta
+
+
+async def seed_content_posts() -> int:
+    """Hand-written posts in backend/content/*.md become drafts (scheduled via publish_at) if not in the DB yet."""
+    if not os.path.isdir(CONTENT_DIR):
+        return 0
+    added = 0
+    for name in sorted(os.listdir(CONTENT_DIR)):
+        if not name.endswith(".md"):
+            continue
+        m = _parse_content_file(os.path.join(CONTENT_DIR, name))
+        slug = m.get("slug") or slugify(m.get("title", name[:-3]))
+        if await db.blog_posts.find_one({"slug": slug}, {"_id": 1}):
+            continue
+        title = m.get("title", slug)
+        doc = {
+            "id": str(uuid.uuid4()), "slug": slug, "keyword": m.get("keyword", ""), "intent": "product",
+            "title": title, "seo_title": title if len(title) > 55 else f"{title} | {BRAND}",
+            "meta_description": m.get("meta_description", "")[:160], "seo_description": m.get("meta_description", "")[:160],
+            "excerpt": m.get("excerpt", ""), "content": m["content"], "faq_items": m["faq_items"],
+            "author": AUTHOR_NAME, "author_bio": AUTHOR_BIO, "author_url": AUTHOR_URL,
+            "sources": [{"source": f["source"], "url": f["url"]} for f in FACTS if f["url"] in m["content"]],
+            "source": "content", "status": "scheduled" if m.get("publish_at") else "draft", "published": False,
+            "publish_at": m.get("publish_at") or None, "published_at": None,
+            "created_at": now_iso(), "updated_at": now_iso(),
+        }
+        clean_post_fields(doc)
+        await db.blog_posts.insert_one(doc)
+        added += 1
+    return added
 
 
 async def build_sitemap() -> str:

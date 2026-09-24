@@ -1,4 +1,4 @@
-# ShowUp.ai robots.txt
+# ShowUpAI robots.txt
 # AI crawlers explicitly welcomed — we are GEO/AEO optimised
 
 User-agent: *

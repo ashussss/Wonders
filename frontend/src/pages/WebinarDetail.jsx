@@ -433,7 +433,7 @@ function ShowUpScoreCard({ webinar }) {
     catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
     finally { setBusy(false); }
   };
-  const shareText = `We hit a ${webinar.attendance_rate}% attendance rate on "${webinar.title}" with ShowUp.ai — beating the 30% industry baseline.`;
+  const shareText = `We hit a ${webinar.attendance_rate}% attendance rate on "${webinar.title}" with ShowUpAI — beating the 30% industry baseline.`;
   const li = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareText + " " + window.location.origin + "/api/webinars/" + webinar.id + "/showup-score.png")}`;
   return (
     <div className="mt-8 rounded-2xl overflow-hidden border border-white/20 bg-gradient-to-br from-white/5 to-transparent" data-testid="showup-score-card">

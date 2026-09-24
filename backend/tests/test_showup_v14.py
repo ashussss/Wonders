@@ -1,4 +1,4 @@
-"""ShowUp.ai v1.4 backend tests — Circle.so post-to-feed (Admin API v2),
+"""ShowUpAI v1.4 backend tests — Circle.so post-to-feed (Admin API v2),
 Buzz.ai custom-endpoint provider for email+LinkedIn, per-channel provider toggles,
 and Circle webhook dual payload shape (legacy + community_member_created)."""
 import os
