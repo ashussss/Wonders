@@ -264,6 +264,15 @@ The product name is **ShowUpAI** (no dot); the domain is **showupai.live**. The 
 
 **Not automated, on purpose.** *Reddit:* since November 2025 every new API app needs manual approval under Reddit's Responsible Builder Policy, commercial use needs a separate agreement, and automated promotional link posting breaks most subreddits' rules and gets accounts banned. Participate manually. *Substack:* there is no official publishing API; the available tools reverse-engineer a browser session cookie and can break or breach the terms. `GET /api/social/substack/<slug>` returns a ready-to-paste version with a canonical "originally published on" line.
 
+## 5c. Entity SEO, Knowledge Graph and AI visibility (24 Sep 2026)
+
+- **One connected schema graph** in `frontend/public/index.html`: Organization (`#organization`, logo `/logo.png` 512px, founder, email, `sameAs`), WebSite, SoftwareApplication (USD offers, accurate feature list), WebPage and FAQPage. Rules: every statement must be true and visible on the site; no ratings/reviews unless real and shown on the page; add official profile URLs to `Organization.sameAs` as they go live (this is the main on-site Knowledge Graph signal).
+- Removed from the old markup: an unverified 4.9/47-review `aggregateRating`, GBP prices (site charges USD), "uses Claude AI", "8-touch", "31% to 62%+" claims, and the deprecated HowTo block. Added `og:image` (`/og-image.png`, 1200x630) and `max-video-preview`.
+- **Homepage and /about are prerendered**: `scripts/prerender-blog.mjs` writes crawler-readable HTML into `build/index.html` (built from the JSON-LD graph, so text and schema always match) and `build/about/index.html`, and saves the untouched SPA shell as `build/app-shell.html`, which `_redirects` serves for every other route. JS browsers hide the static homepage copy until the dark landing page renders.
+- `/about` is the entity home page (AboutPage schema pointing at `#organization`), linked from the landing footer and in the sitemap.
+- `llms.txt` rewritten with accurate product facts, the 11-touch sequence, pricing, how ShowUpAI differs from webinar platforms, sourced benchmarks and key URLs (the build appends the article list).
+- Landing page product facts aligned with the product: 11 touches, 7 channels, brand name ShowUpAI.
+
 ## 6. Frontend routes (`src/App.js`)
 
 **Public:** `/` Landing · `/login` · `/register` · `/waitlist` · `/r/:wid` public registration form · `/blog` · `/blog/:slug`

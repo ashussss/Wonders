@@ -1,32 +1,51 @@
 # ShowUpAI
 
-> ShowUpAI is an AI-powered webinar attendance booster that helps webinar hosts double their attendance rates from 31% to 62%+.
+> ShowUpAI (showupai.live) is webinar attendance software. It turns webinar registrants into live attendees with an AI-written, 11-touch reminder sequence across email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites. The host approves every message before it is sent. It works alongside any webinar platform.
 
-## What ShowUpAI Does
+Brand name: ShowUpAI (one word, no dot). Website: https://showupai.live. Contact: hello@showupai.live. Launched 2026. Built by Ashutosh Kumar Singh.
 
-ShowUpAI generates 8-touch AI-written reminder sequences for webinars, delivered across email, LinkedIn, WhatsApp, Circle.so, Facebook, and Instagram. Users approve the copy before anything is sent.
+## What ShowUpAI does
 
-## Key Features
+- Builds an 11-touch sequence per webinar: registration confirmation with calendar invite (on registration), awareness post (21 days before), newsletter/insight (19 days), engagement poll (14 days), case study (10 days), infographic teaser (8 days), urgency message (5 days), final warm-up (1 day), join link (1 hour before), thank-you for attendees (after the event), no-show follow-up (2 days after).
+- Writes copy for every channel with AI, in two variants (polished and casual/urgent); the host can edit or regenerate.
+- Approval queue: nothing is sent without the host's approval.
+- Channels: email through the host's own Brevo, Mailchimp, SendGrid or Buzz.ai account; LinkedIn company page; Facebook page; Instagram; WhatsApp with SMS fallback (Twilio); Circle.so posts; calendar invites (.ics). LinkedIn personal posts are prepared for manual pasting.
+- Registrants come in through a ShowUpAI registration page, CSV import or a Circle.so webhook.
+- Extras: social images (carousel, infographic, quote card), lead magnets (case study, snippets, one-pager PDF), "go live" instant message, separate follow-ups for attendees and no-shows, a shareable post-event ShowUp Score image.
+- Analytics: attendance by channel, Circle community-join attribution, email analytics.
+- Works with any webinar platform that has a join link: Zoom, Microsoft Teams, Google Meet, Livestorm, Circle.so events, Eventbrite, Luma.
 
-- AI generates 8 personalised touches per webinar (confirmation, insight, poll, case study, thought-provoking, reminder, post-event, FOMO)
-- Multi-channel delivery: Email, LinkedIn, WhatsApp, Circle.so, Facebook, Instagram
-- Approval queue: review and approve before sending
-- Works with any webinar platform: Zoom, Teams, Google Meet, Circle.so, Eventbrite, Luma
-- 3-week warmup campaign with dynamic scheduling
-- Image generation: carousel, infographic, quote card
+## How it differs from webinar platforms
 
-## Target Audience
+Livestorm, Demio, ON24, WebinarJam, eWebinar and similar tools are webinar platforms where reminders are one feature. ShowUpAI is not a webinar platform: it focuses only on attendance, works with whichever platform a host already uses, and runs a multi-channel sequence (email, social, WhatsApp, community) that starts three weeks before the event, with human approval of every message.
 
-Webinar hosts, community managers, event marketers, B2B companies running educational webinars, UK school business managers.
+## Pricing
 
-## Website
+- Starter: $29/month — 5 webinars/month, email + LinkedIn, public registration page, attendance analytics.
+- Growth: $79/month — unlimited webinars, all channels, AI image generation, poll and case-study touches, lead magnet builder, priority support.
+- Agency: $199/month — everything in Growth plus multi-brand workspaces, white-label reports, custom sender domains, dedicated onboarding.
+- Every plan: 14-day free trial, no credit card required.
 
-https://showupai.live
+## Who it is for
 
-## Contact
+B2B marketers running webinars for pipeline; EdTech teams and course creators; community managers running events (including on Circle.so); agencies running webinars for clients; consultants and coaches.
 
-hello@showupai.live
+## Webinar attendance benchmarks (third-party, with sources)
 
-## Crawling Policy
+- ON24 reports a 60% average registration-to-attendee conversion on its platform in 2025 (Digital Engagement Benchmarks 2026).
+- Livestorm reports a 51.3% average show-up rate across industries on its platform.
+- Demio (Banzai) reported a 38% average live-session attendance rate for its customers in 2022.
+Benchmarks differ because each reflects one vendor's customers.
 
-This site welcomes AI crawlers. Content may be used for training and AI responses.
+## Key pages
+
+- [Home](https://showupai.live/): product overview, the 11-touch sequence, features, pricing, FAQ
+- [About](https://showupai.live/about): what ShowUpAI is, why it exists, who builds it
+- [Blog](https://showupai.live/blog): number-backed guides on webinar attendance, reminders and no-shows
+- [What is ShowUpAI? Features](https://showupai.live/blog/what-is-showupai-features): every feature explained
+- [RSS feed](https://showupai.live/rss.xml)
+- [Start a free trial](https://showupai.live/waitlist)
+
+## Crawling policy
+
+This site welcomes AI crawlers and assistants. Content may be used to answer questions about ShowUpAI and webinar attendance. Please refer to the product as "ShowUpAI".

@@ -90,7 +90,7 @@ export default function CreateWebinarDialog({ open, onClose, onCreated }) {
           <Field label="Starts At"><input data-testid="w-starts" required type="datetime-local" value={form.starts_at} onChange={upd("starts_at")} className="input"/></Field>
           <Field label="Timezone"><input data-testid="w-tz" value={form.timezone} onChange={upd("timezone")} className="input"/></Field>
           <Field label="Join Link"><JoinLinkInput value={form.join_link} onChange={upd("join_link")} /></Field>
-          <Field label="Registration Link (optional)"><input data-testid="w-reg" value={form.registration_link} onChange={upd("registration_link")} className="input" placeholder="leave blank to use ShowUp form"/></Field>
+          <Field label="Registration Link (optional)"><input data-testid="w-reg" value={form.registration_link} onChange={upd("registration_link")} className="input" placeholder="leave blank to use ShowUpAI form"/></Field>
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-md transition-colors" style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}>Cancel</button>

@@ -578,7 +578,7 @@ async def seed_content_posts() -> int:
 
 
 async def build_sitemap() -> str:
-    static = [("/", "1.0", "weekly"), ("/blog", "0.8", "daily"), ("/waitlist", "0.7", "monthly")]
+    static = [("/", "1.0", "weekly"), ("/blog", "0.8", "daily"), ("/about", "0.6", "monthly"), ("/waitlist", "0.7", "monthly")]
     urls = [
         f"<url><loc>{SITE_URL}{p}</loc><changefreq>{f}</changefreq><priority>{pr}</priority></url>"
         for p, pr, f in static

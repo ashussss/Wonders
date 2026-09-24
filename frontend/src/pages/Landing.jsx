@@ -17,7 +17,7 @@ const PLANS = [
     price: "$29",
     period: "/mo",
     desc: "For independent speakers and solo consultants.",
-    features: ["5 webinars/month", "8-touch AI sequences", "Email + LinkedIn", "Public registration page", "Attendance analytics"],
+    features: ["5 webinars/month", "11-touch AI sequences", "Email + LinkedIn", "Public registration page", "Attendance analytics"],
     cta: "Start free trial",
     highlight: false},
   {
@@ -25,7 +25,7 @@ const PLANS = [
     price: "$79",
     period: "/mo",
     desc: "For teams running webinars as a growth channel.",
-    features: ["Unlimited webinars", "All 6 channels", "AI image generation", "Poll + case study touches", "Lead magnet builder", "Priority support"],
+    features: ["Unlimited webinars", "All 7 channels", "AI image generation", "Poll + case study touches", "Lead magnet builder", "Priority support"],
     cta: "Start free trial",
     highlight: true},
   {
@@ -39,17 +39,17 @@ const PLANS = [
 ];
 
 const FEATURES = [
-  { icon: Zap, title: "8 touches. Not 1.", body: "Confirmation, insight, poll, case study, thought-provoking hook, day-before, join link, post-event. The sequence your registrants actually need to show up.", color: "text-orange-400" },
+  { icon: Zap, title: "11 touches. Not 1.", body: "Confirmation, awareness, insight, poll, case study, infographic, urgency, day-before, join link, thank-you and no-show follow-up. The sequence your registrants actually need to show up.", color: "text-orange-400" },
   { icon: Mail, title: "Every channel, one place", body: "Email, LinkedIn, WhatsApp, Circle.so, Facebook, Instagram. One approval, delivered everywhere. No copy-pasting between tools.", color: "text-orange-400" },
   { icon: BarChart3, title: "Know what actually worked", body: "Track opens, attendance, and conversions by channel. See which touch moved the needle. Get better every single webinar.", color: "text-orange-400" },
-  { icon: Clock, title: "30 seconds to set up", body: "Paste your webinar link. AI generates your entire 8-touch campaign. You approve. It runs on schedule. That's it.", color: "text-orange-400" },
-  { icon: TrendingUp, title: "31% → 62%+ attendance", body: "The industry average is 31%. ShowUp users consistently hit 62%+. The gap isn't your content — it's your follow-through.", color: "text-orange-400" },
-  { icon: Users, title: "Works with any platform", body: "Zoom, Teams, Meet, Circle.so, Eventbrite, Luma — paste any link and ShowUp auto-fills your webinar details and imports attendees.", color: "text-orange-400" },
+  { icon: Clock, title: "30 seconds to set up", body: "Paste your webinar link. AI generates your entire 11-touch campaign. You approve. It runs on schedule. That's it.", color: "text-orange-400" },
+  { icon: TrendingUp, title: "31% → 62%+ attendance", body: "The industry average is 31%. ShowUpAI users consistently hit 62%+. The gap isn't your content — it's your follow-through.", color: "text-orange-400" },
+  { icon: Users, title: "Works with any platform", body: "Zoom, Teams, Meet, Circle.so, Eventbrite, Luma — paste any link and ShowUpAI auto-fills your webinar details and imports attendees.", color: "text-orange-400" },
 ];
 
 const SOCIAL_PROOF = [
-  { quote: "First webinar with ShowUp went from our usual 28% to 61%. The day-before case study email was the one that moved people — they showed up wanting answers.", name: "Sarah M.", role: "School Business Manager, UK" },
-  { quote: "I used to spend 3 hours per webinar writing reminders. ShowUp generates everything in 30 seconds and the copy is honestly better than what I was writing.", name: "James T.", role: "EdTech Consultant, US" },
+  { quote: "First webinar with ShowUpAI went from our usual 28% to 61%. The day-before case study email was the one that moved people — they showed up wanting answers.", name: "Sarah M.", role: "School Business Manager, UK" },
+  { quote: "I used to spend 3 hours per webinar writing reminders. ShowUpAI generates everything in 30 seconds and the copy is honestly better than what I was writing.", name: "James T.", role: "EdTech Consultant, US" },
   { quote: "The poll touch is genius. We get replies before the webinar even starts.", name: "Priya K.", role: "Corporate Trainer" },
 ];
 
@@ -219,7 +219,7 @@ export default function Landing() {
           {/* Stats row */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }}
             className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
-            {[["62%+","avg. attendance rate"],["8","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
+            {[["62%+","avg. attendance rate"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
               <div key={label} className="text-center p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
                 <div className="text-3xl sm:text-4xl font-bold text-white mb-1" style={{ fontFamily: "Outfit" }}>{num}</div>
                 <div className="text-xs text-gray-500 leading-tight">{label}</div>
@@ -252,11 +252,11 @@ export default function Landing() {
                 <div className="text-7xl sm:text-9xl font-bold leading-none" style={{ fontFamily: "Outfit", color: ORANGE }}>
                   <Counter to={62} suffix="%" />
                 </div>
-                <div className="text-orange-500/70 mt-2 text-sm">ShowUp average</div>
+                <div className="text-orange-500/70 mt-2 text-sm">ShowUpAI average</div>
               </div>
             </div>
             <p className="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Most webinar tools send one reminder. ShowUpAI sends eight — each one different, each one AI-written for your specific audience, each one designed to move someone from "maybe" to "there." It's not an email tool. It's not a webinar platform. It's the only system built exclusively to fix no-shows.
+              Most webinar tools send one reminder. ShowUpAI sends eleven — each one different, each one AI-written for your specific audience, each one designed to move someone from "maybe" to "there." It's not an email tool. It's not a webinar platform. It's the only system built exclusively to fix no-shows.
             </p>
           </motion.div>
         </div>
@@ -271,7 +271,7 @@ export default function Landing() {
           </motion.div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
-              { n: "01", title: "Create your webinar", body: "Add title, date, speaker, target audience. ShowUp generates your entire 8-touch send plan in under 30 seconds." },
+              { n: "01", title: "Create your webinar", body: "Add title, date, speaker, target audience. ShowUpAI generates your entire 11-touch send plan in under 30 seconds." },
               { n: "02", title: "Approve AI copy", body: "Review each touch — insight, poll, case study, reminder. Pick safe or casual variant. Edit if you want, approve when ready." },
               { n: "03", title: "Watch attendance climb", body: "Touches go out automatically. Track opens, registrations, attendance by channel. See what works." },
             ].map((step, i) => (
@@ -419,7 +419,7 @@ export default function Landing() {
               deserves a full room.
             </span>
           </h2>
-          <p className="text-gray-400 text-xl mb-10">Join 100+ webinar hosts already using ShowUp. 14-day free trial, no card required.</p>
+          <p className="text-gray-400 text-xl mb-10">Join 100+ webinar hosts already using ShowUpAI. 14-day free trial, no card required.</p>
           <Link to="/waitlist"
             className="inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-semibold px-10 py-5 rounded-xl text-lg transition-all shadow-[0_0_60px_rgba(234,88,12,0.5)] hover:shadow-[0_0_80px_rgba(234,88,12,0.7)]">
             Get started free <ArrowRight size={20} />
@@ -439,7 +439,7 @@ export default function Landing() {
           <div className="flex gap-6 text-sm text-gray-400">
             <a href="#features" className="hover:text-gray-400 transition-colors">Features</a>
             <a href="#pricing" className="hover:text-gray-400 transition-colors">Pricing</a>
-            <a href="#about" className="hover:text-gray-400 transition-colors">About</a>
+            <Link to="/about" className="hover:text-gray-400 transition-colors">About</Link>
             <Link to="/blog" className="hover:text-gray-400 transition-colors">Blog</Link>
             <Link to="/login" className="hover:text-gray-400 transition-colors">Sign in</Link>
           </div>

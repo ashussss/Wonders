@@ -89,14 +89,77 @@ function withRoot(shell, html) {
   return shell.replace(/<div id="root"><\/div>/, `<div id="root">${STYLE}<div class="pr">${html}</div></div>`);
 }
 
+function graphFrom(shell) {
+  const m = shell.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  try { return JSON.parse(m[1])["@graph"] || []; } catch (e) { return []; }
+}
+
+function homeHtml(graph, posts) {
+  const app = graph.find((n) => n["@type"] === "SoftwareApplication") || {};
+  const faq = (graph.find((n) => n["@type"] === "FAQPage") || {}).mainEntity || [];
+  const offers = ((app.offers || {}).offers) || [];
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a> · <a href="/waitlist">Start free trial</a></p></header>
+<main>
+<h1>Make people actually show up for your webinar</h1>
+<p class="hero-description">${esc(app.description || "")}</p>
+<p><a href="/waitlist">Start your 14-day free trial</a> (no card required)</p>
+<h2>How ShowUpAI works</h2>
+<ol><li>Add your webinar (paste the event URL or enter the details).</li><li>ShowUpAI builds an 11-touch send plan and writes the copy for every channel, in two variants.</li><li>You review, edit and approve. Nothing sends without approval.</li><li>Approved touches go out on schedule; see attendance by channel afterwards.</li></ol>
+<h2>The 11-touch sequence</h2>
+<ol><li>Registration confirmation + calendar invite (on registration)</li><li>Awareness post (21 days before)</li><li>Newsletter / insight (19 days before)</li><li>Engagement poll (14 days before)</li><li>Case study (10 days before)</li><li>Infographic teaser (8 days before)</li><li>Urgency message (5 days before)</li><li>Final warm-up (1 day before)</li><li>Join link (1 hour before)</li><li>Thank-you for attendees (after the event)</li><li>No-show follow-up (2 days after)</li></ol>
+<h2>Features</h2>
+<ul>${(app.featureList || []).map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+<h2>Pricing</h2>
+<ul>${offers.map((o) => `<li><strong>${esc(o.name)}</strong>: $${esc(o.price)}/month. ${esc(o.description)}</li>`).join("")}</ul>
+<h2>Frequently asked questions</h2>
+${faq.map((q) => `<h3>${esc(q.name)}</h3><p>${esc((q.acceptedAnswer || {}).text || "")}</p>`).join("\n")}
+${posts && posts.length ? `<h2>Latest from the blog</h2><ul>${posts.slice(0, 6).map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></li>`).join("")}</ul>` : ""}
+</main>
+<footer><p>© ShowUpAI · <a href="/about">About</a> · <a href="/blog">Blog</a> · <a href="mailto:hello@showupai.live">hello@showupai.live</a></p></footer>`;
+}
+
+function aboutHtml() {
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a></p></header>
+<main><h1>About ShowUpAI</h1>
+<p>ShowUpAI is webinar attendance software. It exists for one reason: to make the people who register for your webinar actually show up.</p>
+<h2>What we do</h2><p>You add a webinar, and ShowUpAI writes, schedules and sends an 11-touch reminder sequence across email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites. It starts three weeks before the event with value-led touches, moves to urgency and the join link, and ends with separate follow-ups for attendees and no-shows. You approve every message before it goes out.</p>
+<p>ShowUpAI works alongside whichever webinar platform you already use, including Zoom, Microsoft Teams, Google Meet, Livestorm, Circle.so events, Eventbrite and Luma.</p>
+<h2>Why we built it</h2><p>Running webinars for B2B and education communities, we kept seeing a good topic, a good speaker, plenty of registrations and a mostly empty room. The difference was what happened between sign-up and start time. ShowUpAI automates that part.</p>
+<h2>Who's behind it</h2><p>ShowUpAI is built by Ashutosh Kumar Singh, a B2B marketer with 13+ years across SEO, content, demand generation and events.</p>
+<h2>Facts</h2><ul><li>Product: webinar attendance software (web app)</li><li>Website: <a href="https://showupai.live">showupai.live</a></li><li>Launched: 2026</li><li>Plans: Starter $29/month, Growth $79/month, Agency $199/month; 14-day free trial, no card required</li><li>Contact: <a href="mailto:hello@showupai.live">hello@showupai.live</a></li></ul>
+<p><a href="/waitlist">Increase my attendance</a> · <a href="/blog">Read the blog</a></p></main>`;
+}
+
 async function main() {
   const shellPath = path.join(BUILD, "index.html");
+  const cleanPath = path.join(BUILD, "app-shell.html");
   if (!fs.existsSync(shellPath)) return console.log("[prerender] no build/index.html, skipping");
-  const shell = fs.readFileSync(shellPath, "utf8");
+  // Re-runs start from the clean shell saved by the first run
+  const shell = fs.readFileSync(fs.existsSync(cleanPath) ? cleanPath : shellPath, "utf8");
   if (!shell.includes('<div id="root"></div>')) return console.log("[prerender] root div not found, skipping");
+  // Clean SPA shell for every non-prerendered route (/_redirects: /* -> /app-shell.html)
+  fs.writeFileSync(path.join(BUILD, "app-shell.html"), shell);
 
   const list = await getJSON(`${API}/blog`);
-  if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping (site still works client-side)");
+  const graph = graphFrom(shell);
+
+  // Homepage + About: static, crawler-readable HTML (React mounts over it for humans)
+  // Hide the static copy from JS-enabled browsers (the dark landing page renders over it) to avoid a flash;
+  // crawlers without JavaScript still read the full text in the HTML.
+  const homeShell = shell.replace("</head>", `<script>document.documentElement.classList.add("js")</script><style>html.js #root > .pr, html.js #root > style{display:none}</style>\n</head>`);
+  fs.writeFileSync(shellPath, withRoot(homeShell, homeHtml(graph, Array.isArray(list) ? list : [])));
+  const aboutPage = withRoot(setHead(shell, {
+    title: "About ShowUpAI — Webinar Attendance Software",
+    description: "ShowUpAI is webinar attendance software built to make registrants actually show up. What it does, why it exists, who builds it, and the facts.",
+    url: `${SITE}/about`, image: `${SITE}/og-image.png`, type: "website",
+    jsonld: { "@context": "https://schema.org", "@type": "AboutPage", "@id": `${SITE}/about#webpage`, url: `${SITE}/about`,
+      name: "About ShowUpAI", about: { "@id": `${SITE}/#organization` }, isPartOf: { "@id": `${SITE}/#website` } },
+  }), aboutHtml());
+  fs.mkdirSync(path.join(BUILD, "about"), { recursive: true });
+  fs.writeFileSync(path.join(BUILD, "about", "index.html"), aboutPage);
+  console.log("[prerender] wrote homepage + about + app-shell");
+
+  if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
   const md = await loadMarkdown();
   const posts = [];
   for (const item of list) {

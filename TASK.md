@@ -34,8 +34,10 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 ## P1: Next
 
 - [x] **Prerender blog pages** (done 24 Sep: `scripts/prerender-blog.mjs` + Netlify build hook). Needs `NETLIFY_BUILD_HOOK` set on Render.
-- [ ] **Landing page says "8 touches" and "All 6 channels"**; the product sends 11 touches across 7 channels (LinkedIn personal is copy-paste). Align Landing.jsx plans/feature cards with the product.
-- [ ] **Fix unverified claims in `frontend/public/index.html`** ("62%+ average attendance", "31% industry average", "uses Claude AI", "8-touch" vs the actual 11 touches). They appear in meta tags and schema on every page, including prerendered blog pages.
+- [x] index.html schema/meta rebuilt with accurate facts (24 Sep).
+- [ ] **Landing page performance claims need proof or removal**: testimonials ("28% to 61%", "3 hours per webinar"), "ShowUpAI users consistently hit 62%+", "31% industry average", "65% of your registrants won't show up", "Join 100+ webinar hosts". Keep only what is real and attributable.
+- [ ] **Knowledge Graph (off-site)**: create consistent profiles with the same name (ShowUpAI), logo, one-line description and link to https://showupai.live: LinkedIn company page, X, YouTube, Crunchbase, G2, Capterra, Product Hunt, SaaSHub, AlternativeTo; founder LinkedIn profile linking to ShowUpAI. Add every URL to `Organization.sameAs` in index.html. Wikidata item only once there is independent coverage (press, reviews) to cite. Earn mentions: guest posts, podcasts, partner listings (Zoom/Circle marketplaces if eligible). When a Knowledge Panel appears, claim it via Google's verification flow. Google Business Profile is not for online-only businesses.
+- [ ] **Comparison pages** vs Livestorm, Demio, ON24, WebinarJam, eWebinar (verified fact sheets first).
 - [ ] **Bing Webmaster Tools**: verify showupai.live, submit the sitemap (ChatGPT search uses Bing's index).
 - [ ] **Content freshness**: review and update each post's stats every ~3 months (AI answers favour recently updated pages); edits bump dateModified and re-ping IndexNow.
 - [ ] **Connect social accounts** for the autopilot: LinkedIn (apply for Community Management API for the company page, or use a personal URN), Meta Page + Instagram Business; set `SOCIAL_ACCOUNT_EMAIL`. Review the daily queue for the first 1-2 weeks before setting `SOCIAL_AUTO_APPROVE=true`.

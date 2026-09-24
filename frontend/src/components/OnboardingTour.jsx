@@ -22,7 +22,7 @@ const STEPS = [
   {
     id: "create",
     title: "Create Your First Webinar",
-    body: "Click '+ New Webinar' or '🔗 Add from Link' to paste any webinar URL. ShowUp will auto-fill the details and generate your 8-touch AI sequence.",
+    body: "Click '+ New Webinar' or '🔗 Add from Link' to paste any webinar URL. ShowUpAI will auto-fill the details and generate your 8-touch AI sequence.",
     target: "[data-testid='create-webinar-btn']",
     position: "bottom",
   },
