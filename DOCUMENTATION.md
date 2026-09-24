@@ -252,6 +252,18 @@ The product name is **ShowUpAI** (no dot); the domain is **showupai.live**. The 
 
 ---
 
+## 5b. Social autopilot (ShowUpAI's own channels, added 24 Sep 2026)
+
+**What it does.** (1) Every published blog post is queued as a LinkedIn + Facebook + Instagram post (cover image + link, AI captions per platform) and posted ~20 minutes later, after the Netlify rebuild so link previews work. Auto-approved by default (`SOCIAL_AUTO_BLOG=true`) because the article was already reviewed. (2) Every day at 07:00 IST, `SOCIAL_POSTS_PER_DAY` (default 4) posts are generated for `SOCIAL_TIMES_IST` (default 09:30, 12:30, 16:00, 19:00): a **carousel** (hook + 5 tips + CTA, 1080x1350), a **stat card** (one sourced number, 1080x1080), an **infographic** checklist (1080x1350) and an older article **resurfaced**. They wait in the queue as `pending` until approved, unless `SOCIAL_AUTO_APPROVE=true`. A job every 5 minutes posts approved items whose time has come.
+
+**Code.** `backend/social.py` (planning, AI captions, LinkedIn/Facebook/Instagram publishers, queue), `backend/social_images.py` (branded JPEG templates with the logo), `backend/routes_social.py` (endpoints). Images live in the `social_images` collection and are served at `/api/social/img/<id>.jpg`; covers also at `/api/blog/<slug>/cover.jpg` (Instagram only accepts JPEG). Queue: `social_posts`.
+
+**Credentials.** Log into the ShowUpAI app with the brand account, fill LinkedIn Marketing token + Organization URN and Meta Graph token + Facebook Page ID + Instagram Business Account ID in Settings, and set `SOCIAL_ACCOUNT_EMAIL` on Render to that account's email. `GET /api/social/check` shows what's connected. LinkedIn company-page posting needs LinkedIn's Community Management API approval (`w_organization_social`); a personal profile URN (`urn:li:person:...`) with `w_member_social` also works. Meta needs a Page token with `pages_manage_posts` and `instagram_content_publish`, and the Instagram account must be a Business/Creator account linked to the Page.
+
+**Endpoints (X-API-KEY).** `GET /api/social/queue[?status=pending]`, `POST /api/social/generate`, `POST /api/social/approve` (`{"id"}`, `{"ids"}` or `{"all_pending": true}`), `POST /api/social/skip`, `POST /api/social/edit` (captions / scheduled_at), `POST /api/social/post-now` (also retries failed platforms), `GET /api/social/substack/<slug>`.
+
+**Not automated, on purpose.** *Reddit:* since November 2025 every new API app needs manual approval under Reddit's Responsible Builder Policy, commercial use needs a separate agreement, and automated promotional link posting breaks most subreddits' rules and gets accounts banned. Participate manually. *Substack:* there is no official publishing API; the available tools reverse-engineer a browser session cookie and can break or breach the terms. `GET /api/social/substack/<slug>` returns a ready-to-paste version with a canonical "originally published on" line.
+
 ## 6. Frontend routes (`src/App.js`)
 
 **Public:** `/` Landing · `/login` · `/register` · `/waitlist` · `/r/:wid` public registration form · `/blog` · `/blog/:slug`

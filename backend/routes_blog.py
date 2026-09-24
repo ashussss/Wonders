@@ -89,6 +89,11 @@ async def publish_slug(slug: str) -> bool:
     await pseo.relink_all(slug)
     await _trigger_rebuild(f"published {slug}")
     _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
+    try:  # queue LinkedIn / Facebook / Instagram promo (posted ~20 min later)
+        import social
+        await social.queue_blog_promo(slug)
+    except Exception:
+        pass
     return True
 
 

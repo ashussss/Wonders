@@ -38,6 +38,8 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 - [ ] **Fix unverified claims in `frontend/public/index.html`** ("62%+ average attendance", "31% industry average", "uses Claude AI", "8-touch" vs the actual 11 touches). They appear in meta tags and schema on every page, including prerendered blog pages.
 - [ ] **Bing Webmaster Tools**: verify showupai.live, submit the sitemap (ChatGPT search uses Bing's index).
 - [ ] **Content freshness**: review and update each post's stats every ~3 months (AI answers favour recently updated pages); edits bump dateModified and re-ping IndexNow.
+- [ ] **Connect social accounts** for the autopilot: LinkedIn (apply for Community Management API for the company page, or use a personal URN), Meta Page + Instagram Business; set `SOCIAL_ACCOUNT_EMAIL`. Review the daily queue for the first 1-2 weeks before setting `SOCIAL_AUTO_APPROVE=true`.
+- [ ] **LinkedIn API version**: the app posts via `/v2/ugcPosts` (legacy). If LinkedIn rejects it, migrate `social.post_linkedin` and `senders.post_linkedin_company` to the versioned `/rest/posts` + `/rest/images` API.
 - [ ] **Newsletter sending**: subscribers are only collected (`blog_subscribers`). Connect Brevo/Mailchimp (list + double opt-in + welcome email) and send new posts weekly.
 - [ ] **Comparison pages**: approved fact sheets per competitor (see COMPETITORS.md), then a comparison template.
 - [ ] **Original data**: publish anonymised aggregate attendance data from ShowUpAI once there is enough.

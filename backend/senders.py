@@ -220,7 +220,7 @@ async def post_facebook_page(settings: Dict[str, Any], message: str,
             return DeliveryResult(False, "facebook", f"{r.status_code}: {r.text[:200]}")
         post_id = r.json().get("id")
         status = "scheduled" if scheduled_time else "published"
-        return DeliveryResult(True, "facebook", external_id=post_id, note=status)
+        return DeliveryResult(True, "facebook", detail=status, external_id=post_id)
     except Exception as e:
         return DeliveryResult(False, "facebook", str(e))
 

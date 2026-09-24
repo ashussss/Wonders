@@ -16,6 +16,8 @@ from routes_delivery import router as delivery_router, scheduler_tick
 from routes_blog import router as blog_router
 from routes_gsc import router as gsc_router
 from routes_blog import publish_due
+from routes_social import router as social_router
+import social
 import pseo
 from datetime import datetime, timezone
 
@@ -29,6 +31,10 @@ async def lifespan(_app: FastAPI):
     # Blog: publish scheduled posts (and seed hand-written ones) every 10 minutes
     scheduler.add_job(publish_due, "interval", minutes=10, id="blog-publish-due", replace_existing=True,
                       coalesce=True, next_run_time=datetime.now(timezone.utc))
+    # Social autopilot: generate the day's posts at 07:00 IST, post approved ones every 5 minutes
+    scheduler.add_job(social.generate_daily, "cron", hour=1, minute=30, id="social-daily",
+                      replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
+    scheduler.add_job(social.post_due, "interval", minutes=5, id="social-post-due", replace_existing=True, coalesce=True)
     # Programmatic SEO: draft new blog posts daily at 03:30 UTC (09:00 IST)
     scheduler.add_job(pseo.run_pipeline, "cron", hour=3, minute=30, id="pseo-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
@@ -61,6 +67,7 @@ app.include_router(settings_router)
 app.include_router(delivery_router)
 app.include_router(blog_router)
 app.include_router(gsc_router)
+app.include_router(social_router)
 
 
 @app.get("/api/")
