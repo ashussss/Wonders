@@ -18,82 +18,109 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from fastapi.responses import Response
+
 from database import db
 from auth_utils import get_user, now_iso
 from models import BlogPostIn, BlogPostPatch
 from config import SUPERADMIN_SECRET
-from seo_generator import generate_seo_content
+import pseo
 
 router = APIRouter(prefix="/api")
 limiter = Limiter(key_func=get_remote_address)
 
 
-# --------- Programmatic SEO Webhooks ---------
+def _require_key(request: Request):
+    """Admin/cron endpoints: require X-API-KEY == SUPERADMIN_SECRET."""
+    if not SUPERADMIN_SECRET or request.headers.get("X-API-KEY") != SUPERADMIN_SECRET:
+        raise HTTPException(403, "Unauthorized")
+
+
+# --------- Programmatic SEO pipeline ---------
 
 @router.post("/seo/research")
-async def seo_research(payload: dict = Body(...), request: Request = None):
-    """(Cron) Discover keywords and add to candidates/blog_posts."""
-    if request.headers.get("X-API-KEY") != SUPERADMIN_SECRET:
-        raise HTTPException(403, "Unauthorized")
+async def seo_research(request: Request, payload: dict = Body(default={})):
+    """Add keyword(s) to the queue. Body: {"keyword": "..."} or {"keywords": ["...", ...]}."""
+    _require_key(request)
+    kws = payload.get("keywords") or ([payload["keyword"]] if payload.get("keyword") else [])
+    if not kws:
+        raise HTTPException(400, "keyword or keywords required")
+    intent = payload.get("intent", "informational")
+    added = 0
+    for k in kws:
+        added += await pseo.add_keyword(str(k), intent)
+    return {"ok": True, "added": added, "submitted": len(kws)}
 
-    keyword = payload.get("keyword")
-    if not keyword:
-        raise HTTPException(400, "Keyword required")
 
-    # Store candidate for discovery
-    await db.seo_candidates.insert_one({
-        "keyword": keyword,
-        "intent": payload.get("intent", "commercial"),
-        "created_at": now_iso(),
-        "status": "pending"
-    })
+@router.post("/seo/run")
+async def seo_run(request: Request, payload: dict = Body(default={})):
+    """Run the pipeline now: generate drafts for the next N queued keywords (default PSEO_POSTS_PER_DAY)."""
+    _require_key(request)
+    count = int(payload.get("count") or pseo.PSEO_POSTS_PER_DAY)
+    return await pseo.run_pipeline(min(max(count, 1), 5))
 
-    return {"ok": True, "message": f"Keyword '{keyword}' added to discovery"}
 
 @router.post("/seo/generate")
-async def seo_generate(payload: dict = Body(...), request: Request = None):
-    """(Cron) Generate content for a keyword."""
-    if request.headers.get("X-API-KEY") != SUPERADMIN_SECRET:
-        raise HTTPException(403, "Unauthorized")
-
-    keyword = payload.get("keyword")
+async def seo_generate(request: Request, payload: dict = Body(default={})):
+    """Generate a draft for one specific keyword right now."""
+    _require_key(request)
+    keyword = (payload.get("keyword") or "").strip()
     if not keyword:
         raise HTTPException(400, "Keyword required")
+    await pseo.ensure_indexes()
+    post = await pseo.generate_post(keyword.lower(), payload.get("intent", "informational"))
+    return {"ok": True, "slug": post["slug"], "title": post["title"], "status": post["status"]}
 
-    # Generate content using Groq
-    content = generate_seo_content(keyword)
 
-    # Save as draft
-    await db.blog_posts.insert_one({
-        "keyword": keyword,
-        "content": content,
-        "published": False,
-        "slug": keyword.lower().replace(" ", "-"),
-        "created_at": now_iso()
-    })
+@router.get("/seo/queue")
+async def seo_queue(request: Request):
+    """See queued / drafted / failed keywords."""
+    _require_key(request)
+    rows = await db.seo_candidates.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return rows
 
-    return {"ok": True, "message": f"Content generated for '{keyword}'"}
+
+@router.get("/seo/drafts")
+async def seo_drafts(request: Request):
+    """List unpublished drafts for review (full content included)."""
+    _require_key(request)
+    return await db.blog_posts.find({"published": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
 
 @router.post("/seo/publish")
-async def seo_publish(payload: dict = Body(...), request: Request = None):
-    """(Cron) Publish approved pages."""
-    if request.headers.get("X-API-KEY") != SUPERADMIN_SECRET:
-        raise HTTPException(403, "Unauthorized")
-
+async def seo_publish(request: Request, payload: dict = Body(default={})):
+    """Publish a reviewed draft. Body: {"slug": "..."}."""
+    _require_key(request)
     slug = payload.get("slug")
     if not slug:
         raise HTTPException(400, "Slug required")
-
-    # Update to published
+    ts = now_iso()
     result = await db.blog_posts.update_one(
         {"slug": slug},
-        {"$set": {"published": True, "published_at": now_iso()}}
+        {"$set": {"published": True, "status": "published", "published_at": ts, "updated_at": ts}},
     )
-
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(404, "Draft not found")
+    return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}
 
-    return {"ok": True, "message": f"Page '{slug}' published"}
+
+@router.post("/seo/unpublish")
+async def seo_unpublish(request: Request, payload: dict = Body(default={})):
+    """Take a post offline (back to draft)."""
+    _require_key(request)
+    result = await db.blog_posts.update_one(
+        {"slug": payload.get("slug")}, {"$set": {"published": False, "status": "draft", "updated_at": now_iso()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Post not found")
+    return {"ok": True}
+
+
+@router.get("/sitemap.xml")
+async def sitemap():
+    """Live sitemap from published posts (proxied at showupai.live/sitemap.xml by Netlify)."""
+    xml = await pseo.build_sitemap()
+    return Response(content=xml, media_type="application/xml")
 
 
 # --------- Blog Posts with Full Optimization ---------
@@ -112,7 +139,7 @@ async def list_blog_posts():
 @router.get("/blog/{slug}")
 async def get_blog_post(slug: str):
     """Get a single blog post by slug with full optimization data."""
-    row = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
+    row = await db.blog_posts.find_one({"slug": slug, "published": True}, {"_id": 0})
     if not row:
         raise HTTPException(404, "Blog post not found")
     return row
@@ -231,14 +258,14 @@ async def update_blog_post(slug: str, data: BlogPostPatch, user=Depends(get_user
 @router.post("/blog/generate")
 async def generate_blog_post(
     keyword: str = Body(...),
-    intent: str = Body("informational"),  # informational, commercial, transactional
+    intent: str = Body("informational"),
     user=Depends(get_user)
 ):
-    """Generate a fully optimized blog post using AI with SEO/LLM/AEO/GEO patterns."""
-    from ai import generate_optimized_blog_post
-
-    result = await generate_optimized_blog_post(keyword, intent)
-    return result
+    """Generate a draft blog post with AI (superadmin only)."""
+    if user.get("role", "") != "superadmin":
+        raise HTTPException(403, "Superadmin access required")
+    await pseo.ensure_indexes()
+    return await pseo.generate_post(keyword.strip().lower(), intent)
 
 
 # --------- Helper Endpoints for Optimization ---------

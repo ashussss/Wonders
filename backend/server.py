@@ -14,6 +14,8 @@ from routes_auth import router as auth_router
 from routes_settings import router as settings_router
 from routes_delivery import router as delivery_router, scheduler_tick
 from routes_blog import router as blog_router
+from routes_gsc import router as gsc_router
+import pseo
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("showup")
@@ -22,6 +24,9 @@ logger = logging.getLogger("showup")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     scheduler.add_job(scheduler_tick, "interval", minutes=1, id="touch-tick", replace_existing=True)
+    # Programmatic SEO: draft new blog posts daily at 03:30 UTC (09:00 IST)
+    scheduler.add_job(pseo.run_pipeline, "cron", hour=3, minute=30, id="pseo-daily",
+                      replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     scheduler.start()
     logger.info("Scheduler started")
     try:
@@ -50,6 +55,7 @@ app.include_router(webinars_router)
 app.include_router(settings_router)
 app.include_router(delivery_router)
 app.include_router(blog_router)
+app.include_router(gsc_router)
 
 
 @app.get("/api/")

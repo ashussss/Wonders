@@ -24,6 +24,12 @@ function setCanonical(href) {
   el.setAttribute("href", href);
 }
 
+function inline(text) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part
+  );
+}
+
 const looksLikeHtml = (s) => /<\/?[a-z][\s\S]*>/i.test(s || "");
 
 // Minimal markdown renderer: headings, lists, paragraphs. Returns React nodes (no innerHTML).
@@ -34,8 +40,21 @@ function renderMarkdown(md) {
     const text = block.trim();
     if (!text) return null;
     const heading = text.match(/^(#{1,4})\s+(.+)$/);
+    const firstLine = text.split("\n")[0];
+    const headLine = firstLine.match(/^(#{1,4})\s+(.+)$/);
+    if (!heading && headLine) {
+      const rest = text.split("\n").slice(1).join("\n");
+      const level = Math.max(2, Math.min(headLine[1].length, 4));
+      const Tag = `h${level}`;
+      return (
+        <React.Fragment key={i}>
+          <Tag id={`section-${h++}`} className="font-semibold mt-8 mb-3">{headLine[2]}</Tag>
+          <p className="my-4">{inline(rest)}</p>
+        </React.Fragment>
+      );
+    }
     if (heading) {
-      const level = Math.min(heading[1].length + 1, 4);
+      const level = Math.max(2, Math.min(heading[1].length, 4));
       const Tag = `h${level}`;
       return (
         <Tag key={i} id={`section-${h++}`} className="font-semibold mt-8 mb-3">
@@ -50,14 +69,14 @@ function renderMarkdown(md) {
       return (
         <ListTag key={i} className={`${ordered ? "list-decimal" : "list-disc"} pl-6 space-y-1 my-4`}>
           {lines.map((l, j) => (
-            <li key={j}>{l.replace(/^\s*([-*]|\d+\.)\s+/, "")}</li>
+            <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ""))}</li>
           ))}
         </ListTag>
       );
     }
     return (
       <p key={i} className="my-4">
-        {text.replace(/\*\*/g, "")}
+        {inline(text)}
       </p>
     );
   });
@@ -92,6 +111,43 @@ export default function BlogPostPage() {
     setMeta("twitter:title", post.twitter_title || post.title);
     setMeta("twitter:description", post.twitter_description || desc);
     setCanonical(`https://showupai.live/blog/${post.slug}`);
+
+    // Structured data (Article + FAQPage) for rich results / AEO
+    const graph = [
+      {
+        "@type": "Article",
+        headline: post.title,
+        description: desc,
+        datePublished: post.published_at,
+        dateModified: post.updated_at || post.published_at,
+        author: { "@type": "Organization", name: "ShowUp.ai" },
+        publisher: { "@type": "Organization", name: "ShowUp.ai", url: "https://showupai.live" },
+        mainEntityOfPage: `https://showupai.live/blog/${post.slug}`,
+      },
+    ];
+    const faqList = (post.faq_items || []).filter((f) => f && f.question && f.answer);
+    if (faqList.length) {
+      graph.push({
+        "@type": "FAQPage",
+        mainEntity: faqList.map((f) => ({
+          "@type": "Question",
+          name: f.question,
+          acceptedAnswer: { "@type": "Answer", text: f.answer },
+        })),
+      });
+    }
+    let ld = document.getElementById("blog-jsonld");
+    if (!ld) {
+      ld = document.createElement("script");
+      ld.type = "application/ld+json";
+      ld.id = "blog-jsonld";
+      document.head.appendChild(ld);
+    }
+    ld.textContent = JSON.stringify({ "@context": "https://schema.org", "@graph": graph });
+    return () => {
+      const el = document.getElementById("blog-jsonld");
+      if (el) el.remove();
+    };
   }, [post]);
 
   if (loading) {
