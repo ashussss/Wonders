@@ -34,6 +34,33 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 NETLIFY_BUILD_HOOK = os.environ.get("NETLIFY_BUILD_HOOK", "")
+INDEXNOW_KEY = os.environ.get("INDEXNOW_KEY", "eb888803ca7889eb7c7da380d3457df5")  # key file: frontend/public/<key>.txt
+
+
+async def _indexnow(urls, delay: int = 0):
+    """Tell Bing (and so ChatGPT search / Copilot), Yandex, Naver, Seznam, Yep about new/changed URLs."""
+    import asyncio
+    import httpx
+    if delay:
+        await asyncio.sleep(delay)  # give Netlify time to rebuild the prerendered page first
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post("https://api.indexnow.org/indexnow", json={
+                "host": "showupai.live", "key": INDEXNOW_KEY,
+                "keyLocation": f"https://showupai.live/{INDEXNOW_KEY}.txt",
+                "urlList": list(urls)[:10000],
+            })
+            return r.status_code
+    except Exception:
+        return None
+
+
+def _indexnow_later(urls):
+    import asyncio
+    try:
+        asyncio.get_running_loop().create_task(_indexnow(urls, delay=300))
+    except RuntimeError:
+        pass
 
 
 async def _trigger_rebuild(reason: str):
@@ -90,6 +117,16 @@ async def seo_retry(request: Request):
     return {"ok": True, "requeued": await pseo.retry_failed()}
 
 
+@router.post("/seo/indexnow")
+async def seo_indexnow(request: Request):
+    """Submit every published blog URL to IndexNow right now."""
+    _require_key(request)
+    rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).to_list(5000)
+    urls = [f"{pseo.SITE_URL}/blog"] + [f"{pseo.SITE_URL}/blog/{r['slug']}" for r in rows]
+    status = await _indexnow(urls)
+    return {"ok": status in (200, 202), "status": status, "submitted": len(urls)}
+
+
 @router.post("/seo/rebuild")
 async def seo_rebuild(request: Request):
     """Manually trigger a Netlify rebuild (refreshes prerendered blog pages)."""
@@ -140,6 +177,7 @@ async def seo_publish(request: Request, payload: dict = Body(default={})):
     post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts, "updated_at": ts})
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
     await _trigger_rebuild(f"published {slug}")
+    _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
     return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}
 
 
@@ -178,6 +216,7 @@ async def seo_edit(request: Request, payload: dict = Body(default={})):
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
     if post.get("published"):
         await _trigger_rebuild(f"edited {slug}")
+        _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}"])
     return {"ok": True, "results": results, "word_count": post["word_count"]}
 
 
@@ -257,7 +296,7 @@ async def sitemap():
 @router.get("/blog")
 async def list_blog_posts():
     """List all published blog posts, published first, sorted by SEO value."""
-    rows = await db.blog_posts.find({"published": True}, {"_id": 0}).sort(
+    rows = await db.blog_posts.find({"published": True}, {"_id": 0, "content": 0, "faq_items": 0}).sort(
         [("published_at", -1), ("reading_time", -1)]
     ).to_list(500)
     published = [r for r in rows if r.get("published")]

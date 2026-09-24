@@ -85,7 +85,7 @@ export default function BlogPage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.3, delay: 0.05 * i }}
           >
-            <Link to={`/blog/${post.slug}`} className="block h-full">
+            <Link to={`/blog/${post.slug}`} target="_blank" rel="noopener" className="block h-full">
               <Card className="h-full overflow-hidden hover:shadow-lg transition-shadow">
                 <img
                   src={`${API_BASE}/blog/${post.slug}/cover.png?v=${encodeURIComponent(post.updated_at || "")}`}
@@ -100,7 +100,7 @@ export default function BlogPage() {
                 </CardHeader>
                 <CardContent className="pb-4 flex flex-col min-h-[160px]">
                   <p className="text-sm text-muted-foreground line-clamp-3">
-                    {post.excerpt || `${(post.content || "").replace(/<[^>]+>/g, "").substring(0, 120)}...`}
+                    {post.excerpt || post.meta_description || ""}
                   </p>
                   <div className="mt-auto pt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{post.reading_time || 5} min read</span>

@@ -224,6 +224,13 @@ After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published
 ### Sourced facts, author and notes
 `pseo.FACTS` holds verified statistics with URLs; the writer may cite only these, as links, and they are listed under *Sources* on the post. Add keywords with first-hand notes: `{"keywords":[{"keyword":"...","notes":"what I have seen"}]}` on `/seo/research`. See `COMPETITORS.md` for the competitor research.
 
+### Reader experience and AI-search features (added 24 Sep)
+- Every post card and related-post link opens in a **new tab**.
+- **Quick answer** box: the first paragraph (the direct answer) is highlighted; AI engines weigh a page's opening words most.
+- **Table of contents** (3+ H2s) with stable heading anchors (`#why-people-skip`), a **reading progress bar**, **share buttons** (LinkedIn, X, WhatsApp, copy link), **Published / Updated** dates, and **Keep reading** (3 related posts by keyword overlap).
+- **IndexNow**: publishing or editing a published post pings `api.indexnow.org` five minutes later (after the Netlify rebuild), which reaches Bing (used by ChatGPT search and Copilot), Yandex, Naver, Seznam and Yep. Key file: `frontend/public/<INDEXNOW_KEY>.txt`; `POST /api/seo/indexnow` resubmits every published URL.
+- The prerender step also writes **`/rss.xml`** and appends a **Blog articles** list to **`/llms.txt`**.
+
 ### Email capture (blog subscribers)
 `frontend/src/components/SubscribeBox.jsx` collects first name + email in four places: the top of `/blog`, mid-article (before the first H2 after ~40% of the post), end of each post, and a dismissible sticky bar that appears after 45% scroll. It posts to `POST /api/blog/subscribe` (public, 5/min per IP, honeypot field, emails de-duplicated, every signup's post and placement recorded) into the `blog_subscribers` collection. Export with `GET /api/seo/subscribers.csv` (admin key) and import into Brevo/Mailchimp; `GET /api/seo/subscribers` lists them.
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, fmtDate, API_BASE } from "@/lib/api";
-import { parseMarkdown, splitInline } from "@/lib/markdown";
+import { parseMarkdown, splitInline, headingId, tocFrom } from "@/lib/markdown";
 import SubscribeBox from "@/components/SubscribeBox";
 
 function setMeta(name, content, attr = "name") {
@@ -45,7 +45,6 @@ function Inline({ text }) {
 const looksLikeHtml = (s) => /^\s*<(p|h[1-6]|div|section|article|ul|ol)[\s>]/i.test(s || "");
 
 function MarkdownBody({ content, insert }) {
-  let h = 0;
   const blocks = parseMarkdown(content);
   // put the mid-article box before the first H2 that comes after ~40% of the article
   let insertAt = -1;
@@ -59,9 +58,17 @@ function MarkdownBody({ content, insert }) {
       const Tag = `h${b.level}`;
       const size = b.level === 2 ? "text-2xl mt-10" : "text-xl mt-8";
       return (
-        <Tag key={i} id={`section-${h++}`} className={`${size} font-semibold mb-3 tracking-tight`}>
+        <Tag key={i} id={headingId(b.text)} className={`${size} font-semibold mb-3 tracking-tight scroll-mt-20`}>
           {b.text}
         </Tag>
+      );
+    }
+    if (b.type === "p" && i === 0) {
+      return (
+        <div key={i} className="my-6 p-5 rounded-xl bg-black/[0.03] border-l-4 border-orange-600">
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-orange-600 mb-1">Quick answer</p>
+          <p className="m-0"><Inline text={b.text} /></p>
+        </div>
       );
     }
     if (b.type === "p") {
@@ -130,6 +137,77 @@ function MarkdownBody({ content, insert }) {
   });
   if (insertAt >= 0) out.splice(insertAt, 0, <React.Fragment key="mid-insert">{insert}</React.Fragment>);
   return out;
+}
+
+function ReadingProgress() {
+  const [pct, setPct] = useState(0);
+  useEffect(() => {
+    const on = () => {
+      const h = document.documentElement;
+      const max = h.scrollHeight - window.innerHeight;
+      setPct(max > 0 ? Math.min(100, (h.scrollTop / max) * 100) : 0);
+    };
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
+  return (
+    <div className="fixed top-0 left-0 right-0 h-1 z-50 bg-transparent" aria-hidden="true">
+      <div className="h-full bg-orange-600 transition-[width] duration-100" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function ShareButtons({ url, title }) {
+  const [copied, setCopied] = useState(false);
+  const u = encodeURIComponent(url);
+  const t = encodeURIComponent(title);
+  const links = [
+    { label: "LinkedIn", href: `https://www.linkedin.com/sharing/share-offsite/?url=${u}` },
+    { label: "X", href: `https://twitter.com/intent/tweet?url=${u}&text=${t}` },
+    { label: "WhatsApp", href: `https://wa.me/?text=${t}%20${u}` },
+  ];
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch (e) {}
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-muted-foreground mr-1">Share:</span>
+      {links.map((l) => (
+        <a key={l.label} href={l.href} target="_blank" rel="noopener" className="px-3 py-1 rounded-full border hover:bg-black/5">
+          {l.label}
+        </a>
+      ))}
+      <button onClick={copy} className="px-3 py-1 rounded-full border hover:bg-black/5">{copied ? "Copied!" : "Copy link"}</button>
+    </div>
+  );
+}
+
+function RelatedPosts({ current }) {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    api.get("/blog").then((res) => {
+      const all = (Array.isArray(res.data) ? res.data : []).filter((p) => p.slug !== current.slug);
+      const words = new Set(String(current.keyword || current.title || "").toLowerCase().split(/\W+/).filter((w) => w.length > 3));
+      const score = (p) => String(p.keyword || p.title || "").toLowerCase().split(/\W+/).filter((w) => words.has(w)).length;
+      setItems(all.map((p) => [score(p), p]).sort((a, b) => b[0] - a[0]).slice(0, 3).map((x) => x[1]));
+    }).catch(() => {});
+  }, [current.slug, current.keyword, current.title]);
+  if (!items.length) return null;
+  return (
+    <section className="mt-12">
+      <h2 className="text-lg font-bold mb-4">Keep reading</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {items.map((p) => (
+          <a key={p.slug} href={`/blog/${p.slug}`} target="_blank" rel="noopener" className="block border rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+            <img src={`${API_BASE}/blog/${p.slug}/cover.png?v=${encodeURIComponent(p.updated_at || "")}`} alt="" loading="lazy"
+              width="1200" height="630" className="w-full aspect-[1200/630] object-cover border-b" />
+            <p className="p-3 text-sm font-medium leading-snug">{p.title}</p>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export default function BlogPostPage() {
@@ -230,6 +308,11 @@ export default function BlogPostPage() {
   const content = post.content || "";
   const readingTime = post.reading_time || Math.max(1, Math.ceil(content.split(/\s+/).length / 200));
   const faqs = Array.isArray(post.faq_items) ? post.faq_items.filter((f) => f && f.question) : [];
+  const shareUrl = `https://showupai.live/blog/${post.slug}`;
+  const showUpdated =
+    post.updated_at && post.published_at &&
+    new Date(post.updated_at) - new Date(post.published_at) > 24 * 3600 * 1000;
+  const toc = looksLikeHtml(content) ? [] : tocFrom(content);
 
   return (
     <motion.div
@@ -249,12 +332,13 @@ export default function BlogPostPage() {
         <h1 className="text-3xl font-bold tracking-tight mb-3" style={{ fontFamily: "Outfit" }}>
           {post.title}
         </h1>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {post.published_at && <span>{fmtDate(post.published_at)}</span>}
-          {post.published_at && <span>·</span>}
-          <span>{readingTime} min read</span>
-          {post.author && <span>· By {post.author}</span>}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-4">
+          {post.author && <span>By {post.author}</span>}
+          {post.published_at && <span>· Published {fmtDate(post.published_at)}</span>}
+          {showUpdated && <span>· Updated {fmtDate(post.updated_at)}</span>}
+          <span>· {readingTime} min read</span>
         </div>
+        <ShareButtons url={shareUrl} title={post.title} />
       </header>
 
       <img
@@ -263,7 +347,21 @@ export default function BlogPostPage() {
         width="1200"
         height="630"
         className="w-full aspect-[1200/630] object-cover rounded-xl border mb-8"
+        fetchpriority="high"
       />
+
+      {toc.length >= 3 && (
+        <nav aria-label="Table of contents" className="mb-8 p-4 border rounded-xl text-sm">
+          <details open>
+            <summary className="cursor-pointer font-semibold">In this article</summary>
+            <ol className="mt-2 space-y-1 list-decimal pl-5">
+              {toc.map((t) => (
+                <li key={t.id}><a href={`#${t.id}`} className="hover:underline">{t.text}</a></li>
+              ))}
+            </ol>
+          </details>
+        </nav>
+      )}
 
       <article className="max-w-none text-[17px] leading-[1.75]">
         {looksLikeHtml(content) ? (
@@ -286,6 +384,8 @@ export default function BlogPostPage() {
           </div>
         </section>
       )}
+
+      <div className="mt-10"><ShareButtons url={shareUrl} title={post.title} /></div>
 
       <SubscribeBox variant="card" slug={post.slug} placement="end-of-post" />
 
@@ -341,6 +441,8 @@ export default function BlogPostPage() {
           </Link>
         </div>
       </section>
+      <RelatedPosts current={post} />
+      <ReadingProgress />
       <SubscribeBox variant="bar" slug={post.slug} placement="sticky-bar" />
     </motion.div>
   );

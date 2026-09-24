@@ -47,8 +47,9 @@ function inlineHtml(md, text) {
 }
 
 function bodyHtml(md, content) {
-  return md.parseMarkdown(content).map((b) => {
-    if (b.type === "h") return `<h${b.level}>${esc(b.text)}</h${b.level}>`;
+  return md.parseMarkdown(content).map((b, i) => {
+    if (b.type === "h") return `<h${b.level} id="${esc(md.headingId(b.text))}">${esc(b.text)}</h${b.level}>`;
+    if (b.type === "p" && i === 0) return `<div class="qa"><p><strong>Quick answer:</strong> ${inlineHtml(md, b.text)}</p></div>`;
     if (b.type === "p") return `<p>${inlineHtml(md, b.text)}</p>`;
     if (b.type === "code") return `<pre>${esc(b.text)}</pre>`;
     if (b.type === "table")
@@ -81,7 +82,8 @@ function setHead(shell, { title, description, url, image, type, jsonld }) {
 
 const STYLE = `<style>.pr{max-width:720px;margin:0 auto;padding:24px;font-family:system-ui,sans-serif;line-height:1.7;color:#111}
 .pr img{max-width:100%;height:auto;border-radius:12px}.pr table{border-collapse:collapse;width:100%}.pr td,.pr th{border-bottom:1px solid #ddd;padding:6px;text-align:left}
-.pr pre{white-space:pre-wrap;background:#f6f6f6;padding:12px;border-radius:8px}</style>`;
+.pr pre{white-space:pre-wrap;background:#f6f6f6;padding:12px;border-radius:8px}
+.pr .qa{background:#f6f6f6;border-left:4px solid #EA580C;padding:4px 16px;border-radius:8px}</style>`;
 
 function withRoot(shell, html) {
   return shell.replace(/<div id="root"><\/div>/, `<div id="root">${STYLE}<div class="pr">${html}</div></div>`);
@@ -127,8 +129,9 @@ async function main() {
       "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })) });
 
     const html = `${nav}<article><h1>${esc(p.title)}</h1>
-<p>${person ? `By ${esc(p.author)} · ` : ""}${esc((p.published_at || "").slice(0, 10))} · ${p.reading_time || 5} min read</p>
+<p>${person ? `By ${esc(p.author)} · ` : ""}Published <time datetime="${esc(p.published_at || "")}">${esc((p.published_at || "").slice(0, 10))}</time>${p.updated_at && (p.updated_at || "").slice(0, 10) !== (p.published_at || "").slice(0, 10) ? ` · Updated <time datetime="${esc(p.updated_at)}">${esc(p.updated_at.slice(0, 10))}</time>` : ""} · ${p.reading_time || 5} min read</p>
 <img src="${esc(image)}" alt="${esc(p.title)}" width="1200" height="630" />
+${(() => { const toc = md.tocFrom(p.content || ""); return toc.length >= 3 ? `<nav aria-label="Table of contents"><p><strong>In this article</strong></p><ol>${toc.map((t) => `<li><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join("")}</ol></nav>` : ""; })()}
 ${bodyHtml(md, p.content || "")}
 ${faqs.length ? `<h2>Frequently asked questions</h2>${faqs.map((f) => `<h3>${esc(f.question)}</h3><p>${esc(f.answer)}</p>`).join("")}` : ""}
 ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p.author_bio || "")}</p></aside>` : ""}
@@ -151,7 +154,25 @@ ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a hr
       blogPost: posts.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: `${SITE}/blog/${p.slug}`, datePublished: p.published_at })) } }), listHtml);
   fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
   fs.writeFileSync(path.join(BUILD, "blog", "index.html"), listPage);
-  console.log(`[prerender] wrote ${posts.length} post pages + blog index`);
+  // RSS feed
+  const rfc = (d) => { try { return new Date(d).toUTCString(); } catch (e) { return ""; } };
+  const rss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
+<title>ShowUp.ai Blog</title><link>${SITE}/blog</link>
+<description>Practical, number-backed guides on webinar attendance, reminders and no-shows.</description>
+<language>en</language><atom:link href="${SITE}/rss.xml" rel="self" type="application/rss+xml" />
+${posts.map((p) => `<item><title>${esc(p.title)}</title><link>${SITE}/blog/${esc(p.slug)}</link><guid>${SITE}/blog/${esc(p.slug)}</guid>${p.published_at ? `<pubDate>${rfc(p.published_at)}</pubDate>` : ""}<description>${esc(p.excerpt || p.meta_description || "")}</description>${p.author ? `<author>hello@showupai.live (${esc(p.author)})</author>` : ""}</item>`).join("\n")}
+</channel></rss>`;
+  fs.writeFileSync(path.join(BUILD, "rss.xml"), rss);
+
+  // llms.txt: append a list of articles so AI assistants can find them
+  const llmsPath = path.join(BUILD, "llms.txt");
+  if (fs.existsSync(llmsPath) && posts.length) {
+    const base = fs.readFileSync(llmsPath, "utf8").trimEnd();
+    const block = `\n\n## Blog articles\n\n${posts.map((p) => `- [${p.title}](${SITE}/blog/${p.slug}): ${(p.excerpt || p.meta_description || "").replace(/\s+/g, " ")}`).join("\n")}\n`;
+    fs.writeFileSync(llmsPath, base + block);
+  }
+  console.log(`[prerender] wrote ${posts.length} post pages + blog index + rss.xml + llms.txt list`);
 }
 
 main().catch((e) => console.log("[prerender] error (ignored):", e.message)).finally(() => process.exit(0));

@@ -113,3 +113,18 @@ export function splitInline(text) {
   if (last < (text || "").length) out.push({ t: "text", v: text.slice(last) });
   return out;
 }
+
+export function headingId(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 60);
+}
+
+export function tocFrom(md) {
+  return parseMarkdown(md)
+    .filter((b) => b.type === "h" && b.level === 2)
+    .map((b) => ({ id: headingId(b.text), text: b.text }));
+}
