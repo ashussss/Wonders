@@ -159,6 +159,107 @@ def clean_post_fields(doc: dict) -> dict:
     return doc
 
 
+_INLINE_SPLIT = re.compile(r"(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|`[^`]+`)")
+_LEAD_WORDS = re.compile(r"^(how (to|many|far in advance to|do i|can i)|why|what is( the)?|what are|best|when to|the)\s+", re.I)
+
+
+def _anchor_candidates(keyword: str, title: str):
+    c = []
+    k = (keyword or "").strip().lower()
+    if k:
+        c.append(k)
+        stripped = _LEAD_WORDS.sub("", k).strip()
+        if stripped != k and len(stripped.split()) >= 2:
+            c.append(stripped)
+    t = (title or "").split(":")[0].strip().lower()
+    if t and len(t.split()) >= 3:
+        c.append(t)
+    seen, out = set(), []
+    for x in sorted(c, key=len, reverse=True):
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def _link_first(content: str, phrase: str, url: str) -> tuple:
+    """Link the first plain-text occurrence of phrase (in paragraphs/list items only). Returns (content, done)."""
+    pat = re.compile(r"(?<![\w/])(" + re.escape(phrase) + r")(?![\w])", re.I)
+    lines = content.split("\n")
+    in_code = False
+    for li, line in enumerate(lines):
+        t = line.strip()
+        if t.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or not t or t.startswith("#") or t.startswith("|"):
+            continue
+        parts = _INLINE_SPLIT.split(line)
+        for pi, part in enumerate(parts):
+            if pi % 2 == 1:  # existing link / bold / code
+                continue
+            m = pat.search(part)
+            if m:
+                parts[pi] = part[:m.start()] + f"[{m.group(1)}]({url})" + part[m.end():]
+                lines[li] = "".join(parts)
+                return "\n".join(lines), True
+    return content, False
+
+
+def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> str:
+    """Guarantee a link to showupai.live and contextual links to other published posts.
+    others: [{"slug", "title", "keyword"}] of published posts (self excluded here). Idempotent."""
+    c = content or ""
+    home = SITE_URL
+    # 1) ShowUp.ai -> homepage
+    if not re.search(r"\]\(" + re.escape(home) + r"/?\)", c):
+        c, done = _link_first(c, "ShowUp.ai", home)
+        if not done:
+            c = c.rstrip() + f"\n\nWant this reminder sequence built and scheduled for you? [Try ShowUp.ai]({home})."
+    # 2) contextual internal links
+    others = [o for o in others if o.get("slug") and o["slug"] != slug]
+    linked = {o["slug"] for o in others if f"/blog/{o['slug']})" in c}
+    for o in others:
+        if len(linked) >= max_internal:
+            break
+        if o["slug"] in linked:
+            continue
+        url = f"{home}/blog/{o['slug']}"
+        for phrase in _anchor_candidates(o.get("keyword", ""), o.get("title", "")):
+            c, done = _link_first(c, phrase, url)
+            if done:
+                linked.add(o["slug"])
+                break
+    # 3) fallback: guarantee at least 2 internal links with a "Related reading" line after the 2nd section
+    if len(linked) < 2 and others:
+        words = set(re.findall(r"[a-z]{4,}", (slug or "").replace("-", " ")))
+        ranked = sorted(
+            [o for o in others if o["slug"] not in linked],
+            key=lambda o: -len(words & set(re.findall(r"[a-z]{4,}", (o.get("keyword") or o.get("title") or "").lower()))),
+        )[: 2 - len(linked)]
+        if ranked and "**Related reading:**" not in c:
+            line = "**Related reading:** " + " · ".join(f"[{o['title']}]({home}/blog/{o['slug']})" for o in ranked)
+            heads = [m.start() for m in re.finditer(r"^## ", c, re.M)]
+            if len(heads) >= 3:
+                c = c[:heads[2]] + line + "\n\n" + c[heads[2]:]
+            else:
+                c = c.rstrip() + "\n\n" + line
+    return c
+
+
+async def relink_all(changed_slug: str = "") -> int:
+    """Re-run autolink on every published post so older posts also link to newer ones. Returns posts changed."""
+    pubs = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1, "content": 1}).to_list(5000)
+    meta = [{"slug": p["slug"], "title": p.get("title", ""), "keyword": p.get("keyword", "")} for p in pubs]
+    n = 0
+    for p in pubs:
+        new = autolink(p.get("content", ""), p["slug"], meta)
+        if new != p.get("content", ""):
+            await db.blog_posts.update_one({"slug": p["slug"]}, {"$set": {"content": new}})
+            n += 1
+    return n
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -219,6 +320,9 @@ timing to engagement, personalises send times per person, matches brand tone, or
 
 Author: {author}. {author_bio}
 {notes_block}
+Published articles on the same site you can link to (title - URL):
+{related}
+
 Verified facts you SHOULD use where relevant (2 to 5 per article, each with its markdown link, phrased as
 "<Source> reports ..."; point out that platform benchmarks differ because each reflects one vendor's customers):
 {facts}
@@ -227,7 +331,10 @@ Rules:
 - 1300 to 1800 words. Markdown only: "## " and "### " headings, "- " bullets, "1. " numbered lists, plain paragraphs.
   Simple markdown tables and ``` code blocks (for email templates) are allowed.
 - No H1 (the title is shown separately). No images, no emojis. Use plain ASCII hyphens "-".
-- The only links allowed are the fact URLs above, as markdown links [text](url). No other links.
+- Links (markdown [text](url)) allowed ONLY to: the fact URLs above, https://showupai.live, and the published
+  articles listed below. Link the first natural mention of ShowUp.ai to https://showupai.live.
+- Where it genuinely fits, link 2-3 of the related articles below inside sentences, using descriptive anchor text
+  (never "click here"). Do not invent other URLs.
 - Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
   do something. Add one short "Key takeaways" list near the end.
 - Make it number-rich and insight-led, without inventing data:
@@ -306,8 +413,11 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         f"The author's own first-hand notes on this topic (weave them in, attributed to the author's experience):\n{notes}\n"
         if notes else ""
     )
+    pubs = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "title": 1}).sort(
+        "published_at", -1).to_list(30)
+    related = "\n".join(f"- {p['title']} - {SITE_URL}/blog/{p['slug']}" for p in pubs) or "(none yet)"
     prompt = PROMPT.format(keyword=keyword, intent=intent, author=AUTHOR_NAME, author_bio=AUTHOR_BIO,
-                           notes_block=notes_block, facts=facts)
+                           notes_block=notes_block, facts=facts, related=related)
     data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
     content = (data.get("content") or "").strip()
     words = len(content.split())

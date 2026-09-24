@@ -117,6 +117,16 @@ async def seo_retry(request: Request):
     return {"ok": True, "requeued": await pseo.retry_failed()}
 
 
+@router.post("/seo/relink")
+async def seo_relink(request: Request):
+    """Add missing showupai.live + internal links to every published post now."""
+    _require_key(request)
+    n = await pseo.relink_all()
+    if n:
+        await _trigger_rebuild("internal links")
+    return {"ok": True, "posts_updated": n}
+
+
 @router.post("/seo/indexnow")
 async def seo_indexnow(request: Request):
     """Submit every published blog URL to IndexNow right now."""
@@ -176,6 +186,7 @@ async def seo_publish(request: Request, payload: dict = Body(default={})):
     ts = now_iso()
     post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts, "updated_at": ts})
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    await pseo.relink_all(slug)  # this post + older posts get contextual links + showupai.live link
     await _trigger_rebuild(f"published {slug}")
     _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
     return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}

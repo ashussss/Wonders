@@ -231,6 +231,9 @@ After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published
 - **IndexNow**: publishing or editing a published post pings `api.indexnow.org` five minutes later (after the Netlify rebuild), which reaches Bing (used by ChatGPT search and Copilot), Yandex, Naver, Seznam and Yep. Key file: `frontend/public/<INDEXNOW_KEY>.txt`; `POST /api/seo/indexnow` resubmits every published URL.
 - The prerender step also writes **`/rss.xml`** and appends a **Blog articles** list to **`/llms.txt`**.
 
+### Links inside articles (added 24 Sep)
+Every published article is guaranteed to contain (a) a link to https://showupai.live and (b) contextual links to other published posts. The writer prompt lists published articles and asks for 2-3 natural in-text links; then `pseo.autolink()` runs on publish and fills any gaps: it links the first plain mention of ShowUp.ai, links another post's keyword/title phrase where it appears in a paragraph or list (never in headings, bold, code or tables; max 4; never self-links), and if fewer than 2 internal links exist adds a **Related reading** line before the third section. `pseo.relink_all()` runs on every publish, so older posts also gain links to the new one. `POST /api/seo/relink` runs it on demand. All in-article links open in a new tab.
+
 ### Email capture (blog subscribers)
 `frontend/src/components/SubscribeBox.jsx` collects first name + email in four places: the top of `/blog`, mid-article (before the first H2 after ~40% of the post), end of each post, and a dismissible sticky bar that appears after 45% scroll. It posts to `POST /api/blog/subscribe` (public, 5/min per IP, honeypot field, emails de-duplicated, every signup's post and placement recorded) into the `blog_subscribers` collection. Export with `GET /api/seo/subscribers.csv` (admin key) and import into Brevo/Mailchimp; `GET /api/seo/subscribers` lists them.
 
