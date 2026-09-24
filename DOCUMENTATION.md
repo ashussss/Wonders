@@ -211,12 +211,20 @@ curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"k
 ### Settings (Render env)
 | Var | Default | Meaning |
 |---|---|---|
-| `PSEO_POSTS_PER_DAY` | `1` | Drafts written per daily run |
+| `PSEO_POSTS_PER_DAY` | `4` | Drafts written per daily run |
+| `PSEO_AUTO_TOPICS` | `false` | `true` lets AI-suggested related topics join the queue |
+| `AUTHOR_NAME`, `AUTHOR_BIO`, `AUTHOR_URL` | see pseo.py | Byline, author box and Person schema on every post (E-E-A-T) |
+| `NETLIFY_BUILD_HOOK` | — | Netlify build hook URL; publish/unpublish/edit triggers a rebuild so prerendered pages update |
 | `PSEO_AUTO_PUBLISH` | `false` | `true` publishes without review (not recommended yet) |
 | `PSEO_MODEL` | `openai/gpt-oss-120b` | Groq model for articles |
 
+### Prerendering (for AI crawlers and link previews)
+After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published posts and writes full HTML to `build/blog/index.html` and `build/blog/<slug>/index.html`, with title, meta, canonical, OG/Twitter image, Article + FAQPage + Breadcrumb JSON-LD, author, sources and related links. Netlify serves these files directly, so GPTBot, PerplexityBot, ClaudeBot, LinkedIn and X see the whole article; React then mounts over it for humans. If the API is unreachable the script skips and the build still succeeds. Publishing, unpublishing or editing a published post calls `NETLIFY_BUILD_HOOK`, so pages refresh within a few minutes (`POST /api/seo/rebuild` does it manually).
+
+### Sourced facts, author and notes
+`pseo.FACTS` holds verified statistics with URLs; the writer may cite only these, as links, and they are listed under *Sources* on the post. Add keywords with first-hand notes: `{"keywords":[{"keyword":"...","notes":"what I have seen"}]}` on `/seo/research`. See `COMPETITORS.md` for the competitor research.
+
 ### Known limits
-- **AI crawlers.** The blog is rendered client-side. Google executes JavaScript and will index it, but GPTBot, PerplexityBot and ClaudeBot mostly do not. Prerendering is an open task.
 - **Render sleeping.** If Render sleeps at 03:30 UTC the daily run can be missed. `cron_jobs.yaml` has a backup HTTP trigger.
 
 ### SEO assets already in place

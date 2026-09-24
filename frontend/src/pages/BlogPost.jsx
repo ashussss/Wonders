@@ -29,6 +29,10 @@ function Inline({ text }) {
   return splitInline(text).map((part, i) =>
     part.t === "b" ? (
       <strong key={i}>{part.v}</strong>
+    ) : part.t === "a" ? (
+      <a key={i} href={part.href} target="_blank" rel="noopener" className="underline underline-offset-2 decoration-orange-500">
+        {part.v}
+      </a>
     ) : part.t === "code" ? (
       <code key={i} className="px-1 py-0.5 rounded bg-black/5 text-[0.9em]">{part.v}</code>
     ) : (
@@ -157,7 +161,9 @@ export default function BlogPostPage() {
         description: desc,
         datePublished: post.published_at,
         dateModified: post.updated_at || post.published_at,
-        author: { "@type": "Organization", name: "ShowUp.ai" },
+        author: post.author && post.author !== "ShowUp.ai Team"
+          ? { "@type": "Person", name: post.author, ...(post.author_url ? { url: post.author_url } : {}), description: post.author_bio }
+          : { "@type": "Organization", name: "ShowUp.ai" },
         publisher: { "@type": "Organization", name: "ShowUp.ai", url: "https://showupai.live" },
         image: `${API_BASE}/blog/${post.slug}/cover.png`,
         mainEntityOfPage: `https://showupai.live/blog/${post.slug}`,
@@ -236,7 +242,7 @@ export default function BlogPostPage() {
           {post.published_at && <span>{fmtDate(post.published_at)}</span>}
           {post.published_at && <span>·</span>}
           <span>{readingTime} min read</span>
-          {post.author && <span>· {post.author}</span>}
+          {post.author && <span>· By {post.author}</span>}
         </div>
       </header>
 
@@ -267,6 +273,38 @@ export default function BlogPostPage() {
               </details>
             ))}
           </div>
+        </section>
+      )}
+
+      {post.author && post.author !== "ShowUp.ai Team" && (
+        <aside className="mt-12 p-5 border rounded-xl flex gap-4 items-start">
+          <div className="w-12 h-12 shrink-0 rounded-full bg-orange-600 text-white flex items-center justify-center font-bold text-lg">
+            {post.author.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Written by</p>
+            <p className="font-semibold">
+              {post.author_url ? (
+                <a href={post.author_url} target="_blank" rel="noopener" className="hover:underline">{post.author}</a>
+              ) : (
+                post.author
+              )}
+            </p>
+            {post.author_bio && <p className="text-sm text-muted-foreground mt-1">{post.author_bio}</p>}
+          </div>
+        </aside>
+      )}
+
+      {Array.isArray(post.sources) && post.sources.length > 0 && (
+        <section className="mt-6 text-sm">
+          <p className="font-semibold mb-1">Sources</p>
+          <ul className="list-disc pl-5 space-y-1">
+            {post.sources.map((s, i) => (
+              <li key={i}>
+                <a href={s.url} target="_blank" rel="noopener" className="underline underline-offset-2">{s.source}</a>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

@@ -21,7 +21,34 @@ logger = logging.getLogger("showup.pseo")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
-PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
+PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
+PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
+AUTHOR_NAME = os.environ.get("AUTHOR_NAME", "Ashutosh Kumar Singh")
+AUTHOR_BIO = os.environ.get(
+    "AUTHOR_BIO",
+    "B2B marketer with 13+ years across SEO, content and demand generation. "
+    "Builds ShowUp.ai to help webinar hosts turn more registrants into live attendees.",
+)
+AUTHOR_URL = os.environ.get("AUTHOR_URL", "")  # e.g. LinkedIn profile
+
+# Verified, sourced facts the writer may cite (with a link). Add more only after checking the primary source.
+FACTS = [
+    {
+        "fact": "ON24's 2026 Digital Engagement Benchmarks (2025 platform data) report an average registration-to-attendee "
+                "conversion of 60% and an average engagement time of 49 minutes; Q4 2025 averaged 254 attendees per "
+                "webinar, up from 219 a year earlier.",
+        "source": "ON24", "url": "https://www.on24.com/blog/key-takeaways-from-the-webinar-benchmarks-report/",
+    },
+    {
+        "fact": "Livestorm reports an average webinar show-up rate of 51.3% across industries on its platform.",
+        "source": "Livestorm", "url": "https://livestorm.co/blog/boost-webinar-attendance-rate",
+    },
+    {
+        "fact": "Demio (Banzai) reported that its customers saw an average live-session attendance rate of 38% in 2022, "
+                "with February and March highest at 41%.",
+        "source": "Banzai / Demio", "url": "https://www.banzai.io/2023-webinar-stats-for-marketers",
+    },
+]
 PSEO_AUTO_PUBLISH = os.environ.get("PSEO_AUTO_PUBLISH", "false").lower() == "true"
 SITE_URL = "https://showupai.live"
 
@@ -47,6 +74,23 @@ SEED_KEYWORDS = [
     ("edtech webinar attendance", "informational"),
     ("webinar reminder whatsapp message", "informational"),
     ("calendar invite for webinar attendance", "informational"),
+    # long-tail / niche angles with less competition
+    ("webinar reminder whatsapp template", "informational"),
+    ("how to get people to attend a free webinar", "informational"),
+    ("webinar attendance for edtech companies", "informational"),
+    ("how agencies run webinars for clients", "informational"),
+    ("circle community event attendance", "informational"),
+    ("linkedin event reminder message", "informational"),
+    ("webinar reminder sms examples", "informational"),
+    ("webinar replay email for no shows", "informational"),
+    ("how far in advance to promote a webinar", "informational"),
+    ("webinar attendance benchmarks by industry", "informational"),
+    ("webinar poll ideas to boost engagement", "informational"),
+    ("how to write a webinar confirmation email", "informational"),
+    ("live vs on demand webinar attendance", "informational"),
+    ("webinar reminder cadence for b2b saas", "informational"),
+    ("how to reduce zoom webinar no shows", "informational"),
+    ("webinar attendance tracking", "informational"),
 ]
 
 
@@ -123,7 +167,7 @@ async def seed_keywords() -> int:
     return added
 
 
-async def add_keyword(keyword: str, intent: str = "informational") -> int:
+async def add_keyword(keyword: str, intent: str = "informational", notes: str = "") -> int:
     keyword = keyword.strip().lower()
     if not keyword:
         return 0
@@ -132,6 +176,8 @@ async def add_keyword(keyword: str, intent: str = "informational") -> int:
         {"$setOnInsert": {"keyword": keyword, "intent": intent, "status": "pending", "created_at": now_iso()}},
         upsert=True,
     )
+    if notes:
+        await db.seo_candidates.update_one({"keyword": keyword}, {"$set": {"notes": notes}})
     return 1 if res.upserted_id else 0
 
 
@@ -147,14 +193,23 @@ before the event to after it; channels are email, LinkedIn, Facebook, Instagram,
 invites; the host reviews and approves messages before they send; it tracks attendance by channel. Do NOT claim it adapts
 timing to engagement, personalises send times per person, matches brand tone, or anything else not listed.
 
+Author: {author}. {author_bio}
+{notes_block}
+Verified facts you MAY cite (at most 3, each with its markdown link, phrased as "<Source> reports ..."; note that
+platform benchmarks differ because each reflects one vendor's customers):
+{facts}
+
 Rules:
 - 1300 to 1800 words. Markdown only: "## " and "### " headings, "- " bullets, "1. " numbered lists, plain paragraphs.
   Simple markdown tables and ``` code blocks (for email templates) are allowed.
-- No H1 (the title is shown separately). No links, no images, no emojis. Use plain ASCII hyphens "-".
+- No H1 (the title is shown separately). No images, no emojis. Use plain ASCII hyphens "-".
+- The only links allowed are the fact URLs above, as markdown links [text](url). No other links.
+- Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
+  do something. Add one short "Key takeaways" list near the end.
 - Start with a 2-3 sentence direct answer to the keyword as a plain paragraph (no heading above it).
 - Do NOT include an FAQ section inside "content"; FAQs go only in "faq_items".
-- Do NOT invent statistics, percentages, benchmarks, studies, quotes or customer names. Do not state typical
-  attendance, open, click or no-show rates. Tell readers to measure their own baseline instead.
+- Do NOT invent statistics, percentages, benchmarks, studies, quotes or customer names. The ONLY numbers you may
+  present as facts are the verified facts above. Otherwise tell readers to measure their own baseline.
 - Tone: direct, practical, skeptical of hype. Avoid: "unlock", "revolutionary", "game-changer", "in today's fast-paced".
 - Include concrete steps, examples of message timing, and common mistakes.
 
@@ -214,9 +269,16 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
 
-    data = await asyncio.get_running_loop().run_in_executor(
-        None, _groq_json, PROMPT.format(keyword=keyword, intent=intent)
+    facts = "\n".join(f"- {f['fact']} Source: {f['source']} {f['url']}" for f in FACTS)
+    cand = await db.seo_candidates.find_one({"keyword": keyword}, {"notes": 1}) or {}
+    notes = (cand.get("notes") or "").strip()
+    notes_block = (
+        f"The author's own first-hand notes on this topic (weave them in, attributed to the author's experience):\n{notes}\n"
+        if notes else ""
     )
+    prompt = PROMPT.format(keyword=keyword, intent=intent, author=AUTHOR_NAME, author_bio=AUTHOR_BIO,
+                           notes_block=notes_block, facts=facts)
+    data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
     content = (data.get("content") or "").strip()
     words = len(content.split())
     if words < 600:
@@ -241,7 +303,10 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "related_topics": data.get("related_topics") or [],
         "reading_time": max(1, round(words / 200)),
         "word_count": words,
-        "author": "ShowUp.ai Team",
+        "author": AUTHOR_NAME,
+        "author_bio": AUTHOR_BIO,
+        "author_url": AUTHOR_URL,
+        "sources": [{"source": f["source"], "url": f["url"]} for f in FACTS if f["url"] in content],
         "source": "pseo",
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
@@ -259,8 +324,7 @@ async def run_pipeline(count: int | None = None) -> dict:
     """Take `count` pending keywords, generate drafts. Safe to call from cron or manually."""
     count = count or PSEO_POSTS_PER_DAY
     await ensure_indexes()
-    if await db.seo_candidates.count_documents({}) == 0:
-        await seed_keywords()
+    await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
 
     results = []
     for _ in range(count):
@@ -277,10 +341,11 @@ async def run_pipeline(count: int | None = None) -> dict:
             await db.seo_candidates.update_one(
                 {"_id": cand["_id"]}, {"$set": {"status": "drafted", "slug": post["slug"], "done_at": now_iso()}}
             )
-            # Queue suggested follow-up topics for future runs
-            for t in post.get("related_topics", [])[:3]:
-                if isinstance(t, str):
-                    await add_keyword(t, "informational")
+            # Optionally queue suggested follow-up topics (off by default: keyword choice stays human)
+            if PSEO_AUTO_TOPICS:
+                for t in post.get("related_topics", [])[:3]:
+                    if isinstance(t, str):
+                        await add_keyword(t, "informational")
             results.append({"keyword": kw, "slug": post["slug"], "status": post["status"]})
             logger.info(f"pSEO drafted '{kw}' -> {post['slug']}")
         except Exception as e:

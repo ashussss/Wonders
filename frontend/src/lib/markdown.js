@@ -97,11 +97,17 @@ export function parseMarkdown(md) {
 export function splitInline(text) {
   // returns [{t:"text"|"b"|"code", v}]
   const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
   let last = 0, m;
   while ((m = re.exec(text || ""))) {
     if (m.index > last) out.push({ t: "text", v: text.slice(last, m.index) });
-    out.push(m[0].startsWith("**") ? { t: "b", v: m[0].slice(2, -2) } : { t: "code", v: m[0].slice(1, -1) });
+    const tok = m[0];
+    if (tok.startsWith("**")) out.push({ t: "b", v: tok.slice(2, -2) });
+    else if (tok.startsWith("`")) out.push({ t: "code", v: tok.slice(1, -1) });
+    else {
+      const lm = tok.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+      out.push({ t: "a", v: lm[1], href: lm[2] });
+    }
     last = m.index + m[0].length;
   }
   if (last < (text || "").length) out.push({ t: "text", v: text.slice(last) });

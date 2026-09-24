@@ -1,6 +1,6 @@
 [build]
   base = "frontend"
-  command = "npm install --legacy-peer-deps && npm install lucide-react@0.400.0 --legacy-peer-deps && DISABLE_ESLINT_PLUGIN=true npm run build"
+  command = "npm install --legacy-peer-deps && npm install lucide-react@0.400.0 --legacy-peer-deps && DISABLE_ESLINT_PLUGIN=true npm run build && node scripts/prerender-blog.mjs"
   publish = "build"
 
 [build.environment]

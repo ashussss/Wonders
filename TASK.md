@@ -33,7 +33,11 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 
 ## P1: Next
 
-- [ ] **Prerender blog pages for AI crawlers** (GPTBot, PerplexityBot, ClaudeBot don't run JavaScript). Options: a Netlify prerender plugin, or have the backend serve static HTML for `/blog/*`. Needed for GEO/AEO, and for LinkedIn/X link previews to show the post title and image.
+- [x] **Prerender blog pages** (done 24 Sep: `scripts/prerender-blog.mjs` + Netlify build hook). Needs `NETLIFY_BUILD_HOOK` set on Render.
+- [ ] **Fix unverified claims in `frontend/public/index.html`** ("62%+ average attendance", "31% industry average", "uses Claude AI", "8-touch" vs the actual 11 touches). They appear in meta tags and schema on every page, including prerendered blog pages.
+- [ ] **Comparison pages**: approved fact sheets per competitor (see COMPETITORS.md), then a comparison template.
+- [ ] **Original data**: publish anonymised aggregate attendance data from ShowUp.ai once there is enough.
+- [ ] **Off-site presence**: G2/Capterra listings, LinkedIn posts per article, community answers.
 - [ ] **Draft review screen** in the admin area (`/app/admin` → Blog tab): list drafts, preview, edit, publish/unpublish, add keywords. Currently this is done with curl.
 - [ ] **Search Console**: verify `showupai.live` in GSC, submit `https://showupai.live/sitemap.xml`, create a service account, and set `GSC_SERVICE_ACCOUNT_BASE64` on Render.
 - [ ] **Backup cron**: if Render sleeps (free plan), add the `cron_jobs.yaml` job to cron-job.org with the real `X-API-KEY`.

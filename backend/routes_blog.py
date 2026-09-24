@@ -25,10 +25,27 @@ from auth_utils import get_user, now_iso
 from models import BlogPostIn, BlogPostPatch
 from config import SUPERADMIN_SECRET
 import pseo
+import os
 import re
 
 router = APIRouter(prefix="/api")
 limiter = Limiter(key_func=get_remote_address)
+
+
+NETLIFY_BUILD_HOOK = os.environ.get("NETLIFY_BUILD_HOOK", "")
+
+
+async def _trigger_rebuild(reason: str):
+    """Ask Netlify to rebuild so the prerendered blog HTML (for Google/AI crawlers) picks up changes."""
+    if not NETLIFY_BUILD_HOOK:
+        return False
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.post(NETLIFY_BUILD_HOOK, params={"trigger_title": f"Blog: {reason}"[:120]})
+        return True
+    except Exception:
+        return False
 
 
 def _require_key(request: Request):
@@ -49,7 +66,11 @@ async def seo_research(request: Request, payload: dict = Body(default={})):
     intent = payload.get("intent", "informational")
     added = 0
     for k in kws:
-        added += await pseo.add_keyword(str(k), intent)
+        # each item: "keyword" or {"keyword": "...", "notes": "your first-hand experience", "intent": "..."}
+        if isinstance(k, dict):
+            added += await pseo.add_keyword(str(k.get("keyword", "")), k.get("intent", intent), k.get("notes", ""))
+        else:
+            added += await pseo.add_keyword(str(k), intent, payload.get("notes", "") if len(kws) == 1 else "")
     return {"ok": True, "added": added, "submitted": len(kws)}
 
 
@@ -66,6 +87,14 @@ async def seo_retry(request: Request):
     """Re-queue keywords that failed (e.g. after fixing a model/API issue)."""
     _require_key(request)
     return {"ok": True, "requeued": await pseo.retry_failed()}
+
+
+@router.post("/seo/rebuild")
+async def seo_rebuild(request: Request):
+    """Manually trigger a Netlify rebuild (refreshes prerendered blog pages)."""
+    _require_key(request)
+    ok = await _trigger_rebuild("manual")
+    return {"ok": ok, "note": None if ok else "Set NETLIFY_BUILD_HOOK on Render first"}
 
 
 @router.post("/seo/generate")
@@ -109,6 +138,7 @@ async def seo_publish(request: Request, payload: dict = Body(default={})):
     ts = now_iso()
     post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts, "updated_at": ts})
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    await _trigger_rebuild(f"published {slug}")
     return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}
 
 
@@ -145,6 +175,8 @@ async def seo_edit(request: Request, payload: dict = Body(default={})):
     pseo.clean_post_fields(post)
     post["updated_at"] = now_iso()
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    if post.get("published"):
+        await _trigger_rebuild(f"edited {slug}")
     return {"ok": True, "results": results, "word_count": post["word_count"]}
 
 
@@ -157,6 +189,7 @@ async def seo_unpublish(request: Request, payload: dict = Body(default={})):
     )
     if result.matched_count == 0:
         raise HTTPException(404, "Post not found")
+    await _trigger_rebuild(f"unpublished {payload.get('slug')}")
     return {"ok": True}
 
 
