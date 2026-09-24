@@ -130,6 +130,8 @@ def clean_post_fields(doc: dict) -> dict:
     ]
     doc["faq_items"] = faqs
     doc["content"] = clean_content(doc.get("content", ""), bool(faqs))
+    if doc.get("author") in (None, "", "ShowUp.ai Team"):
+        doc["author"], doc["author_bio"], doc["author_url"] = AUTHOR_NAME, AUTHOR_BIO, AUTHOR_URL
     doc["word_count"] = len(doc["content"].split())
     doc["reading_time"] = max(1, round(doc["word_count"] / 200))
     return doc
