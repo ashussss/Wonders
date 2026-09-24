@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, fmtDate } from "@/lib/api";
+import { parseMarkdown, splitInline } from "@/lib/markdown";
 
 function setMeta(name, content, attr = "name") {
   if (!content) return;
@@ -24,60 +25,94 @@ function setCanonical(href) {
   el.setAttribute("href", href);
 }
 
-function inline(text) {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part
+function Inline({ text }) {
+  return splitInline(text).map((part, i) =>
+    part.t === "b" ? (
+      <strong key={i}>{part.v}</strong>
+    ) : part.t === "code" ? (
+      <code key={i} className="px-1 py-0.5 rounded bg-black/5 text-[0.9em]">{part.v}</code>
+    ) : (
+      <React.Fragment key={i}>{part.v}</React.Fragment>
+    )
   );
 }
 
-const looksLikeHtml = (s) => /<\/?[a-z][\s\S]*>/i.test(s || "");
+const looksLikeHtml = (s) => /^\s*<(p|h[1-6]|div|section|article|ul|ol)[\s>]/i.test(s || "");
 
-// Minimal markdown renderer: headings, lists, paragraphs. Returns React nodes (no innerHTML).
-function renderMarkdown(md) {
-  const blocks = (md || "").split(/\n{2,}/);
+function MarkdownBody({ content }) {
   let h = 0;
-  return blocks.map((block, i) => {
-    const text = block.trim();
-    if (!text) return null;
-    const heading = text.match(/^(#{1,4})\s+(.+)$/);
-    const firstLine = text.split("\n")[0];
-    const headLine = firstLine.match(/^(#{1,4})\s+(.+)$/);
-    if (!heading && headLine) {
-      const rest = text.split("\n").slice(1).join("\n");
-      const level = Math.max(2, Math.min(headLine[1].length, 4));
-      const Tag = `h${level}`;
+  return parseMarkdown(content).map((b, i) => {
+    if (b.type === "h") {
+      const Tag = `h${b.level}`;
+      const size = b.level === 2 ? "text-2xl mt-10" : "text-xl mt-8";
       return (
-        <React.Fragment key={i}>
-          <Tag id={`section-${h++}`} className="font-semibold mt-8 mb-3">{headLine[2]}</Tag>
-          <p className="my-4">{inline(rest)}</p>
-        </React.Fragment>
-      );
-    }
-    if (heading) {
-      const level = Math.max(2, Math.min(heading[1].length, 4));
-      const Tag = `h${level}`;
-      return (
-        <Tag key={i} id={`section-${h++}`} className="font-semibold mt-8 mb-3">
-          {heading[2]}
+        <Tag key={i} id={`section-${h++}`} className={`${size} font-semibold mb-3 tracking-tight`}>
+          {b.text}
         </Tag>
       );
     }
-    const lines = text.split("\n");
-    if (lines.every((l) => /^\s*([-*]|\d+\.)\s+/.test(l))) {
-      const ordered = /^\s*\d+\./.test(lines[0]);
-      const ListTag = ordered ? "ol" : "ul";
+    if (b.type === "p") {
       return (
-        <ListTag key={i} className={`${ordered ? "list-decimal" : "list-disc"} pl-6 space-y-1 my-4`}>
-          {lines.map((l, j) => (
-            <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ""))}</li>
-          ))}
-        </ListTag>
+        <p key={i} className="my-4">
+          <Inline text={b.text} />
+        </p>
       );
     }
+    if (b.type === "code") {
+      return (
+        <pre key={i} className="my-5 p-4 rounded-lg border bg-black/[0.03] text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
+          {b.text}
+        </pre>
+      );
+    }
+    if (b.type === "table") {
+      return (
+        <div key={i} className="my-6 overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                {b.head.map((c, j) => (
+                  <th key={j} className="text-left font-semibold border-b-2 px-3 py-2">
+                    <Inline text={c} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((r, j) => (
+                <tr key={j} className="border-b">
+                  {r.map((c, k) => (
+                    <td key={k} className="px-3 py-2 align-top">
+                      <Inline text={c} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    const ListTag = b.type === "ol" ? "ol" : "ul";
+    const listCls = b.checklist ? "list-none pl-0" : b.type === "ol" ? "list-decimal pl-6" : "list-disc pl-6";
     return (
-      <p key={i} className="my-4">
-        {inline(text)}
-      </p>
+      <ListTag key={i} className={`${listCls} space-y-2 my-4`}>
+        {b.items.map((it, j) => (
+          <li key={j}>
+            {it.check && <span className="inline-block w-4 h-4 mr-2 align-[-2px] border rounded-sm" aria-hidden="true" />}
+            <Inline text={it.text} />
+            {it.children.length > 0 && (
+              <ul className="list-disc pl-6 mt-1 space-y-1">
+                {it.children.map((c, k) => (
+                  <li key={k}>
+                    <Inline text={c} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ListTag>
     );
   });
 }
@@ -202,11 +237,11 @@ export default function BlogPostPage() {
         </div>
       </header>
 
-      <article className="max-w-none leading-relaxed">
+      <article className="max-w-none text-[17px] leading-[1.75]">
         {looksLikeHtml(content) ? (
           <div dangerouslySetInnerHTML={{ __html: content }} />
         ) : (
-          renderMarkdown(content)
+          <MarkdownBody content={content} />
         )}
       </article>
 

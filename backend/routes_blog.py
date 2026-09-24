@@ -25,6 +25,7 @@ from auth_utils import get_user, now_iso
 from models import BlogPostIn, BlogPostPatch
 from config import SUPERADMIN_SECRET
 import pseo
+import re
 
 router = APIRouter(prefix="/api")
 limiter = Limiter(key_func=get_remote_address)
@@ -101,14 +102,50 @@ async def seo_publish(request: Request, payload: dict = Body(default={})):
     slug = payload.get("slug")
     if not slug:
         raise HTTPException(400, "Slug required")
-    ts = now_iso()
-    result = await db.blog_posts.update_one(
-        {"slug": slug},
-        {"$set": {"published": True, "status": "published", "published_at": ts, "updated_at": ts}},
-    )
-    if result.matched_count == 0:
+    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
+    if not post:
         raise HTTPException(404, "Draft not found")
+    pseo.clean_post_fields(post)
+    ts = now_iso()
+    post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts, "updated_at": ts})
+    await db.blog_posts.update_one({"slug": slug}, {"$set": post})
     return {"ok": True, "url": f"{pseo.SITE_URL}/blog/{slug}"}
+
+
+@router.post("/seo/edit")
+async def seo_edit(request: Request, payload: dict = Body(default={})):
+    """Edit a post's text. Body: {"slug": "...", "title": "...optional", "edits": [{"find": "...", "replace": "...", "regex": false}]}.
+    Edits apply to the article body; each result says how many places changed (0 = text not found)."""
+    _require_key(request)
+    slug = payload.get("slug")
+    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
+    if not post:
+        raise HTTPException(404, "Post not found")
+    pseo.clean_post_fields(post)
+    content = post["content"]
+    results = []
+    for e in payload.get("edits") or []:
+        find, repl = e.get("find", ""), e.get("replace", "")
+        if not find:
+            continue
+        if e.get("regex"):
+            content, n = re.subn(find, repl, content, flags=re.I)
+        else:
+            n = content.count(find)
+            content = content.replace(find, repl)
+        results.append({"find": find[:60], "changed": n})
+    post["content"] = content
+    for k in ("title", "excerpt", "meta_description"):
+        if payload.get(k):
+            post[k] = payload[k]
+    if payload.get("title"):
+        post["seo_title"] = f"{payload['title']} | ShowUp.ai"[:70]
+    if payload.get("meta_description"):
+        post["seo_description"] = payload["meta_description"]
+    pseo.clean_post_fields(post)
+    post["updated_at"] = now_iso()
+    await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    return {"ok": True, "results": results, "word_count": post["word_count"]}
 
 
 @router.post("/seo/unpublish")

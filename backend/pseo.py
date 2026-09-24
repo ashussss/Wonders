@@ -50,6 +50,47 @@ SEED_KEYWORDS = [
 ]
 
 
+_CHAR_MAP = {
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u00ad": "",
+    "\u00a0": " ", "\u202f": " ", "\u2009": " ", "\u200b": "",
+}
+
+
+def normalize_text(t: str) -> str:
+    if not isinstance(t, str):
+        return t
+    for k, v in _CHAR_MAP.items():
+        t = t.replace(k, v)
+    return t
+
+
+def clean_content(content: str, has_faq: bool) -> str:
+    c = normalize_text(content or "").strip()
+    # drop a leading "Direct answer" / "Quick answer" heading, keep the paragraph
+    c = re.sub(r"^#{1,4}\s*(direct|quick|short)\s+answer\s*\n+", "", c, flags=re.I)
+    if has_faq:
+        # FAQs are rendered separately from faq_items; remove an in-body FAQ section at the end
+        c = re.sub(r"\n(?:-{3,}\s*\n)?\s*#{1,4}\s*(faqs?|frequently asked questions)\b[\s\S]*$", "", c, flags=re.I)
+    c = re.sub(r"\n-{3,}\s*$", "", c).strip()
+    return c
+
+
+def clean_post_fields(doc: dict) -> dict:
+    """Normalise every text field of a post in place and return it."""
+    for k in ("title", "seo_title", "meta_description", "seo_description", "excerpt"):
+        if isinstance(doc.get(k), str):
+            doc[k] = normalize_text(doc[k]).strip()
+    faqs = [
+        {"question": normalize_text(f.get("question", "")), "answer": normalize_text(f.get("answer", ""))}
+        for f in (doc.get("faq_items") or []) if isinstance(f, dict) and f.get("question")
+    ]
+    doc["faq_items"] = faqs
+    doc["content"] = clean_content(doc.get("content", ""), bool(faqs))
+    doc["word_count"] = len(doc["content"].split())
+    doc["reading_time"] = max(1, round(doc["word_count"] / 200))
+    return doc
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -101,13 +142,19 @@ Search intent: {intent}
 Product context: ShowUp.ai (showupai.live) helps webinar hosts get more registrants to actually attend, using an
 AI-written, multi-channel reminder sequence (email, LinkedIn, WhatsApp/SMS, calendar) timed around the event.
 Mention ShowUp.ai naturally at most twice, near the end. The article must be genuinely useful without the product.
+Only describe ShowUp.ai with these true facts: it generates an 11-touch reminder sequence timed from about three weeks
+before the event to after it; channels are email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar
+invites; the host reviews and approves messages before they send; it tracks attendance by channel. Do NOT claim it adapts
+timing to engagement, personalises send times per person, matches brand tone, or anything else not listed.
 
 Rules:
 - 1300 to 1800 words. Markdown only: "## " and "### " headings, "- " bullets, "1. " numbered lists, plain paragraphs.
-- No H1 (the title is shown separately). No links, no tables, no images, no emojis.
-- Open with a 2-3 sentence direct answer to the keyword (featured-snippet style).
-- Do NOT invent statistics, percentages, studies, quotes or customer names. If you give numbers, frame them as
-  ranges or rules of thumb, not as cited facts.
+  Simple markdown tables and ``` code blocks (for email templates) are allowed.
+- No H1 (the title is shown separately). No links, no images, no emojis. Use plain ASCII hyphens "-".
+- Start with a 2-3 sentence direct answer to the keyword as a plain paragraph (no heading above it).
+- Do NOT include an FAQ section inside "content"; FAQs go only in "faq_items".
+- Do NOT invent statistics, percentages, benchmarks, studies, quotes or customer names. Do not state typical
+  attendance, open, click or no-show rates. Tell readers to measure their own baseline instead.
 - Tone: direct, practical, skeptical of hype. Avoid: "unlock", "revolutionary", "game-changer", "in today's fast-paced".
 - Include concrete steps, examples of message timing, and common mistakes.
 
@@ -202,6 +249,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
+    clean_post_fields(doc)
     await db.blog_posts.insert_one(doc)
     doc.pop("_id", None)
     return doc

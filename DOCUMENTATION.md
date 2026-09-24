@@ -204,6 +204,7 @@ curl -X POST $B/seo/unpublish -H "$K" -H "Content-Type: application/json" -d '{"
 curl -X POST $B/seo/research -H "$K" -H "Content-Type: application/json" -d '{"keywords":["kw1","kw2"]}'
 curl        $B/seo/queue     -H "$K"                                                            # queue status
 curl -X POST $B/seo/retry    -H "$K"                                                            # re-queue failed keywords
+curl -X POST $B/seo/edit     -H "$K" -H "Content-Type: application/json" -d '{"slug":"...","edits":[{"find":"old text","replace":"new text"}]}'  # fix text (add "regex":true for patterns)
 curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"keyword":"..."}'  # one keyword now
 ```
 
