@@ -189,6 +189,33 @@ async def get_blog_post(slug: str):
     return row
 
 
+@router.get("/blog/{slug}/cover.png")
+async def blog_cover_image(slug: str):
+    """Branded cover image (1200x630). Generated on first request and cached in Mongo;
+    regenerated automatically when the post title changes."""
+    import hashlib
+    import asyncio
+    from bson import Binary
+    import blog_cover
+
+    post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0, "title": 1, "keyword": 1})
+    if not post:
+        raise HTTPException(404, "Post not found")
+    title = post.get("title") or slug.replace("-", " ").title()
+    key = hashlib.md5((title + "|v1").encode()).hexdigest()
+    cached = await db.blog_covers.find_one({"slug": slug})
+    if cached and cached.get("key") == key:
+        png = bytes(cached["png"])
+    else:
+        png = await asyncio.get_running_loop().run_in_executor(
+            None, blog_cover.render_cover, title, slug, post.get("keyword", "")
+        )
+        await db.blog_covers.update_one(
+            {"slug": slug}, {"$set": {"slug": slug, "key": key, "png": Binary(png), "updated_at": now_iso()}}, upsert=True
+        )
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
 @router.post("/blog")
 async def create_blog_post(data: BlogPostIn, user=Depends(get_user)):
     """Create a new blog post (admin only) with full SEO/LLM/AEO/GEO fields."""

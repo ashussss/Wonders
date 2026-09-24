@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { api, fmtDate } from "@/lib/api";
+import { api, fmtDate, API_BASE } from "@/lib/api";
 import { parseMarkdown, splitInline } from "@/lib/markdown";
 
 function setMeta(name, content, attr = "name") {
@@ -141,7 +141,9 @@ export default function BlogPostPage() {
     setMeta("keywords", post.seo_keywords || post.meta_keywords);
     setMeta("og:title", post.og_title || post.title, "property");
     setMeta("og:description", post.og_description || desc, "property");
-    setMeta("og:image", post.og_image, "property");
+    const cover = `${API_BASE}/blog/${post.slug}/cover.png`;
+    setMeta("og:image", post.og_image || cover, "property");
+    setMeta("twitter:image", post.og_image || cover);
     setMeta("twitter:card", post.twitter_card || "summary_large_image");
     setMeta("twitter:title", post.twitter_title || post.title);
     setMeta("twitter:description", post.twitter_description || desc);
@@ -157,6 +159,7 @@ export default function BlogPostPage() {
         dateModified: post.updated_at || post.published_at,
         author: { "@type": "Organization", name: "ShowUp.ai" },
         publisher: { "@type": "Organization", name: "ShowUp.ai", url: "https://showupai.live" },
+        image: `${API_BASE}/blog/${post.slug}/cover.png`,
         mainEntityOfPage: `https://showupai.live/blog/${post.slug}`,
       },
     ];
@@ -236,6 +239,14 @@ export default function BlogPostPage() {
           {post.author && <span>· {post.author}</span>}
         </div>
       </header>
+
+      <img
+        src={`${API_BASE}/blog/${post.slug}/cover.png?v=${encodeURIComponent(post.updated_at || "")}`}
+        alt={post.title}
+        width="1200"
+        height="630"
+        className="w-full aspect-[1200/630] object-cover rounded-xl border mb-8"
+      />
 
       <article className="max-w-none text-[17px] leading-[1.75]">
         {looksLikeHtml(content) ? (

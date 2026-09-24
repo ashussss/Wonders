@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, fmtDate } from "@/lib/api";
+import { api, fmtDate, API_BASE } from "@/lib/api";
 
 function setMeta(name, content, attr = "name") {
   let el = document.head.querySelector(`meta[${attr}="${name}"]`);
@@ -106,7 +106,15 @@ export default function BlogPage() {
             transition={{ duration: 0.3, delay: 0.05 * i }}
           >
             <Link to={`/blog/${post.slug}`} className="block h-full">
-              <Card className="h-full hover:shadow-lg transition-shadow">
+              <Card className="h-full overflow-hidden hover:shadow-lg transition-shadow">
+                <img
+                  src={`${API_BASE}/blog/${post.slug}/cover.png?v=${encodeURIComponent(post.updated_at || "")}`}
+                  alt=""
+                  loading="lazy"
+                  width="1200"
+                  height="630"
+                  className="w-full aspect-[1200/630] object-cover border-b"
+                />
                 <CardHeader>
                   <CardTitle className="font-medium line-clamp-2">{post.title}</CardTitle>
                 </CardHeader>
