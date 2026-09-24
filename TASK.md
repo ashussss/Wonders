@@ -35,6 +35,7 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 
 - [x] **Prerender blog pages** (done 24 Sep: `scripts/prerender-blog.mjs` + Netlify build hook). Needs `NETLIFY_BUILD_HOOK` set on Render.
 - [ ] **Fix unverified claims in `frontend/public/index.html`** ("62%+ average attendance", "31% industry average", "uses Claude AI", "8-touch" vs the actual 11 touches). They appear in meta tags and schema on every page, including prerendered blog pages.
+- [ ] **Newsletter sending**: subscribers are only collected (`blog_subscribers`). Connect Brevo/Mailchimp (list + double opt-in + welcome email) and send new posts weekly.
 - [ ] **Comparison pages**: approved fact sheets per competitor (see COMPETITORS.md), then a comparison template.
 - [ ] **Original data**: publish anonymised aggregate attendance data from ShowUp.ai once there is enough.
 - [ ] **Off-site presence**: G2/Capterra listings, LinkedIn posts per article, community answers.

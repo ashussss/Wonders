@@ -25,6 +25,7 @@ from auth_utils import get_user, now_iso
 from models import BlogPostIn, BlogPostPatch
 from config import SUPERADMIN_SECRET
 import pseo
+from routes_webinars import limiter as _web_limiter
 import os
 import re
 
@@ -191,6 +192,57 @@ async def seo_unpublish(request: Request, payload: dict = Body(default={})):
         raise HTTPException(404, "Post not found")
     await _trigger_rebuild(f"unpublished {payload.get('slug')}")
     return {"ok": True}
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[a-zA-Z]{2,24}$")
+
+
+@router.post("/blog/subscribe")
+@_web_limiter.limit("5/minute")
+async def blog_subscribe(request: Request, payload: dict = Body(default={})):
+    """Public: newsletter / lead capture from the blog. Body: {name, email, slug?, placement?, website? (honeypot)}."""
+    if payload.get("website"):  # bots fill hidden fields
+        return {"ok": True}
+    email = str(payload.get("email", "")).strip().lower()
+    name = str(payload.get("name", "")).strip()[:80]
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(400, "Please enter a valid email")
+    if not name:
+        raise HTTPException(400, "Please enter your name")
+    ts = now_iso()
+    source = {"slug": str(payload.get("slug", ""))[:120], "placement": str(payload.get("placement", ""))[:40], "at": ts}
+    await db.blog_subscribers.update_one(
+        {"email": email},
+        {"$setOnInsert": {"email": email, "created_at": ts, "first_source": source, "status": "subscribed"},
+         "$set": {"name": name, "updated_at": ts},
+         "$push": {"sources": {"$each": [source], "$slice": -20}}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@router.get("/seo/subscribers")
+async def seo_subscribers(request: Request):
+    """List blog subscribers (newest first)."""
+    _require_key(request)
+    rows = await db.blog_subscribers.find({}, {"_id": 0, "sources": 0}).sort("created_at", -1).to_list(10000)
+    return {"count": len(rows), "subscribers": rows}
+
+
+@router.get("/seo/subscribers.csv")
+async def seo_subscribers_csv(request: Request):
+    """CSV export for Brevo / Mailchimp import."""
+    _require_key(request)
+    import csv, io
+    rows = await db.blog_subscribers.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["email", "name", "created_at", "first_post", "placement"])
+    for x in rows:
+        fs = x.get("first_source") or {}
+        w.writerow([x.get("email"), x.get("name"), x.get("created_at"), fs.get("slug"), fs.get("placement")])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=blog-subscribers.csv"})
 
 
 @router.get("/sitemap.xml")

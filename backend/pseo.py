@@ -40,13 +40,35 @@ FACTS = [
         "source": "ON24", "url": "https://www.on24.com/blog/key-takeaways-from-the-webinar-benchmarks-report/",
     },
     {
-        "fact": "Livestorm reports an average webinar show-up rate of 51.3% across industries on its platform.",
+        "fact": "Livestorm reports an average webinar show-up rate of 51.3% across industries on its platform, and says "
+                "browser-based webinar platforms showed a 53% higher attendance rate than traditional (download-based) ones.",
         "source": "Livestorm", "url": "https://livestorm.co/blog/boost-webinar-attendance-rate",
     },
     {
         "fact": "Demio (Banzai) reported that its customers saw an average live-session attendance rate of 38% in 2022, "
                 "with February and March highest at 41%.",
         "source": "Banzai / Demio", "url": "https://www.banzai.io/2023-webinar-stats-for-marketers",
+    },
+    {
+        "fact": "Banzai's analysis of about 800,000 webinars run on Demio found that attendance rate increases when brands "
+                "use email notifications, regardless of company size.",
+        "source": "Banzai", "url": "https://www.banzai.io/2024-webinar-statistics",
+    },
+    {
+        "fact": "Zoom's webinar statistics roundup cites TwentyThree data: webinars average 307 sign-ups with a 58% "
+                "attendance rate, and 42.6% of organisations increased their webinar frequency year over year.",
+        "source": "Zoom (citing TwentyThree)", "url": "https://www.zoom.com/en/blog/webinar-statistics/",
+    },
+    {
+        "fact": "Zoom's webinar statistics roundup cites BigMarker data: webinars during business hours see 50-55% response "
+                "rates versus 25-30% outside business hours; the average webinar CTA click-through rate is about 8.74% "
+                "(top performers 17.5%); high-performing webinars averaged 375 registrants and 214 attendees.",
+        "source": "Zoom (citing BigMarker)", "url": "https://www.zoom.com/en/blog/webinar-statistics/",
+    },
+    {
+        "fact": "TwentyThree's State of Webinars 2025 found that 35% of organisations have dedicated webinar program "
+                "managers or teams.",
+        "source": "TwentyThree", "url": "https://www.twentythree.com/state-of-webinars-2025",
     },
 ]
 PSEO_AUTO_PUBLISH = os.environ.get("PSEO_AUTO_PUBLISH", "false").lower() == "true"
@@ -197,8 +219,8 @@ timing to engagement, personalises send times per person, matches brand tone, or
 
 Author: {author}. {author_bio}
 {notes_block}
-Verified facts you MAY cite (at most 3, each with its markdown link, phrased as "<Source> reports ..."; note that
-platform benchmarks differ because each reflects one vendor's customers):
+Verified facts you SHOULD use where relevant (2 to 5 per article, each with its markdown link, phrased as
+"<Source> reports ..."; point out that platform benchmarks differ because each reflects one vendor's customers):
 {facts}
 
 Rules:
@@ -208,6 +230,12 @@ Rules:
 - The only links allowed are the fact URLs above, as markdown links [text](url). No other links.
 - Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
   do something. Add one short "Key takeaways" list near the end.
+- Make it number-rich and insight-led, without inventing data:
+  * a "## By the numbers" section early on: a markdown table or bullets using ONLY the verified facts, with links;
+  * where useful, compare benchmarks side by side and explain why they differ;
+  * at least one worked example with simple arithmetic, clearly labelled as an example
+    (e.g. "Example: 400 registrants x 40% = 160 attendees; lifting that to 50% adds 40 people"),
+    plus exact timings (e.g. "send at T-24h and T-1h") and concrete counts (e.g. "3 emails, 1 SMS").
 - Start with a 2-3 sentence direct answer to the keyword as a plain paragraph (no heading above it).
 - Do NOT include an FAQ section inside "content"; FAQs go only in "faq_items".
 - Do NOT invent statistics, percentages, benchmarks, studies, quotes or customer names. The ONLY numbers you may

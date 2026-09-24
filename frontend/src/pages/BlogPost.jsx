@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, fmtDate, API_BASE } from "@/lib/api";
 import { parseMarkdown, splitInline } from "@/lib/markdown";
+import SubscribeBox from "@/components/SubscribeBox";
 
 function setMeta(name, content, attr = "name") {
   if (!content) return;
@@ -43,9 +44,17 @@ function Inline({ text }) {
 
 const looksLikeHtml = (s) => /^\s*<(p|h[1-6]|div|section|article|ul|ol)[\s>]/i.test(s || "");
 
-function MarkdownBody({ content }) {
+function MarkdownBody({ content, insert }) {
   let h = 0;
-  return parseMarkdown(content).map((b, i) => {
+  const blocks = parseMarkdown(content);
+  // put the mid-article box before the first H2 that comes after ~40% of the article
+  let insertAt = -1;
+  if (insert) {
+    const from = Math.floor(blocks.length * 0.4);
+    insertAt = blocks.findIndex((b, i) => i >= from && b.type === "h" && b.level === 2);
+    if (insertAt === -1) insertAt = Math.min(blocks.length, Math.max(from, 1));
+  }
+  const out = blocks.map((b, i) => {
     if (b.type === "h") {
       const Tag = `h${b.level}`;
       const size = b.level === 2 ? "text-2xl mt-10" : "text-xl mt-8";
@@ -119,6 +128,8 @@ function MarkdownBody({ content }) {
       </ListTag>
     );
   });
+  if (insertAt >= 0) out.splice(insertAt, 0, <React.Fragment key="mid-insert">{insert}</React.Fragment>);
+  return out;
 }
 
 export default function BlogPostPage() {
@@ -258,7 +269,7 @@ export default function BlogPostPage() {
         {looksLikeHtml(content) ? (
           <div dangerouslySetInnerHTML={{ __html: content }} />
         ) : (
-          <MarkdownBody content={content} />
+          <MarkdownBody content={content} insert={<SubscribeBox variant="inline" slug={post.slug} placement="mid-article" />} />
         )}
       </article>
 
@@ -275,6 +286,8 @@ export default function BlogPostPage() {
           </div>
         </section>
       )}
+
+      <SubscribeBox variant="card" slug={post.slug} placement="end-of-post" />
 
       {post.author && post.author !== "ShowUp.ai Team" && (
         <aside className="mt-12 p-5 border rounded-xl flex gap-4 items-start">
@@ -328,6 +341,7 @@ export default function BlogPostPage() {
           </Link>
         </div>
       </section>
+      <SubscribeBox variant="bar" slug={post.slug} placement="sticky-bar" />
     </motion.div>
   );
 }

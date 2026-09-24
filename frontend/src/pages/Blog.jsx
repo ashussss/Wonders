@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, fmtDate, API_BASE } from "@/lib/api";
+import SubscribeBox from "@/components/SubscribeBox";
 
 function setMeta(name, content, attr = "name") {
   let el = document.head.querySelector(`meta[${attr}="${name}"]`);
@@ -67,28 +68,7 @@ export default function BlogPage() {
         </p>
       </div>
 
-      <div className="bg-secondary/5 border border-secondary/10 rounded-lg p-6 mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm font-medium mb-1">Why read?</p>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>Data-driven webinar strategies</li>
-              <li>AI-powered attendance optimization</li>
-              <li>Real-world case studies</li>
-              <li>Proven attendance boost tactics</li>
-            </ul>
-          </div>
-          <div>
-            <p className="text-sm font-medium mb-1">Who is it for?</p>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>EdTech founders & instructors</li>
-              <li>Corporate training leaders</li>
-              <li>Agency owners running webinars</li>
-              <li>Education sector consultants</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+      <SubscribeBox variant="card" placement="blog-index" />
 
       {(error || posts.length === 0) && (
         <div className="p-8 text-center text-muted-foreground">
