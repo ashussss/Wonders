@@ -157,7 +157,7 @@ async def make_carousel(title: str, audience: str = "", starts_at: str = "",
             def _gen():
                 g = GroqClient(api_key=groq_key)
                 resp = g.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-20b", extra_body={"reasoning_effort": "low"},
                     messages=[{"role": "user", "content": f"""Create a 4-slide LinkedIn carousel about: {title}
 Audience: {audience or "webinar hosts"}
 
@@ -170,7 +170,7 @@ Return ONLY this JSON:
     {{"heading": "...", "body": "..."}}
   ]
 }}"""}],
-                    max_tokens=600,
+                    max_tokens=2000,
                     temperature=0.7,
                 )
                 return resp.choices[0].message.content
@@ -240,14 +240,14 @@ async def make_infographic(title: str, audience: str = "", starts_at: str = "",
                 from groq import Groq as G
                 g = G(api_key=groq_key)
                 resp = g.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-20b", extra_body={"reasoning_effort": "low"},
                     messages=[{"role": "user", "content": f"""Create 5 key insights about: {title}
 Audience: {audience or "professionals"}
 Each insight: short heading (5 words max) + one sentence explanation (max 100 chars)
 
 Return ONLY JSON:
 {{"points": [{{"heading": "...", "detail": "..."}}]}}"""}],
-                    max_tokens=400, temperature=0.7,
+                    max_tokens=2000, temperature=0.7,
                 )
                 return resp.choices[0].message.content
             
@@ -357,12 +357,12 @@ async def make_carousel_preview(title: str, audience: str = "", starts_at: str =
                 from groq import Groq as G
                 g = G(api_key=groq_key)
                 resp = g.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-20b", extra_body={"reasoning_effort": "low"},
                     messages=[{"role": "user", "content": f"""Create 4 LinkedIn carousel slides about: {title}
 Audience: {audience or "webinar hosts"}
 Return ONLY JSON:
 {{"slides": [{{"heading": "max 40 chars", "body": "max 120 chars"}}]}}"""}],
-                    max_tokens=500, temperature=0.7,
+                    max_tokens=2000, temperature=0.7,
                 )
                 return resp.choices[0].message.content
             loop = asyncio.get_event_loop()

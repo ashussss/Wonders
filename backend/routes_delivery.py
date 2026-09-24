@@ -757,11 +757,11 @@ async def generate_carousel(wid: str, payload: Dict[str, Any] = Body(default={})
             def _gen():
                 g = G(api_key=groq_key)
                 resp = g.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-20b", extra_body={"reasoning_effort": "low"},
                     messages=[{"role": "user", "content": f"""Create 4 LinkedIn carousel slides about: {w.get('title','')}
 Audience: {w.get('target_audience','webinar hosts')}
 Return ONLY JSON: {{"slides": [{{"heading": "max 40 chars", "body": "max 120 chars"}}]}}"""}],
-                    max_tokens=500, temperature=0.7,
+                    max_tokens=2000, temperature=0.7,
                 )
                 return resp.choices[0].message.content
             import json, re

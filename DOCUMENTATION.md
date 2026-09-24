@@ -49,7 +49,7 @@ Nothing runs on a laptop in production. Code lives in GitHub, and data lives in 
 
 **Backend:** Python 3.11, FastAPI, Motor (async MongoDB), APScheduler, slowapi (rate limiting), httpx, Pydantic v2, Pillow (image rendering), reportlab (PDF), ics (calendar files), cryptography/Fernet (secret encryption).
 
-**AI:** Gemini (`gemini-3.5-flash-lite`) is the primary model for touch copy, with Groq (`openai/gpt-oss-20b`) as fallback, both in `ai.py`. Groq `llama-3.1-8b-instant` writes the text for social images. Groq `llama-3.3-70b-versatile`, falling back to `llama-3.1-8b-instant`, writes SEO blog posts in `pseo.py`.
+**AI:** Gemini (`gemini-3.5-flash-lite`) is the primary model for touch copy, with Groq (`openai/gpt-oss-20b`) as fallback, both in `ai.py`. Groq `openai/gpt-oss-20b` writes the text for social images. Groq `openai/gpt-oss-120b`, falling back to `openai/gpt-oss-20b`, writes SEO blog posts in `pseo.py`.
 
 **Frontend:** React 19 (Create React App + CRACO), Tailwind CSS, shadcn/ui (Radix), Framer Motion, Recharts, Sonner toasts, lucide-react icons, React Router 7.
 
@@ -164,7 +164,7 @@ It automatically writes long-form, SEO-focused articles about webinar attendance
 seo_candidates (keyword queue)
    │  daily 03:30 UTC (09:00 IST) via APScheduler, or POST /api/seo/run
    ▼
-pseo.generate_post(): Groq llama-3.3-70b writes JSON:
+pseo.generate_post(): Groq gpt-oss-120b writes JSON:
    title, meta description, excerpt, 1300–1800-word markdown article, 4–6 FAQs,
    entities, related topics   (prompt forbids invented stats, links, fluff)
    ▼
@@ -203,6 +203,7 @@ curl -X POST $B/seo/publish  -H "$K" -H "Content-Type: application/json" -d '{"s
 curl -X POST $B/seo/unpublish -H "$K" -H "Content-Type: application/json" -d '{"slug":"..."}'
 curl -X POST $B/seo/research -H "$K" -H "Content-Type: application/json" -d '{"keywords":["kw1","kw2"]}'
 curl        $B/seo/queue     -H "$K"                                                            # queue status
+curl -X POST $B/seo/retry    -H "$K"                                                            # re-queue failed keywords
 curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"keyword":"..."}'  # one keyword now
 ```
 
@@ -211,7 +212,7 @@ curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"k
 |---|---|---|
 | `PSEO_POSTS_PER_DAY` | `1` | Drafts written per daily run |
 | `PSEO_AUTO_PUBLISH` | `false` | `true` publishes without review (not recommended yet) |
-| `PSEO_MODEL` | `llama-3.3-70b-versatile` | Groq model for articles |
+| `PSEO_MODEL` | `openai/gpt-oss-120b` | Groq model for articles |
 
 ### Known limits
 - **AI crawlers.** The blog is rendered client-side. Google executes JavaScript and will index it, but GPTBot, PerplexityBot and ClaudeBot mostly do not. Prerendering is an open task.

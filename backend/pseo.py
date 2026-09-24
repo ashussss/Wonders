@@ -19,8 +19,8 @@ from database import db
 logger = logging.getLogger("showup.pseo")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-PSEO_MODEL = os.environ.get("PSEO_MODEL", "llama-3.3-70b-versatile")
-PSEO_FALLBACK_MODEL = "llama-3.1-8b-instant"
+PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
+PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
 PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
 PSEO_AUTO_PUBLISH = os.environ.get("PSEO_AUTO_PUBLISH", "false").lower() == "true"
 SITE_URL = "https://showupai.live"
@@ -123,24 +123,42 @@ Return ONLY a JSON object with these keys:
 }}"""
 
 
+def _parse_json(text: str) -> dict:
+    text = (text or "").strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise ValueError("No JSON object in model output")
+        return json.loads(text[start:end + 1])
+
+
 def _groq_json(prompt: str) -> dict:
     from groq import Groq
 
     client = Groq(api_key=GROQ_API_KEY)
     last_err = None
     for model in (PSEO_MODEL, PSEO_FALLBACK_MODEL):
-        try:
-            r = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=6000,
-                temperature=0.6,
-                response_format={"type": "json_object"},
-            )
-            return json.loads(r.choices[0].message.content)
-        except Exception as e:  # try fallback model
-            last_err = e
-            logger.warning(f"pSEO model {model} failed: {e}")
+        # Try strict JSON mode first, then plain mode with JSON extraction.
+        for json_mode in (True, False):
+            try:
+                kwargs = dict(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=16000,  # gpt-oss spends part of this on reasoning
+                    temperature=0.6,
+                    extra_body={"reasoning_effort": "low"},
+                )
+                if json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
+                r = client.chat.completions.create(**kwargs)
+                return _parse_json(r.choices[0].message.content)
+            except Exception as e:
+                last_err = e
+                logger.warning(f"pSEO model {model} (json_mode={json_mode}) failed: {e}")
+                if "model_not_found" in str(e) or "does not exist" in str(e):
+                    break  # no point retrying this model without JSON mode
     raise RuntimeError(f"All pSEO models failed: {last_err}")
 
 
@@ -224,6 +242,14 @@ async def run_pipeline(count: int | None = None) -> dict:
             results.append({"keyword": kw, "error": str(e)[:300]})
             logger.error(f"pSEO failed '{kw}': {e}")
     return {"ok": True, "processed": len(results), "results": results}
+
+
+async def retry_failed() -> int:
+    """Put failed keywords back in the queue."""
+    res = await db.seo_candidates.update_many(
+        {"status": {"$in": ["failed", "processing"]}}, {"$set": {"status": "pending"}, "$unset": {"error": ""}}
+    )
+    return res.modified_count
 
 
 async def build_sitemap() -> str:

@@ -60,6 +60,13 @@ async def seo_run(request: Request, payload: dict = Body(default={})):
     return await pseo.run_pipeline(min(max(count, 1), 5))
 
 
+@router.post("/seo/retry")
+async def seo_retry(request: Request):
+    """Re-queue keywords that failed (e.g. after fixing a model/API issue)."""
+    _require_key(request)
+    return {"ok": True, "requeued": await pseo.retry_failed()}
+
+
 @router.post("/seo/generate")
 async def seo_generate(request: Request, payload: dict = Body(default={})):
     """Generate a draft for one specific keyword right now."""

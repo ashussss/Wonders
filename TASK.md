@@ -13,7 +13,8 @@ Priorities: **P0** = do now / blocking · **P1** = next · **P2** = soon · **P3
 | 24 Sep | `7e90423` | **Netlify build fixed.** The blog pages imported modules that don't exist (`@/lib/router`, `@/lib/seo`, `@/lib/hooks`, `LoadingSkeleton`, fake react-icons) and had invalid JS; both pages were rewritten. Backend: removed the non-existent `BlogPostOut` import (it crashed startup) and fixed the doubled `/api/api/blog` paths. The public blog list no longer needs login. |
 | 24 Sep | `618b3a5` | **Programmatic SEO pipeline built** (`backend/pseo.py`): keyword queue, then 1,300–1,800-word Groq drafts, then review, then publish. Daily job at 03:30 UTC. Admin endpoints `/api/seo/run`, `/drafts`, `/publish`, `/unpublish`, `/research`, `/queue`, `/generate`. Live `/api/sitemap.xml`, proxied by Netlify at `showupai.live/sitemap.xml` (the static sitemap with a broken `[slug]` URL was removed). Article + FAQPage JSON-LD on posts. GSC router mounted. `cron_jobs.yaml` reduced to one valid backup job. |
 | 24 Sep | `e2addc7` | **Blog link fix.** `/blog` routes had been inside the protected app layout, so clicking Blog went to login or the admin area. They are now public, with a home link and a "Get started" button on the blog. |
-| 24 Sep | this commit | `DOCUMENTATION.md` (full project docs) and this `TASK.md` added. |
+| 24 Sep | next commit | **Groq model fix.** `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` were shut down by Groq on 16 Aug 2026, so blog generation and social-image text were failing. They now use `openai/gpt-oss-120b` / `gpt-oss-20b`. Added `POST /api/seo/retry` to re-queue failed keywords. |
+| 24 Sep | `40e006b` | `DOCUMENTATION.md` (full project docs) and this `TASK.md` added. |
 
 Verified: the frontend passes `CI=true npm run build`, the backend server imports cleanly, and the SEO pipeline was tested end to end (queue → draft → hidden until published → published → sitemap) against a mock DB with a mocked AI response.
 
@@ -42,7 +43,7 @@ Verified: the frontend passes `CI=true npm run build`, the backend server import
 
 - [ ] **Internal linking**: add "Related posts" at the bottom of each article (same-topic published posts) and link posts from the landing page.
 - [ ] **Blog cover / OG images**: reuse `image_gen.py` to render a 1200×630 card per post and set `og_image`.
-- [ ] **Remove legacy SEO scripts**: `seo_generator.py`, `long_form_seo.py` and `minimal_long_form.py` write to the wrong database (`MONGO_URI` / `wonders_db`) and are superseded by `pseo.py`.
+- [ ] **Remove legacy SEO scripts**: `seo_generator.py`, `long_form_seo.py` and `minimal_long_form.py` write to the wrong database (`MONGO_URI` / `wonders_db`), use a deprecated model, and are superseded by `pseo.py`.
 - [ ] **Tests** for `pseo.py` and the SEO endpoints in `backend/tests/` (the end-to-end test from 24 Sep can be turned into a pytest suite).
 - [ ] **Repo cleanup**: `README.md` is a placeholder; update `AGENTS.md` (it still says Claude via emergentintegrations and 8 touches, but the app now uses Gemini/Groq and 11 touches); remove `THEME_*.md`, `showupai-bw-theme-finish.patch`, `vercel.json` (Netlify is the host) and the unused root `frontend/_redirects`.
 - [ ] **netlify.toml**: drop the redundant second `npm install lucide-react@0.400.0` (it's already pinned in package.json).
