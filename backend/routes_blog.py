@@ -20,7 +20,7 @@ from slowapi.util import get_remote_address
 
 from database import db
 from auth_utils import get_user, now_iso
-from models import BlogPostIn, BlogPostOut, BlogPostPatch
+from models import BlogPostIn, BlogPostPatch
 from config import SUPERADMIN_SECRET
 from seo_generator import generate_seo_content
 
@@ -99,7 +99,7 @@ async def seo_publish(payload: dict = Body(...), request: Request = None):
 # --------- Blog Posts with Full Optimization ---------
 
 @router.get("/blog")
-async def list_blog_posts(user=Depends(get_user)):
+async def list_blog_posts():
     """List all published blog posts, published first, sorted by SEO value."""
     rows = await db.blog_posts.find({"published": True}, {"_id": 0}).sort(
         [("published_at", -1), ("reading_time", -1)]
@@ -109,7 +109,7 @@ async def list_blog_posts(user=Depends(get_user)):
     return published + not_published
 
 
-@router.get("/api/blog/{slug}")
+@router.get("/blog/{slug}")
 async def get_blog_post(slug: str):
     """Get a single blog post by slug with full optimization data."""
     row = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
@@ -118,7 +118,7 @@ async def get_blog_post(slug: str):
     return row
 
 
-@router.post("/api/blog")
+@router.post("/blog")
 async def create_blog_post(data: BlogPostIn, user=Depends(get_user)):
     """Create a new blog post (admin only) with full SEO/LLM/AEO/GEO fields."""
     # Check superadmin auth
@@ -190,7 +190,7 @@ async def create_blog_post(data: BlogPostIn, user=Depends(get_user)):
     return {"ok": True, "id": doc["id"]}
 
 
-@router.put("/api/blog/{slug}")
+@router.put("/blog/{slug}")
 async def update_blog_post(slug: str, data: BlogPostPatch, user=Depends(get_user)):
     """Update a blog post (admin only, superadmin check) with full optimization."""
     # Check superadmin auth
@@ -228,7 +228,7 @@ async def update_blog_post(slug: str, data: BlogPostPatch, user=Depends(get_user
 
 # --------- AI-Powered Blog Post Generation (Next Level) ---------
 
-@router.post("/api/blog/generate")
+@router.post("/blog/generate")
 async def generate_blog_post(
     keyword: str = Body(...),
     intent: str = Body("informational"),  # informational, commercial, transactional
@@ -243,7 +243,7 @@ async def generate_blog_post(
 
 # --------- Helper Endpoints for Optimization ---------
 
-@router.get("/api/blog/{slug}/aeo-analysis")
+@router.get("/blog/{slug}/aeo-analysis")
 async def aeo_analysis(slug: str, user=Depends(get_user)):
     """AEO analysis: featured snippet potential, question rankings, etc."""
     post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
@@ -285,7 +285,7 @@ async def aeo_analysis(slug: str, user=Depends(get_user)):
     }
 
 
-@router.get("/api/blog/{slug}/geo-entities")
+@router.get("/blog/{slug}/geo-entities")
 async def geo_entities(slug: str, user=Depends(get_user)):
     """GEO analysis: entity relationships, salience, LLM readability."""
     post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0})
