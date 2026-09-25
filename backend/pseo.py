@@ -141,8 +141,11 @@ def normalize_text(t: str) -> str:
     return rebrand(t)
 
 
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u20E3]")
+
+
 def clean_content(content: str, has_faq: bool) -> str:
-    c = normalize_text(content or "").strip()
+    c = _EMOJI.sub("", normalize_text(content or "")).strip()
     # drop a leading "Direct answer" / "Quick answer" heading, keep the paragraph
     c = re.sub(r"^#{1,4}\s*(direct|quick|short)\s+answer\s*\n+", "", c, flags=re.I)
     if has_faq:
@@ -418,6 +421,67 @@ def _groq_json(prompt: str) -> dict:
     raise RuntimeError(f"All pSEO models failed: {last_err}")
 
 
+PRODUCT_FACTS = (
+    f"{BRAND} (showupai.live): generates an 11-touch reminder sequence per webinar: confirmation + calendar invite on "
+    "registration, awareness post (21 days before), insight (19 days), poll (14 days), case study (10 days), infographic "
+    "(8 days), urgency (5 days), final warm-up (1 day), join link (1 hour before), thank-you to attendees (after), "
+    "no-show follow-up (2 days after). Channels: email (Brevo/Mailchimp/SendGrid/Buzz.ai), LinkedIn page, Facebook, "
+    "Instagram, WhatsApp with SMS fallback, Circle.so, calendar invites. AI writes two variants per message; the host "
+    "approves every message; attendance analytics by channel. Plans $29/$79/$199 per month, 14-day free trial."
+)
+
+FACTCHECK_PROMPT = """You are a strict fact-checker for a B2B blog. Today's year is 2026.
+
+ALLOWED FACTS (the only statistics that may be stated as facts, each only with its own source):
+{facts}
+
+TRUE PRODUCT FACTS about the brand (anything else claimed about the product is false):
+{product}
+
+ARTICLE (markdown):
+<<<
+{article}
+>>>
+
+Find EVERY sentence, bullet or table cell that:
+1. states a number, percentage, rate, multiplier or benchmark as a fact that is not in ALLOWED FACTS
+   (clearly labelled hypothetical arithmetic like "Example: 400 x 40% = 160" or "assume" is fine);
+2. attributes a finding, number or cause to a source (ON24, Livestorm, Banzai, Demio, Zoom, TwentyThree, BigMarker,
+   "research", "studies", "data") that the ALLOWED FACTS do not say, or mixes up which source said what;
+3. speculates about why a vendor's numbers are what they are, stated as fact;
+4. claims something about the brand that is not in TRUE PRODUCT FACTS (e.g. "mirrors the brand's sequence" when timings differ);
+5. is factually wrong or outdated (e.g. LinkedIn SlideShare, dates in 2024/2025 used as upcoming examples);
+6. recommends fake scarcity ("only 20 seats left") or fake social proof.
+
+For each, give an edit: "find" must be an EXACT substring copied from the article (a whole sentence or table cell),
+"replace" is a corrected version that keeps the useful point without the unsupported claim (or "" to delete a
+sentence that has no other value). Do not touch correct content. Keep markdown formatting intact.
+
+Return ONLY JSON: {{"edits": [{{"find": "...", "replace": "...", "reason": "short"}}]}}"""
+
+
+async def fact_check(content: str) -> tuple:
+    """Second AI pass: remove invented stats, wrong attributions and false product claims. Returns (content, edits)."""
+    facts = "\n".join(f"- {f['fact']} (Source: {f['source']})" for f in FACTS)
+    prompt = FACTCHECK_PROMPT.format(facts=facts, product=PRODUCT_FACTS, article=content)
+    try:
+        data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
+    except Exception as e:
+        logger.warning(f"fact-check failed: {e}")
+        return content, []
+    applied = []
+    for e in (data.get("edits") or [])[:40]:
+        find, repl = (e.get("find") or ""), (e.get("replace") or "")
+        if len(find) < 8 or find == repl:
+            continue
+        find_n = normalize_text(find)
+        if find_n in content:
+            content = content.replace(find_n, normalize_text(repl), 1)
+            applied.append({"find": find_n[:160], "replace": normalize_text(repl)[:160], "reason": e.get("reason", "")[:80]})
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content, applied
+
+
 async def generate_post(keyword: str, intent: str = "informational") -> dict:
     """Generate one long-form draft and save it to blog_posts (unpublished unless auto-publish)."""
     if not GROQ_API_KEY:
@@ -436,7 +500,8 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
     prompt = PROMPT.format(keyword=keyword, intent=intent, author=AUTHOR_NAME, author_bio=AUTHOR_BIO,
                            notes_block=notes_block, facts=facts, related=related)
     data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
-    content = (data.get("content") or "").strip()
+    content = clean_content((data.get("content") or "").strip(), bool(data.get("faq_items")))
+    content, fixes = await fact_check(content)
     words = len(content.split())
     if words < 600:
         raise RuntimeError(f"Draft too short ({words} words)")
@@ -465,6 +530,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "author_url": AUTHOR_URL,
         "sources": [{"source": f["source"], "url": f["url"]} for f in FACTS if f["url"] in content],
         "source": "pseo",
+        "fact_check_edits": fixes,
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
         "published_at": now_iso() if PSEO_AUTO_PUBLISH else None,

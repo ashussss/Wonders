@@ -221,6 +221,9 @@ curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"k
 ### Prerendering (for AI crawlers and link previews)
 After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published posts and writes full HTML to `build/blog/index.html` and `build/blog/<slug>/index.html`, with title, meta, canonical, OG/Twitter image, Article + FAQPage + Breadcrumb JSON-LD, author, sources and related links. Netlify serves these files directly, so GPTBot, PerplexityBot, ClaudeBot, LinkedIn and X see the whole article; React then mounts over it for humans. If the API is unreachable the script skips and the build still succeeds. Publishing, unpublishing or editing a published post calls `NETLIFY_BUILD_HOOK`, so pages refresh within a few minutes (`POST /api/seo/rebuild` does it manually).
 
+### Fact-check pass (added 25 Sep)
+After the writer drafts an article, `pseo.fact_check()` sends it to a second AI pass with the verified FACTS and `PRODUCT_FACTS`. It returns exact-substring edits for invented numbers, wrong source attributions, speculation about vendors, false product claims, outdated facts and fake scarcity/social proof; the edits are applied and stored on the draft as `fact_check_edits`. Emojis are stripped. `POST /api/seo/regenerate {"slugs": [...]}` deletes unpublished drafts and writes them again through the full pipeline. Human review is still required before publishing.
+
 ### Sourced facts, author and notes
 `pseo.FACTS` holds verified statistics with URLs; the writer may cite only these, as links, and they are listed under *Sources* on the post. Add keywords with first-hand notes: `{"keywords":[{"keyword":"...","notes":"what I have seen"}]}` on `/seo/research`. See `COMPETITORS.md` for the competitor research.
 

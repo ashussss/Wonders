@@ -203,6 +203,26 @@ async def seo_queue(request: Request):
     return rows
 
 
+@router.post("/seo/regenerate")
+async def seo_regenerate(request: Request, payload: dict = Body(default={})):
+    """Delete an unpublished draft and write it again (new prompt + fact-check). Body: {"slug": "..."} or {"slugs": [...]}"""
+    _require_key(request)
+    out = []
+    for slug in payload.get("slugs") or [payload.get("slug")]:
+        d = await db.blog_posts.find_one({"slug": slug}, {"_id": 0, "keyword": 1, "intent": 1, "published": 1})
+        if not d:
+            out.append({"slug": slug, "error": "not found"}); continue
+        if d.get("published"):
+            out.append({"slug": slug, "error": "already published"}); continue
+        await db.blog_posts.delete_one({"slug": slug})
+        try:
+            post = await pseo.generate_post(d.get("keyword") or slug.replace("-", " "), d.get("intent") or "informational")
+            out.append({"slug": post["slug"], "words": post["word_count"], "fact_fixes": len(post.get("fact_check_edits") or [])})
+        except Exception as e:
+            out.append({"slug": slug, "error": str(e)[:200]})
+    return {"ok": True, "results": out}
+
+
 @router.post("/seo/keywords/skip")
 async def seo_keywords_skip(request: Request, payload: dict = Body(default={})):
     """Remove queued keywords from the plan (status -> skipped). Body: {"keywords": ["...", ...]}.
