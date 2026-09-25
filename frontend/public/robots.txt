@@ -41,7 +41,7 @@ Allow: /
 User-agent: cohere-ai
 Allow: /
 
-User-agent: Googlebot-Extended
+User-agent: Google-Extended
 Allow: /
 
 Sitemap: https://showupai.live/sitemap.xml

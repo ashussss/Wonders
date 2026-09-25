@@ -221,6 +221,11 @@ curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"k
 ### Prerendering (for AI crawlers and link previews)
 After `craco build`, `frontend/scripts/prerender-blog.mjs` fetches all published posts and writes full HTML to `build/blog/index.html` and `build/blog/<slug>/index.html`, with title, meta, canonical, OG/Twitter image, Article + FAQPage + Breadcrumb JSON-LD, author, sources and related links. Netlify serves these files directly, so GPTBot, PerplexityBot, ClaudeBot, LinkedIn and X see the whole article; React then mounts over it for humans. If the API is unreachable the script skips and the build still succeeds. Publishing, unpublishing or editing a published post calls `NETLIFY_BUILD_HOOK`, so pages refresh within a few minutes (`POST /api/seo/rebuild` does it manually).
 
+### Auto-publishing (added 25 Sep)
+With `PSEO_AUTO_SCHEDULE=true` (default), every new draft that passes the quality gate (fact-check ran, 900+ words, title and meta present) is scheduled into the next free slot of `PSEO_PUBLISH_TIMES_IST` (default 10:00, 13:00, 16:00, 19:00 IST), and the 10-minute job publishes it: relink, Netlify rebuild, IndexNow ping and social promo. Drafts that fail the gate stay as drafts for review. Set `PSEO_AUTO_SCHEDULE=false` to go back to manual review.
+
+The sitemap (`/api/sitemap.xml`, served at showupai.live/sitemap.xml) lists every published post newest first with lastmod and its cover image (image sitemap extension). Submit it once in Google Search Console and Bing Webmaster Tools; it updates itself.
+
 ### Fact-check pass (added 25 Sep)
 After the writer drafts an article, `pseo.fact_check()` sends it to a second AI pass with the verified FACTS and `PRODUCT_FACTS`. It returns exact-substring edits for invented numbers, wrong source attributions, speculation about vendors, false product claims, outdated facts and fake scarcity/social proof; the edits are applied and stored on the draft as `fact_check_edits`. Emojis are stripped. `POST /api/seo/regenerate {"slugs": [...]}` deletes unpublished drafts and writes them again through the full pipeline. Human review is still required before publishing.
 

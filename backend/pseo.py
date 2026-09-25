@@ -23,6 +23,9 @@ PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
 PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
+# Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
+PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
+PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
 AUTHOR_NAME = os.environ.get("AUTHOR_NAME", "Ashutosh Kumar Singh")
 AUTHOR_BIO = os.environ.get(
     "AUTHOR_BIO",
@@ -468,7 +471,7 @@ async def fact_check(content: str) -> tuple:
         data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
     except Exception as e:
         logger.warning(f"fact-check failed: {e}")
-        return content, []
+        return content, None  # None = fact-check did not run
     applied = []
     for e in (data.get("edits") or [])[:40]:
         find, repl = (e.get("find") or ""), (e.get("replace") or "")
@@ -530,7 +533,8 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "author_url": AUTHOR_URL,
         "sources": [{"source": f["source"], "url": f["url"]} for f in FACTS if f["url"] in content],
         "source": "pseo",
-        "fact_check_edits": fixes,
+        "fact_check_edits": fixes or [],
+        "fact_check_ok": fixes is not None,
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
         "published_at": now_iso() if PSEO_AUTO_PUBLISH else None,
@@ -541,6 +545,38 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
     await db.blog_posts.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+
+async def next_publish_slot() -> str | None:
+    """Earliest future IST slot (today or the next 7 days) that no other post is scheduled for. UTC ISO."""
+    from datetime import timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    taken = {d.get("publish_at") for d in await db.blog_posts.find(
+        {"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"_id": 0, "publish_at": 1}).to_list(500)}
+    now = datetime.now(ist)
+    for day in range(8):
+        date = (now + timedelta(days=day)).date()
+        for t in PSEO_PUBLISH_TIMES_IST:
+            hh, mm = (int(x) for x in t.split(":"))
+            slot = datetime(date.year, date.month, date.day, hh, mm, tzinfo=ist)
+            if slot <= now + timedelta(minutes=10):
+                continue
+            iso = slot.astimezone(timezone.utc).isoformat()
+            if iso not in taken:
+                return iso
+    return None
+
+
+def passes_quality_gate(post: dict) -> tuple:
+    if not post.get("fact_check_ok"):
+        return False, "fact-check did not run"
+    if (post.get("word_count") or 0) < 900:
+        return False, f"too short ({post.get('word_count')} words)"
+    if "](https://showupai.live" not in (post.get("content") or ""):
+        pass  # autolink adds it at publish time
+    if not post.get("title") or not post.get("meta_description"):
+        return False, "missing title/meta"
+    return True, ""
 
 
 async def run_pipeline(count: int | None = None) -> dict:
@@ -569,7 +605,16 @@ async def run_pipeline(count: int | None = None) -> dict:
                 for t in post.get("related_topics", [])[:3]:
                     if isinstance(t, str):
                         await add_keyword(t, "informational")
-            results.append({"keyword": kw, "slug": post["slug"], "status": post["status"]})
+            item = {"keyword": kw, "slug": post["slug"], "status": post["status"]}
+            if PSEO_AUTO_SCHEDULE and not post.get("published"):
+                ok, why = passes_quality_gate(post)
+                slot = await next_publish_slot() if ok else None
+                if slot:
+                    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"}})
+                    item.update({"status": "scheduled", "publish_at_utc": slot})
+                else:
+                    item["held"] = why or "no free slot"
+            results.append(item)
             logger.info(f"pSEO drafted '{kw}' -> {post['slug']}")
         except Exception as e:
             await db.seo_candidates.update_one(
@@ -650,16 +695,20 @@ async def build_sitemap() -> str:
         for p, pr, f in static
     ]
     rows = await db.blog_posts.find(
-        {"published": True}, {"_id": 0, "slug": 1, "published_at": 1, "updated_at": 1}
-    ).to_list(5000)
+        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "published_at": 1, "updated_at": 1}
+    ).sort("published_at", -1).to_list(5000)
     for r in rows:
         last = (r.get("updated_at") or r.get("published_at") or "")[:10]
         lastmod = f"<lastmod>{last}</lastmod>" if last else ""
+        from xml.sax.saxutils import escape as _x
+        cover = f"https://showup-backend-2bfj.onrender.com/api/blog/{r['slug']}/cover.png"
         urls.append(
             f"<url><loc>{SITE_URL}/blog/{r['slug']}</loc>{lastmod}"
-            f"<changefreq>monthly</changefreq><priority>0.6</priority></url>"
+            f"<changefreq>monthly</changefreq><priority>0.7</priority>"
+            f"<image:image><image:loc>{cover}</image:loc><image:title>{_x(r.get('title') or '')}</image:title></image:image></url>"
         )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(urls) + "\n</urlset>\n"
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n' + "\n".join(urls) + "\n</urlset>\n"
     )
