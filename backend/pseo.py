@@ -310,7 +310,7 @@ async def seed_keywords() -> int:
 
 
 async def add_keyword(keyword: str, intent: str = "informational", notes: str = "") -> int:
-    keyword = keyword.strip().lower()
+    keyword = normalize_text(keyword).strip().lower()
     if not keyword:
         return 0
     res = await db.seo_candidates.update_one(

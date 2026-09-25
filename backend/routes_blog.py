@@ -203,6 +203,19 @@ async def seo_queue(request: Request):
     return rows
 
 
+@router.post("/seo/keywords/skip")
+async def seo_keywords_skip(request: Request, payload: dict = Body(default={})):
+    """Remove queued keywords from the plan (status -> skipped). Body: {"keywords": ["...", ...]}.
+    Matching ignores case and odd hyphen/space characters."""
+    _require_key(request)
+    wanted = {pseo.normalize_text(k).strip().lower() for k in payload.get("keywords") or []}
+    rows = await db.seo_candidates.find({"status": "pending"}, {"_id": 0, "keyword": 1}).to_list(5000)
+    hits = [r["keyword"] for r in rows if pseo.normalize_text(r["keyword"]).strip().lower() in wanted]
+    if hits:
+        await db.seo_candidates.update_many({"keyword": {"$in": hits}}, {"$set": {"status": "skipped"}})
+    return {"ok": True, "skipped": len(hits), "not_found": sorted(wanted - {pseo.normalize_text(h).lower() for h in hits})}
+
+
 @router.get("/seo/drafts")
 async def seo_drafts(request: Request):
     """List unpublished drafts for review (full content included)."""
