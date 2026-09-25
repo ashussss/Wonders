@@ -217,7 +217,9 @@ async def seo_regenerate(request: Request, payload: dict = Body(default={})):
         await db.blog_posts.delete_one({"slug": slug})
         try:
             post = await pseo.generate_post(d.get("keyword") or slug.replace("-", " "), d.get("intent") or "informational")
-            out.append({"slug": post["slug"], "words": post["word_count"], "fact_fixes": len(post.get("fact_check_edits") or [])})
+            item = {"slug": post["slug"], "words": post["word_count"], "fact_fixes": len(post.get("fact_check_edits") or [])}
+            item.update(await pseo.auto_schedule(post))
+            out.append(item)
         except Exception as e:
             out.append({"slug": slug, "error": str(e)[:200]})
     return {"ok": True, "results": out}

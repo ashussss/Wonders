@@ -579,6 +579,18 @@ def passes_quality_gate(post: dict) -> tuple:
     return True, ""
 
 
+async def auto_schedule(post: dict) -> dict:
+    """If auto-scheduling is on and the draft passes the gate, give it the next free slot."""
+    if not PSEO_AUTO_SCHEDULE or post.get("published"):
+        return {}
+    ok, why = passes_quality_gate(post)
+    slot = await next_publish_slot() if ok else None
+    if slot:
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"}})
+        return {"status": "scheduled", "publish_at_utc": slot}
+    return {"held": why or "no free slot"}
+
+
 async def run_pipeline(count: int | None = None) -> dict:
     """Take `count` pending keywords, generate drafts. Safe to call from cron or manually."""
     count = count or PSEO_POSTS_PER_DAY
@@ -606,14 +618,7 @@ async def run_pipeline(count: int | None = None) -> dict:
                     if isinstance(t, str):
                         await add_keyword(t, "informational")
             item = {"keyword": kw, "slug": post["slug"], "status": post["status"]}
-            if PSEO_AUTO_SCHEDULE and not post.get("published"):
-                ok, why = passes_quality_gate(post)
-                slot = await next_publish_slot() if ok else None
-                if slot:
-                    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"}})
-                    item.update({"status": "scheduled", "publish_at_utc": slot})
-                else:
-                    item["held"] = why or "no free slot"
+            item.update(await auto_schedule(post))
             results.append(item)
             logger.info(f"pSEO drafted '{kw}' -> {post['slug']}")
         except Exception as e:
