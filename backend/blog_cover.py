@@ -61,21 +61,27 @@ def _hex(c, alpha=255):
 
 
 def _tag_for(keyword: str) -> str:
-    k = (keyword or "").lower()
-    if "email" in k:
-        return "EMAIL REMINDERS"
-    if "linkedin" in k:
-        return "LINKEDIN"
-    if "whatsapp" in k or "sms" in k:
+    import re as _re
+    k = " " + _re.sub(r"[^a-z0-9]+", " ", (keyword or "").lower()) + " "
+    has = lambda *ws: any(f" {w} " in k or f" {w}s " in k for w in ws)
+    if has("sms", "whatsapp", "text"):
         return "MESSAGING"
-    if "time" in k or "when" in k:
-        return "TIMING"
-    if "rate" in k or "no-show" in k or "no show" in k or "average" in k or "ratio" in k:
-        return "ATTENDANCE DATA"
-    if "follow" in k:
+    if has("email", "newsletter", "inbox"):
+        return "EMAIL REMINDERS"
+    if has("linkedin", "social", "instagram", "facebook"):
+        return "SOCIAL"
+    if has("follow", "replay"):
         return "FOLLOW-UP"
-    if "promot" in k or "marketing" in k or "checklist" in k:
-        return "PROMOTION"
+    if has("strategy", "marketing", "promotion", "promote", "checklist", "funnel", "lead"):
+        return "STRATEGY"
+    if has("zoom", "video", "teams", "live"):
+        return "LIVE EVENTS"
+    if has("time", "when", "schedule", "advance", "calendar"):
+        return "TIMING"
+    if has("rate", "average", "benchmark", "ratio", "statistic", "tracking", "data"):
+        return "ATTENDANCE DATA"
+    if has("software", "tool", "automation", "automated", "features", "showupai"):
+        return "TOOLS"
     return "WEBINAR ATTENDANCE"
 
 
@@ -207,25 +213,128 @@ def _motif_seats(d, t, box):
                 d.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], outline=_hex(t["muted"], 170), width=4)
 
 
+def _motif_phone(d, t, box):
+    x0, y0, x1, y1 = box
+    pw, ph = 210, 360
+    px, py = (x0 + x1) // 2 - pw // 2, (y0 + y1) // 2 - ph // 2
+    d.rounded_rectangle([px, py, px + pw, py + ph], radius=34, fill=_hex(t["fg"]))
+    d.rounded_rectangle([px + 12, py + 40, px + pw - 12, py + ph - 40], radius=18, fill=_hex(t["bg"]))
+    d.rounded_rectangle([px + pw // 2 - 30, py + 16, px + pw // 2 + 30, py + 24], radius=4, fill=_hex(t["bg"]))
+    bubbles = [(0, 60, 150, "a"), (1, 118, 120, "s"), (0, 176, 160, "a"), (1, 234, 100, "s")]
+    for side, top, w, kind in bubbles:
+        bx = px + 26 if side == 0 else px + pw - 26 - w
+        col = _hex(t["accent"]) if kind == "a" else _hex(t["soft"])
+        d.rounded_rectangle([bx, py + top, bx + w, py + top + 42], radius=16, fill=col)
+    d.ellipse([px + pw - 20, py - 18, px + pw + 26, py + 28], fill=_hex(t["accent"]))
+
+
+def _motif_envelope(d, t, box):
+    x0, y0, x1, y1 = box
+    ew, eh = 330, 220
+    ex, ey = (x0 + x1) // 2 - ew // 2, (y0 + y1) // 2 - eh // 2 + 20
+    # letter peeking out
+    d.rounded_rectangle([ex + 30, ey - 70, ex + ew - 30, ey + 60], radius=12, fill=_hex(t["fg"]))
+    for i in range(3):
+        d.rounded_rectangle([ex + 60, ey - 44 + i * 26, ex + ew - 60 - (i * 40), ey - 32 + i * 26], radius=6, fill=_hex(t["soft"]))
+    d.rounded_rectangle([ex, ey, ex + ew, ey + eh], radius=18, fill=_hex(t["accent"]))
+    d.polygon([(ex, ey + 8), (ex + ew // 2, ey + eh // 2 + 10), (ex + ew, ey + 8)], fill=_hex(t["soft"]))
+    d.ellipse([ex + ew - 34, ey - 34, ex + ew + 22, ey + 22], fill=_hex(t["fg"]))
+
+
+def _motif_video(d, t, box):
+    x0, y0, x1, y1 = box
+    cols, rows, gap = 3, 3, 14
+    cw = (x1 - x0 - gap * (cols - 1)) // cols
+    ch = int(cw * 0.72)
+    top = (y0 + y1) // 2 - (rows * ch + gap * (rows - 1)) // 2
+    for r in range(rows):
+        for c in range(cols):
+            cx0, cy0 = x0 + c * (cw + gap), top + r * (ch + gap)
+            live = (r, c) == (1, 1)
+            d.rounded_rectangle([cx0, cy0, cx0 + cw, cy0 + ch], radius=14,
+                                fill=_hex(t["accent"] if live else t["soft"]))
+            hx, hy = cx0 + cw // 2, cy0 + ch // 2 - 6
+            col = _hex("#FFFFFF") if live else _hex(t["muted"], 200)
+            d.ellipse([hx - 14, hy - 14, hx + 14, hy + 14], fill=col)
+            d.pieslice([hx - 26, hy + 12, hx + 26, hy + 52], 180, 360, fill=col)
+
+
+def _motif_funnel(d, t, box):
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    widths = [320, 250, 180, 110]
+    y = y0 + 30
+    for i, w in enumerate(widths):
+        nxt = widths[i + 1] if i + 1 < len(widths) else w - 50
+        col = _hex(t["accent"]) if i == len(widths) - 1 else _hex(t["soft"])
+        d.polygon([(cx - w // 2, y), (cx + w // 2, y), (cx + nxt // 2, y + 70), (cx - nxt // 2, y + 70)], fill=col)
+        y += 82
+    for i in range(5):
+        d.ellipse([cx - 90 + i * 40, y0 - 8, cx - 70 + i * 40, y0 + 12], fill=_hex(t["fg"]))
+
+
 MOTIFS = [_motif_bars, _motif_rings, _motif_calendar, _motif_seats]
+TOPIC_MOTIFS = [
+    (("sms", "whatsapp", "text message"), _motif_phone),
+    (("email", "newsletter", "inbox", "follow up", "follow-up"), _motif_envelope),
+    (("zoom", "video", "live", "teams", "on demand", "on-demand"), _motif_video),
+    (("strategy", "funnel", "registration", "promot", "marketing", "lead"), _motif_funnel),
+    (("time", "when", "calendar", "advance", "schedule"), _motif_calendar),
+    (("reminder", "notification", "how many"), _motif_rings),
+    (("rate", "average", "benchmark", "statistic", "tracking", "ratio", "software"), _motif_bars),
+    (("no-show", "no show", "attend", "drop off", "empty"), _motif_seats),
+]
 
 
-def render_cover(title: str, slug: str, keyword: str = "") -> bytes:
+def motif_for(keyword: str, slug: str):
+    k = f"{keyword} {slug}".lower().replace("-", " ")
+    for words, fn in TOPIC_MOTIFS:
+        if any(w.replace("-", " ") in k for w in words):
+            return fn
+    h = int(hashlib.md5((slug or keyword).encode()).hexdigest(), 16)
+    return MOTIFS[(h // 7) % len(MOTIFS)]
+
+
+def _paste_art(img, art_bytes, t, x0=640):
+    """Right-hand AI illustration, cover-cropped, faded into the background on its left edge."""
+    art = Image.open(io.BytesIO(art_bytes)).convert("RGBA")
+    tw, th = W - x0, H
+    scale = max(tw / art.width, th / art.height)
+    art = art.resize((int(art.width * scale) + 1, int(art.height * scale) + 1), Image.LANCZOS)
+    left = (art.width - tw) // 2
+    top = (art.height - th) // 2
+    art = art.crop((left, top, left + tw, top + th))
+    mask = Image.new("L", (tw, th), 255)
+    md = ImageDraw.Draw(mask)
+    fade = 170
+    for x in range(fade):
+        md.line([(x, 0), (x, th)], fill=int(255 * (x / fade) ** 1.3))
+    img.paste(art, (x0, 0), mask)
+    return img
+
+
+def render_cover(title: str, slug: str, keyword: str = "", art: bytes = None) -> bytes:
     h = int(hashlib.md5((slug or title).encode()).hexdigest(), 16)
     t = THEMES[h % len(THEMES)]
-    motif = MOTIFS[(h // 7) % len(MOTIFS)]
+    motif = motif_for(keyword, slug)
 
     img = Image.new("RGBA", (W, H), _hex(t["bg"]))
+    if art:
+        try:
+            img = _paste_art(img, art, t)
+        except Exception:
+            art = None
 
-    # soft glow behind the illustration
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse([700, 60, 1260, 620], fill=_hex(t["glow"], 70))
-    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(90)))
+    if not art:
+        # soft glow behind the illustration
+        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse([700, 60, 1260, 620], fill=_hex(t["glow"], 70))
+        img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(90)))
 
     d = ImageDraw.Draw(img)
 
-    # illustration
-    motif(d, t, (790, 150, 1130, 500))
+    if not art:
+        motif(d, t, (790, 150, 1130, 500))
 
     # tag pill
     tag = _tag_for(keyword or title)
@@ -256,7 +365,10 @@ def render_cover(title: str, slug: str, keyword: str = "") -> bytes:
     d.text((ai_x, fy + 20), "AI", font=wf, fill=_hex(ai_col if ai_col != "#111111" else "#FFFFFF"), anchor="lm")
     uf = _font("reg", 20)
     url = "showupai.live/blog"
-    d.text((W - PAD, fy + 20), url, font=uf, fill=_hex(t["muted"]), anchor="rm")
+    if art:
+        d.text((ai_x + int(d.textlength("AI", font=wf)) + 22, fy + 21), "·  " + url, font=uf, fill=_hex(t["muted"]), anchor="lm")
+    else:
+        d.text((W - PAD, fy + 20), url, font=uf, fill=_hex(t["muted"]), anchor="rm")
 
     out = io.BytesIO()
     img.convert("RGB").save(out, "PNG", optimize=True)

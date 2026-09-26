@@ -86,6 +86,11 @@ async def publish_slug(slug: str) -> bool:
     post.update({"published": True, "status": "published", "published_at": post.get("published_at") or ts,
                  "updated_at": ts, "publish_at": None})
     await db.blog_posts.update_one({"slug": slug}, {"$set": post})
+    try:  # unique AI illustration for the cover (falls back to a drawn motif if unavailable)
+        import cover_art
+        await cover_art.ensure_art(slug)
+    except Exception:
+        pass
     await pseo.relink_all(slug)
     await _trigger_rebuild(f"published {slug}")
     _indexnow_later([f"{pseo.SITE_URL}/blog/{slug}", f"{pseo.SITE_URL}/blog"])
@@ -153,6 +158,22 @@ async def seo_retry(request: Request):
     """Re-queue keywords that failed (e.g. after fixing a model/API issue)."""
     _require_key(request)
     return {"ok": True, "requeued": await pseo.retry_failed()}
+
+
+@router.post("/seo/covers/refresh")
+async def seo_covers_refresh(request: Request, payload: dict = Body(default={})):
+    """Generate AI cover illustrations. Body: {"slugs": [...]} or {} for all published posts without one;
+    {"force": true} regenerates even if one exists."""
+    _require_key(request)
+    import cover_art
+    slugs = payload.get("slugs")
+    if not slugs:
+        rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).to_list(500)
+        slugs = [r["slug"] for r in rows]
+    out = [await cover_art.ensure_art(s, force=bool(payload.get("force"))) for s in slugs[:12]]
+    if any(o.get("ok") and o.get("detail") != "exists" for o in out):
+        await _trigger_rebuild("cover art")
+    return {"ok": True, "results": out, "note": "max 12 per call"}
 
 
 @router.post("/seo/relink")
@@ -430,17 +451,19 @@ async def blog_cover_image(slug: str):
     from bson import Binary
     import blog_cover
 
+    import cover_art
     post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0, "title": 1, "keyword": 1})
     if not post:
         raise HTTPException(404, "Post not found")
     title = post.get("title") or slug.replace("-", " ").title()
-    key = hashlib.md5((title + "|v3").encode()).hexdigest()  # bump to regenerate all covers
+    art, art_at = await cover_art.get_art(slug)
+    key = hashlib.md5((title + "|v4|" + art_at).encode()).hexdigest()  # bump to regenerate all covers
     cached = await db.blog_covers.find_one({"slug": slug})
     if cached and cached.get("key") == key:
         png = bytes(cached["png"])
     else:
         png = await asyncio.get_running_loop().run_in_executor(
-            None, blog_cover.render_cover, title, slug, post.get("keyword", "")
+            None, blog_cover.render_cover, title, slug, post.get("keyword", ""), art
         )
         await db.blog_covers.update_one(
             {"slug": slug}, {"$set": {"slug": slug, "key": key, "png": Binary(png), "updated_at": now_iso()}}, upsert=True
