@@ -175,13 +175,19 @@ async def seo_covers_refresh(request: Request, payload: dict = Body(default={}))
     _require_key(request)
     import cover_art
     slugs = payload.get("slugs")
+    force = bool(payload.get("force"))
+    remaining = 0
     if not slugs:
-        rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).to_list(500)
-        slugs = [r["slug"] for r in rows]
-    out = [await cover_art.ensure_art(s, force=bool(payload.get("force"))) for s in slugs[:12]]
+        rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).sort("published_at", -1).to_list(1000)
+        done = {d["slug"] for d in await db.blog_cover_art.find({}, {"_id": 0, "slug": 1}).to_list(5000)}
+        todo = [r["slug"] for r in rows if force or r["slug"] not in done]
+        remaining = max(0, len(todo) - 12)
+        slugs = todo
+    out = [await cover_art.ensure_art(s, force=force) for s in slugs[:12]]
     if any(o.get("ok") and o.get("detail") != "exists" for o in out):
         await _trigger_rebuild("cover art")
-    return {"ok": True, "results": out, "note": "max 12 per call"}
+    return {"ok": True, "results": out, "remaining_without_art": remaining,
+            "note": "max 12 per call; run again while remaining_without_art > 0"}
 
 
 @router.post("/seo/relink")
