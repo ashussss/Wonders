@@ -28,7 +28,7 @@ CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
 CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
 # Order to try; providers without credentials are skipped
-PROVIDERS = [p.strip() for p in os.environ.get("COVER_ART_PROVIDERS", "cloudflare,gemini").split(",") if p.strip()]
+PROVIDERS = [p.strip() for p in os.environ.get("COVER_ART_PROVIDERS", "cloudflare").split(",") if p.strip()]
 
 
 def providers_available() -> list:
