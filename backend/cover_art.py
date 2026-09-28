@@ -31,10 +31,20 @@ CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-for
 PROVIDERS = [p.strip() for p in os.environ.get("COVER_ART_PROVIDERS", "cloudflare").split(",") if p.strip()]
 
 
+def _cf():
+    """Read Cloudflare settings at call time (tolerates stray spaces/quotes/'Bearer ' pasted into Render)."""
+    acc = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip().strip('"').strip("'")
+    tok = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip().strip('"').strip("'")
+    if tok.lower().startswith("bearer "):
+        tok = tok[7:].strip()
+    return acc, tok
+
+
 def providers_available() -> list:
     out = []
+    acc, tok = _cf()
     for p in PROVIDERS:
-        if p == "cloudflare" and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN:
+        if p == "cloudflare" and acc and tok:
             out.append(p)
         elif p == "gemini" and GEMINI_API_KEY:
             out.append(p)
@@ -73,8 +83,9 @@ def _generate_cloudflare(prompt: str):
     import base64
     import httpx
 
-    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{CLOUDFLARE_IMAGE_MODEL}"
-    r = httpx.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
+    acc, tok = _cf()
+    url = f"https://api.cloudflare.com/client/v4/accounts/{acc}/ai/run/{CLOUDFLARE_IMAGE_MODEL}"
+    r = httpx.post(url, headers={"Authorization": f"Bearer {tok}"},
                    json={"prompt": prompt[:2000], "steps": 8}, timeout=120)
     if r.status_code >= 400:
         raise RuntimeError(f"cloudflare {r.status_code}: {r.text[:200]}")
@@ -153,3 +164,19 @@ async def ensure_art(slug: str, force: bool = False) -> dict:
 async def get_art(slug: str):
     doc = await db.blog_cover_art.find_one({"slug": slug}, {"_id": 0, "png": 1, "created_at": 1})
     return (bytes(doc["png"]), doc.get("created_at", "")) if doc else (None, "")
+
+
+def status() -> dict:
+    """Safe diagnostics: never returns secrets."""
+    acc, tok = _cf()
+    cf_keys = sorted(k for k in os.environ if "CLOUDFLARE" in k.upper() or "CF_" in k.upper())
+    return {
+        "providers_configured": PROVIDERS,
+        "providers_ready": providers_available(),
+        "cloudflare_account_id_length": len(acc),
+        "cloudflare_account_id_looks_ok": len(acc) == 32 and all(c in "0123456789abcdef" for c in acc.lower()),
+        "cloudflare_token_length": len(tok),
+        "cloudflare_token_starts_with": tok[:5] + "..." if tok else "",
+        "env_var_names_seen": cf_keys,
+        "image_model": CLOUDFLARE_IMAGE_MODEL,
+    }

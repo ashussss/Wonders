@@ -160,6 +160,14 @@ async def seo_retry(request: Request):
     return {"ok": True, "requeued": await pseo.retry_failed()}
 
 
+@router.get("/seo/covers/status")
+async def seo_covers_status(request: Request):
+    """Check whether the image provider settings are visible to the server (no secrets returned)."""
+    _require_key(request)
+    import cover_art
+    return cover_art.status()
+
+
 @router.post("/seo/covers/refresh")
 async def seo_covers_refresh(request: Request, payload: dict = Body(default={})):
     """Generate AI cover illustrations. Body: {"slugs": [...]} or {} for all published posts without one;
