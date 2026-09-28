@@ -226,6 +226,9 @@ With `PSEO_AUTO_SCHEDULE=true` (default), every new draft that passes the qualit
 
 The sitemap (`/api/sitemap.xml`, served at showupai.live/sitemap.xml) lists every published post newest first with lastmod and its cover image (image sitemap extension). Submit it once in Google Search Console and Bing Webmaster Tools; it updates itself.
 
+### How numbers are used (updated 25 Sep)
+Posts no longer repeat a "By the numbers" table. The writer uses the 1-3 facts most relevant to the topic, inline and linked; a comparison table is allowed only when the keyword is about rates/benchmarks/statistics. All benchmarks live on the pillar page `/blog/webinar-statistics` (hand-written in `backend/content/webinar-statistics.md`), which other posts link to. A post's *Sources* list is rebuilt from the facts actually linked in it.
+
 ### Fact-check pass (added 25 Sep)
 After the writer drafts an article, `pseo.fact_check()` sends it to a second AI pass with the verified FACTS and `PRODUCT_FACTS`. It returns exact-substring edits for invented numbers, wrong source attributions, speculation about vendors, false product claims, outdated facts and fake scarcity/social proof; the edits are applied and stored on the draft as `fact_check_edits`. Emojis are stripped. `POST /api/seo/regenerate {"slugs": [...]}` deletes unpublished drafts and writes them again through the full pipeline. Human review is still required before publishing.
 

@@ -173,6 +173,12 @@ def clean_post_fields(doc: dict) -> dict:
         doc["author"], doc["author_bio"], doc["author_url"] = AUTHOR_NAME, AUTHOR_BIO, AUTHOR_URL
     doc["word_count"] = len(doc["content"].split())
     doc["reading_time"] = max(1, round(doc["word_count"] / 200))
+    seen, srcs = set(), []
+    for f in FACTS:  # list only sources actually linked in the article
+        if f["url"] in doc["content"] and f["url"] not in seen:
+            seen.add(f["url"])
+            srcs.append({"source": f["source"], "url": f["url"]})
+    doc["sources"] = srcs
     return doc
 
 
@@ -346,8 +352,8 @@ Author: {author}. {author_bio}
 Published articles on the same site you can link to (title - URL):
 {related}
 
-Verified facts you SHOULD use where relevant (2 to 5 per article, each with its markdown link, phrased as
-"<Source> reports ..."; point out that platform benchmarks differ because each reflects one vendor's customers):
+Verified facts you MAY use (only the 1-3 most relevant, each with its markdown link, phrased as "<Source> reports ...";
+if you compare benchmarks, note they differ because each reflects one vendor's customers):
 {facts}
 
 Rules:
@@ -360,18 +366,15 @@ Rules:
   (never "click here"). Do not invent other URLs.
 - Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
   do something. Add one short "Key takeaways" list near the end.
-- Make it number-rich and insight-led, without inventing data:
-  * a "## By the numbers" section early on: a markdown table or bullets using ONLY the verified facts, with links;
-  * where useful, compare benchmarks side by side and explain why they differ;
-  * at least one worked example with simple arithmetic, clearly labelled as an example
+- Use numbers where they help the reader decide or act, not as decoration:
+  * pick the 1-3 verified facts MOST relevant to this topic and weave them into the paragraphs where they support a
+    point, each with its link. Do NOT add a "By the numbers" section or a table that lists all the facts.
+  * ONLY if the keyword itself is about rates, benchmarks, averages or statistics, you may add one comparison table
+    of the relevant facts and explain why they differ.
+  * when you cite a benchmark, you may link readers to the full statistics page if it is in the related articles list.
+  * include at least one worked example with simple arithmetic, clearly labelled as an example
     (e.g. "Example: 400 registrants x 40% = 160 attendees; lifting that to 50% adds 40 people"),
     plus exact timings (e.g. "send at T-24h and T-1h") and concrete counts (e.g. "3 emails, 1 SMS").
-- Start with a 2-3 sentence direct answer to the keyword as a plain paragraph (no heading above it).
-- Do NOT include an FAQ section inside "content"; FAQs go only in "faq_items".
-- Do NOT invent statistics, percentages, benchmarks, studies, quotes or customer names. The ONLY numbers you may
-  present as facts are the verified facts above. Otherwise tell readers to measure their own baseline.
-- Tone: direct, practical, skeptical of hype. Avoid: "unlock", "revolutionary", "game-changer", "in today's fast-paced".
-- Include concrete steps, examples of message timing, and common mistakes.
 
 Return ONLY a JSON object with these keys:
 {{
@@ -676,6 +679,9 @@ async def seed_content_posts() -> int:
         if await db.blog_posts.find_one({"slug": slug}, {"_id": 1}):
             continue
         title = m.get("title", slug)
+        pub_at = m.get("publish_at") or None
+        if pub_at:  # store in UTC so string comparison with now_iso() is correct
+            pub_at = datetime.fromisoformat(pub_at.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
         doc = {
             "id": str(uuid.uuid4()), "slug": slug, "keyword": m.get("keyword", ""), "intent": "product",
             "title": title, "seo_title": title if len(title) > 55 else f"{title} | {BRAND}",
@@ -684,7 +690,7 @@ async def seed_content_posts() -> int:
             "author": AUTHOR_NAME, "author_bio": AUTHOR_BIO, "author_url": AUTHOR_URL,
             "sources": [{"source": f["source"], "url": f["url"]} for f in FACTS if f["url"] in m["content"]],
             "source": "content", "status": "scheduled" if m.get("publish_at") else "draft", "published": False,
-            "publish_at": m.get("publish_at") or None, "published_at": None,
+            "publish_at": pub_at, "published_at": None,
             "created_at": now_iso(), "updated_at": now_iso(),
         }
         clean_post_fields(doc)
