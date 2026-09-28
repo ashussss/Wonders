@@ -20,6 +20,7 @@ import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
+import Compare from "@/pages/Compare";
 import About from "@/pages/About";
 import BlogPost from "@/pages/BlogPost";
 
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/about" element={<About />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/:slug" element={<BlogPost />} />
+              <Route path="/compare/:competitor" element={<Compare />} />
 
               {/* Protected app */}
               <Route element={<Protected><Layout /></Protected>}>
