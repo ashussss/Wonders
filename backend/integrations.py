@@ -312,6 +312,32 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
                     logger.error(f"Circle fetch error: {e}")
                     continue
 
+    # Last resort — try Groq to extract from URL
+    try:
+        import os, json, re as re2
+        groq_key = os.environ.get("GROQ_API_KEY", "")
+        if groq_key and url:
+            from groq import Groq
+            g = Groq(api_key=groq_key)
+            resp = g.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "user", "content": f"""Extract event details from this Circle.so URL: {url}
+The URL slug is: {url.rstrip('/').split('/')[-1]}
+Return ONLY JSON: {{"title": "event title from slug", "description": "", "starts_at": ""}}"""}],
+                max_tokens=150, temperature=0.1
+            )
+            raw = resp.choices[0].message.content
+            m = re2.search(r'{.*}', raw, re2.DOTALL)
+            if m:
+                data = json.loads(m.group())
+                if data.get("title"):
+                    result["title"] = data["title"]
+                    result["description"] = data.get("description", "")
+                    logger.info(f"Groq URL extracted: {result['title']}")
+                    return result
+    except Exception as e:
+        logger.error(f"Groq URL extraction failed: {e}")
+    
     result["error"] = "Could not find matching event. Try the Circle admin URL directly."
     return result
 
@@ -417,11 +443,11 @@ async def scrape_and_extract(url: str) -> dict:
 
 
 async def _ai_extract(url: str, html: str, result: dict) -> dict:
-    """Use Gemini/Groq to extract webinar details from page HTML."""
+    """Use Groq to extract webinar details from page HTML."""
     try:
         import os, json, re
         
-        # Clean HTML — remove scripts/styles
+        # Clean HTML
         clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
         clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL)
         clean = re.sub(r'<[^>]+>', ' ', clean)
@@ -434,32 +460,6 @@ Content: {clean}
 Return ONLY JSON:
 {{"title": "webinar title", "description": "short description max 200 chars", "starts_at": "ISO datetime or empty string", "speaker": "speaker name or empty"}}"""
 
-        # Try Gemini first
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        if gemini_key:
-            try:
-                from google import genai as genai_sdk
-                client = genai_sdk.Client(api_key=gemini_key)
-                from google.genai import types as genai_types
-                r = client.models.generate_content(
-                    model="gemini-3.5-flash-lite",
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(max_output_tokens=300, temperature=0.1)
-                )
-                raw = r.text.strip()
-                m = re.search(r'{.*}', raw, re.DOTALL)
-                if m:
-                    data = json.loads(m.group())
-                    result["title"] = data.get("title", "")
-                    result["description"] = data.get("description", "")
-                    result["starts_at"] = data.get("starts_at", "")
-                    result["speaker"] = data.get("speaker", "")
-                    logger.info(f"AI extracted: {result['title'][:50]}")
-                    return result
-            except Exception as e:
-                logger.error(f"Gemini extraction failed: {e}")
-
-        # Try Groq fallback
         groq_key = os.environ.get("GROQ_API_KEY", "")
         if groq_key:
             from groq import Groq
