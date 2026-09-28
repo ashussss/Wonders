@@ -403,13 +403,85 @@ async def scrape_and_extract(url: str) -> dict:
                 result["join_link"] = m.group(0)
                 break
         
+        # If basic scraping got title, good
         if result["title"]:
             logger.info(f"Scraped: title={result['title'][:50]}, date={result['starts_at']}")
         else:
-            result["error"] = "Could not extract details — fill manually"
+            # Try AI extraction as fallback
+            result = await _ai_extract(url, html, result)
             
     except Exception as e:
         result["error"] = f"Scraping failed: {str(e)}"
+    
+    return result
+
+
+async def _ai_extract(url: str, html: str, result: dict) -> dict:
+    """Use Gemini/Groq to extract webinar details from page HTML."""
+    try:
+        import os, json, re
+        
+        # Clean HTML — remove scripts/styles
+        clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+        clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL)
+        clean = re.sub(r'<[^>]+>', ' ', clean)
+        clean = re.sub(r'\s+', ' ', clean).strip()[:3000]
+        
+        prompt = f"""Extract webinar details from this webpage text.
+URL: {url}
+Content: {clean}
+
+Return ONLY JSON:
+{{"title": "webinar title", "description": "short description max 200 chars", "starts_at": "ISO datetime or empty string", "speaker": "speaker name or empty"}}"""
+
+        # Try Gemini first
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        if gemini_key:
+            try:
+                from google import genai as genai_sdk
+                client = genai_sdk.Client(api_key=gemini_key)
+                from google.genai import types as genai_types
+                r = client.models.generate_content(
+                    model="gemini-3.5-flash-lite",
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(max_output_tokens=300, temperature=0.1)
+                )
+                raw = r.text.strip()
+                m = re.search(r'{.*}', raw, re.DOTALL)
+                if m:
+                    data = json.loads(m.group())
+                    result["title"] = data.get("title", "")
+                    result["description"] = data.get("description", "")
+                    result["starts_at"] = data.get("starts_at", "")
+                    result["speaker"] = data.get("speaker", "")
+                    logger.info(f"AI extracted: {result['title'][:50]}")
+                    return result
+            except Exception as e:
+                logger.error(f"Gemini extraction failed: {e}")
+
+        # Try Groq fallback
+        groq_key = os.environ.get("GROQ_API_KEY", "")
+        if groq_key:
+            from groq import Groq
+            g = Groq(api_key=groq_key)
+            resp = g.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300, temperature=0.1
+            )
+            raw = resp.choices[0].message.content
+            m = re.search(r'{.*}', raw, re.DOTALL)
+            if m:
+                data = json.loads(m.group())
+                result["title"] = data.get("title", "")
+                result["description"] = data.get("description", "")
+                result["starts_at"] = data.get("starts_at", "")
+                result["speaker"] = data.get("speaker", "")
+                logger.info(f"Groq extracted: {result['title'][:50]}")
+
+    except Exception as e:
+        logger.error(f"AI extraction failed: {e}")
+        result["error"] = "Could not extract details — please fill manually"
     
     return result
 
