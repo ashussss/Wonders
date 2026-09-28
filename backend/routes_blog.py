@@ -179,9 +179,14 @@ async def seo_covers_refresh(request: Request, payload: dict = Body(default={}))
     remaining = 0
     if not slugs:
         rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).sort("published_at", -1).to_list(1000)
-        done = {d["slug"] for d in await db.blog_cover_art.find({}, {"_id": 0, "slug": 1}).to_list(5000)}
-        todo = [r["slug"] for r in rows if force or r["slug"] not in done]
-        remaining = max(0, len(todo) - 12)
+        arts = await db.blog_cover_art.find({}, {"_id": 0, "slug": 1, "version": 1}).to_list(5000)
+        if payload.get("upgrade"):  # regenerate art made with an older prompt version
+            done = {d["slug"] for d in arts if d.get("version") == cover_art.PROMPT_VERSION}
+            force = True
+        else:
+            done = {d["slug"] for d in arts}
+        todo = [r["slug"] for r in rows if r["slug"] not in done]
+        remaining = max(0, len(todo) - 12)  # after this batch
         slugs = todo
     out = [await cover_art.ensure_art(s, force=force) for s in slugs[:12]]
     if any(o.get("ok") and o.get("detail") != "exists" for o in out):
