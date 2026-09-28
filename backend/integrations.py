@@ -163,137 +163,181 @@ def detect_platform(url: str) -> str:
 
 
 async def fetch_circle_event(url: str, api_token: str, settings: dict = None) -> dict:
-    """Fetch Circle.so event — tries v1 events API first, then v2 posts."""
-    import httpx
+    """Fetch Circle.so event — full data: title, description, time, banner, speaker, attendees."""
+    import httpx, re as _r
     settings = settings or {}
     space_id = settings.get("circle_space_id")
 
     result = {
         "platform": "circle",
-        "title": "", "description": "", "starts_at": "",
+        "title": "", "description": "", "starts_at": "", "ends_at": "",
         "speaker": "", "join_link": url, "attendees": [],
-        "raw_url": url,
+        "cover_image_url": "", "location": "", "raw_url": url,
     }
 
-    # Extract slug from URL
+    # Extract slug/hash from URL
     url_slug = url.rstrip("/").split("/")[-1]
-    hash_match = _re.search(r'-([a-f0-9]{4,})$', url_slug)
+    hash_match = _r.search(r'-([a-f0-9]{4,})$', url_slug)
     url_hash = hash_match.group(1) if hash_match else None
-    clean_slug = _re.sub(r'-[a-f0-9]{4,}$', '', url_slug)
+    clean_slug = _r.sub(r'-[a-f0-9]{4,}$', '', url_slug)
 
     bases = ["https://app.circle.so", "https://eu.app.circle.so"]
 
     async with httpx.AsyncClient(timeout=30) as client:
         for base in bases:
             for scheme in ("Bearer", "Token"):
-                headers = {
-                    "Authorization": f"{scheme} {api_token}",
-                    "Accept": "application/json"
-                }
+                headers = {"Authorization": f"{scheme} {api_token}", "Accept": "application/json"}
                 try:
-                    # METHOD 1: Try v1 events API with space_id
+                    # ── METHOD 1: v1 events API ──────────────────────────
+                    params = {"per_page": 100}
                     if space_id:
-                        ev_r = await client.get(
-                            f"{base}/api/v1/events",
-                            headers=headers,
-                            params={"space_id": space_id, "per_page": 100}
-                        )
-                        logger.info(f"v1 events API: {ev_r.status_code}, space_id={space_id}")
-                        if ev_r.status_code == 200:
-                            events = ev_r.json() if isinstance(ev_r.json(), list) else ev_r.json().get("events", [])
-                            logger.info(f"v1 events count: {len(events)}")
-                            for ev in events:
-                                ev_name = (ev.get("name") or ev.get("title") or "").lower()
-                                ev_slug = (ev.get("slug") or "").lower()
-                                name_words = set(w for w in _re.sub(r'[^a-z0-9]', ' ', ev_name).split() if len(w) > 3)
-                                slug_words = set(w for w in clean_slug.split('-') if len(w) > 3)
-                                score = len(name_words & slug_words)
-                                logger.info(f"Event: {ev_name[:50]} | score={score}")
-                                if score >= 2 or (url_hash and url_hash in ev_slug):
-                                    result["title"] = ev.get("name") or ev.get("title", "")
-                                    result["description"] = (ev.get("description") or ev.get("body", ""))[:500]
-                                    result["starts_at"] = ev.get("starts_at") or ev.get("start_at") or ev.get("event_date", "")
-                                    result["join_link"] = ev.get("location_url") or ev.get("meeting_url") or url
-                                    result["cover_image_url"] = ev.get("cover_image_url", "")
-                                    logger.info(f"✓ Matched v1 event: {result['title']}")
-                                    return result
+                        params["space_id"] = space_id
+                    ev_r = await client.get(f"{base}/api/v1/events", headers=headers, params=params)
+                    logger.info(f"Circle v1 events: {ev_r.status_code}")
 
-                    # METHOD 2: v2 posts — try with space_id AND without
+                    if ev_r.status_code == 200:
+                        events = ev_r.json()
+                        if isinstance(events, dict):
+                            events = events.get("events", events.get("records", []))
+                        logger.info(f"Circle events count: {len(events)}")
+
+                        best = None
+                        best_score = 0
+                        for ev in events:
+                            ev_name = (ev.get("name") or ev.get("title") or "").lower()
+                            ev_slug = (ev.get("slug") or "").lower()
+                            ev_id = str(ev.get("id", ""))
+                            name_words = set(w for w in _r.sub(r'[^a-z0-9]', ' ', ev_name).split() if len(w) > 3)
+                            slug_words = set(w for w in clean_slug.split('-') if len(w) > 3)
+                            score = len(name_words & slug_words)
+                            if url_hash and (url_hash in ev_slug or url_hash in ev_id):
+                                score += 50
+                            if score > best_score:
+                                best_score = score
+                                best = ev
+
+                        if best and best_score >= 1:
+                            ev = best
+                            ev_id = ev.get("id")
+
+                            # Get full event detail
+                            det_r = await client.get(f"{base}/api/v1/events/{ev_id}", headers=headers)
+                            if det_r.status_code == 200:
+                                ev = det_r.json()
+                                logger.info(f"Circle event detail keys: {list(ev.keys())}")
+
+                            result["title"] = ev.get("name") or ev.get("title", "")
+                            result["description"] = (ev.get("description") or ev.get("body") or ev.get("body_plain_text") or "")[:1000]
+                            result["starts_at"] = ev.get("starts_at") or ev.get("start_at") or ev.get("event_date") or ev.get("start_time", "")
+                            result["ends_at"] = ev.get("ends_at") or ev.get("end_at") or ev.get("end_time", "")
+                            result["join_link"] = ev.get("location_url") or ev.get("meeting_url") or ev.get("zoom_link") or url
+                            result["cover_image_url"] = ev.get("cover_image_url") or ev.get("image_url") or ev.get("thumbnail_url", "")
+                            result["location"] = ev.get("location") or ev.get("venue") or ev.get("location_url", "")
+
+                            # Speaker — try multiple fields
+                            host = ev.get("host") or ev.get("speaker") or ev.get("author") or {}
+                            if isinstance(host, dict):
+                                result["speaker"] = host.get("name") or host.get("full_name", "")
+                            elif isinstance(host, str):
+                                result["speaker"] = host
+
+                            # Custom fields for speaker
+                            for field in ["presenter", "facilitator", "trainer", "host_name"]:
+                                if ev.get(field):
+                                    result["speaker"] = result["speaker"] or str(ev[field])
+
+                            # Attendees
+                            for att_path in [
+                                f"/api/v1/events/{ev_id}/rsvps?per_page=500",
+                                f"/api/v1/events/{ev_id}/attendees?per_page=500",
+                                f"/api/admin/v2/event_attendees?event_id={ev_id}&per_page=500",
+                            ]:
+                                att_r = await client.get(f"{base}{att_path}", headers=headers)
+                                logger.info(f"Attendees {att_path}: {att_r.status_code}")
+                                if att_r.status_code == 200:
+                                    data = att_r.json()
+                                    rsvps = data if isinstance(data, list) else data.get("records", data.get("rsvps", data.get("attendees", [])))
+                                    result["attendees"] = [
+                                        {
+                                            "name": (r.get("name") or r.get("full_name") or
+                                                     f"{r.get('first_name','')} {r.get('last_name','')}".strip()),
+                                            "email": r.get("email", ""),
+                                            "avatar": r.get("avatar_url", ""),
+                                        }
+                                        for r in rsvps if r.get("email") or r.get("name")
+                                    ]
+                                    if result["attendees"]:
+                                        break
+
+                            logger.info(f"✓ Circle event: title={result['title']}, starts={result['starts_at']}, attendees={len(result['attendees'])}, speaker={result['speaker']}")
+                            return result
+
+                    # ── METHOD 2: v2 admin posts ──────────────────────────
                     all_posts = []
                     for params in [
                         {"per_page": 200, "sort": "published_at", "space_id": space_id} if space_id else None,
                         {"per_page": 200, "sort": "latest"},
-                        {"per_page": 100, "sort": "published_at"},
                     ]:
-                        if params is None:
+                        if not params:
                             continue
                         r = await client.get(f"{base}/api/admin/v2/posts", headers=headers, params=params)
                         if r.status_code == 200:
-                            posts = r.json().get("records", [])
-                            logger.info(f"v2 posts ({params}): {len(posts)} posts")
-                            all_posts = posts
+                            all_posts = r.json().get("records", [])
                             break
-                    r = type('obj', (), {'status_code': 200 if all_posts else 404,
-                                        'json': lambda self, p=all_posts: {'records': p}})()
 
-                    if r.status_code != 200:
-                        continue
-
-                    posts = r.json().get("records", [])
-
-                    # Find best match
                     slug_words = set(w for w in clean_slug.split('-') if len(w) > 3)
-                    # Also try matching against original URL slug
-                    full_slug_words = set(w for w in url_slug.split('-') if len(w) > 3)
-                    best_match = None
-                    best_score = 0
+                    best_match, best_score = None, 0
 
-                    for post in posts:
+                    for post in all_posts:
                         name = (post.get("name") or "").lower()
                         post_slug = (post.get("slug") or "").lower()
-                        post_url_field = (post.get("url") or "").lower()
-                        name_words = set(w for w in _re.sub(r'[^a-z0-9]', ' ', name).split() if len(w) > 3)
+                        name_words = set(w for w in _r.sub(r'[^a-z0-9]', ' ', name).split() if len(w) > 3)
                         score = len(slug_words & name_words)
-                        # Hash match in slug or url field
-                        if url_hash and (url_hash in post_slug or url_hash in post_url_field):
-                            score += 50  # Very strong bonus
-                        # Full slug word match
-                        score += len(full_slug_words & name_words) * 0.5
+                        if url_hash and url_hash in post_slug:
+                            score += 50
                         if score > best_score:
                             best_score = score
                             best_match = post
-                            logger.info(f"Candidate: {name[:60]} score={score:.1f} hash_in_slug={url_hash in post_slug if url_hash else False}")
 
-                    if best_match and best_score >= 2:
+                    if best_match and best_score >= 1:
                         post = best_match
+                        post_id = post.get("id")
                         result["title"] = post.get("name", "")
-                        result["description"] = (post.get("body_plain_text") or "")[:500]
+                        result["description"] = (post.get("body_plain_text") or "")[:1000]
                         result["cover_image_url"] = post.get("cover_image_url", "")
-                        if post.get("published_at"):
-                            result["starts_at"] = post["published_at"]
 
                         # Get full post detail
-                        det = await client.get(f"{base}/api/admin/v2/posts/{post['id']}", headers=headers)
+                        det = await client.get(f"{base}/api/admin/v2/posts/{post_id}", headers=headers)
                         if det.status_code == 200:
                             d = det.json()
                             ev = d.get("event_setting") or {}
-                            logger.info(f"event_setting: {ev}")
-                            for field in ["starts_at", "start_at", "event_date", "start_date"]:
+                            logger.info(f"event_setting keys: {list(ev.keys())}")
+
+                            for field in ["starts_at", "start_at", "event_date", "start_date", "start_time"]:
                                 if ev.get(field):
                                     result["starts_at"] = ev[field]
                                     break
-                            if ev.get("location_url"):
-                                result["join_link"] = ev["location_url"]
-                            result["description"] = (d.get("body_plain_text") or result["description"])[:500]
-                            if d.get("cover_image_url"):
-                                result["cover_image_url"] = d["cover_image_url"]
+                            for field in ["ends_at", "end_at", "end_date", "end_time"]:
+                                if ev.get(field):
+                                    result["ends_at"] = ev[field]
+                                    break
 
-                        # Get attendees
-                        for att_url in [
-                            f"{base}/api/admin/v2/event_attendees?post_id={post['id']}&per_page=100",
-                            f"{base}/api/admin/v2/post_members?post_id={post['id']}&per_page=100",
+                            result["join_link"] = ev.get("location_url") or ev.get("zoom_link") or url
+                            result["location"] = ev.get("location") or ev.get("venue", "")
+                            result["description"] = (d.get("body_plain_text") or result["description"])[:1000]
+                            result["cover_image_url"] = d.get("cover_image_url") or result["cover_image_url"]
+
+                            # Speaker from post author
+                            author = d.get("user") or d.get("author") or {}
+                            if isinstance(author, dict):
+                                result["speaker"] = author.get("name") or author.get("full_name", "")
+
+                        # Attendees
+                        for att_path in [
+                            f"/api/admin/v2/event_attendees?post_id={post_id}&per_page=500",
+                            f"/api/admin/v2/post_members?post_id={post_id}&per_page=500",
                         ]:
-                            att_r = await client.get(att_url, headers=headers)
+                            att_r = await client.get(f"{base}{att_path}", headers=headers)
                             if att_r.status_code == 200:
                                 records = att_r.json().get("records", [])
                                 result["attendees"] = [
@@ -303,42 +347,17 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
                                 if result["attendees"]:
                                     break
 
-                        logger.info(f"Final: title={result['title']}, starts_at={result['starts_at']}, attendees={len(result['attendees'])}")
+                        logger.info(f"✓ Circle v2: title={result['title']}, starts={result['starts_at']}, attendees={len(result['attendees'])}")
                         return result
 
-                    if r.status_code != 401:
+                    if ev_r.status_code != 401:
                         break
+
                 except Exception as e:
-                    logger.error(f"Circle fetch error: {e}")
+                    logger.error(f"Circle fetch error ({base}): {e}")
                     continue
 
-    # Last resort — try Groq to extract from URL
-    try:
-        import os, json, re as re2
-        groq_key = os.environ.get("GROQ_API_KEY", "")
-        if groq_key and url:
-            from groq import Groq
-            g = Groq(api_key=groq_key)
-            resp = g.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=[{"role": "user", "content": f"""Extract event details from this Circle.so URL: {url}
-The URL slug is: {url.rstrip('/').split('/')[-1]}
-Return ONLY JSON: {{"title": "event title from slug", "description": "", "starts_at": ""}}"""}],
-                max_tokens=150, temperature=0.1
-            )
-            raw = resp.choices[0].message.content
-            m = re2.search(r'{.*}', raw, re2.DOTALL)
-            if m:
-                data = json.loads(m.group())
-                if data.get("title"):
-                    result["title"] = data["title"]
-                    result["description"] = data.get("description", "")
-                    logger.info(f"Groq URL extracted: {result['title']}")
-                    return result
-    except Exception as e:
-        logger.error(f"Groq URL extraction failed: {e}")
-    
-    result["error"] = "Could not find matching event. Try the Circle admin URL directly."
+    result["error"] = "Could not find event. Please check Circle API token and URL."
     return result
 
 
