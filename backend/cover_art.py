@@ -1,4 +1,7 @@
-"""AI illustration for each blog post's cover (Gemini image models), stored in Mongo.
+"""AI illustration for each blog post's cover, stored in Mongo.
+
+Providers (tried in COVER_ART_PROVIDERS order): Cloudflare Workers AI FLUX.1 schnell (free daily allowance),
+then Gemini image models (paid-only).
 
 The cover endpoint composites it with the brand layout (title, tag, logo). If generation fails
 (no billing on the Gemini key, model unavailable), covers fall back to topic-matched drawn motifs.
@@ -20,6 +23,22 @@ IMAGE_MODELS = [m.strip() for m in os.environ.get(
     "GEMINI_IMAGE_MODELS", "gemini-3.1-flash-lite-image,gemini-3.1-flash-image,gemini-3.1-flash-image-preview"
 ).split(",") if m.strip()]
 COVER_ART_ENABLED = os.environ.get("COVER_ART_ENABLED", "true").lower() == "true"
+# Free option: Cloudflare Workers AI (10,000 Neurons/day on every plan, hard stop when used up, no card needed).
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
+# Order to try; providers without credentials are skipped
+PROVIDERS = [p.strip() for p in os.environ.get("COVER_ART_PROVIDERS", "cloudflare,gemini").split(",") if p.strip()]
+
+
+def providers_available() -> list:
+    out = []
+    for p in PROVIDERS:
+        if p == "cloudflare" and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN:
+            out.append(p)
+        elif p == "gemini" and GEMINI_API_KEY:
+            out.append(p)
+    return out
 
 SCENES = [
     (("sms", "whatsapp", "text message"), "a person glancing at a smartphone showing a friendly reminder message bubble, a laptop with a live webinar in the background"),
@@ -50,7 +69,39 @@ def build_prompt(title: str, keyword: str, excerpt: str = "") -> str:
     )
 
 
+def _generate_cloudflare(prompt: str):
+    import base64
+    import httpx
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{CLOUDFLARE_IMAGE_MODEL}"
+    r = httpx.post(url, headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
+                   json={"prompt": prompt[:2000], "steps": 8}, timeout=120)
+    if r.status_code >= 400:
+        raise RuntimeError(f"cloudflare {r.status_code}: {r.text[:200]}")
+    ctype = r.headers.get("content-type", "")
+    if ctype.startswith("image/"):
+        return r.content, CLOUDFLARE_IMAGE_MODEL
+    j = r.json()
+    img = (j.get("result") or {}).get("image")
+    if not img:
+        raise RuntimeError(f"cloudflare: no image in response {str(j)[:200]}")
+    return base64.b64decode(img), CLOUDFLARE_IMAGE_MODEL
+
+
 def _generate(prompt: str):
+    errors = []
+    for p in providers_available():
+        try:
+            if p == "cloudflare":
+                return _generate_cloudflare(prompt)
+            if p == "gemini":
+                return _generate_gemini(prompt)
+        except Exception as e:
+            errors.append(f"{p}: {str(e)[:160]}")
+    raise RuntimeError("; ".join(errors) or "no image provider configured")
+
+
+def _generate_gemini(prompt: str):
     from google import genai
     from google.genai import types
 
@@ -78,8 +129,9 @@ def _generate(prompt: str):
 
 async def ensure_art(slug: str, force: bool = False) -> dict:
     """Generate (once) and store the illustration for a post. Returns status dict; never raises."""
-    if not COVER_ART_ENABLED or not GEMINI_API_KEY:
-        return {"slug": slug, "ok": False, "detail": "disabled or GEMINI_API_KEY missing"}
+    if not COVER_ART_ENABLED or not providers_available():
+        return {"slug": slug, "ok": False,
+                "detail": "no image provider: set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (free) on Render"}
     if not force and await db.blog_cover_art.find_one({"slug": slug}, {"_id": 1}):
         return {"slug": slug, "ok": True, "detail": "exists"}
     post = await db.blog_posts.find_one({"slug": slug}, {"_id": 0, "title": 1, "keyword": 1, "excerpt": 1})
