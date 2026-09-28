@@ -14,7 +14,8 @@ from database import db
 
 logger = logging.getLogger("showup.cover_art")
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# Separate key allowed so only image generation sits on a billed Google project
+GEMINI_API_KEY = os.environ.get("GEMINI_IMAGE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 IMAGE_MODELS = [m.strip() for m in os.environ.get(
     "GEMINI_IMAGE_MODELS", "gemini-3.1-flash-lite-image,gemini-3.1-flash-image,gemini-3.1-flash-image-preview"
 ).split(",") if m.strip()]
