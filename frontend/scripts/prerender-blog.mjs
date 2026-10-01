@@ -60,7 +60,7 @@ function bodyHtml(md, content) {
   }).join("\n");
 }
 
-function setHead(shell, { title, description, url, image, type, jsonld }) {
+function setHead(shell, { title, description, url, image, type, jsonld, robots }) {
   let h = shell;
   const rep = (re, val) => { h = re.test(h) ? h.replace(re, val) : h.replace("</head>", `${val}\n</head>`); };
   rep(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
@@ -76,6 +76,7 @@ function setHead(shell, { title, description, url, image, type, jsonld }) {
     rep(/<meta name="twitter:image"[^>]*>/, `<meta name="twitter:image" content="${esc(image)}" />`);
   }
   rep(/<link rel="canonical"[^>]*>/, `<link rel="canonical" href="${esc(url)}" />`);
+  if (robots) rep(/<meta name="robots"[^>]*>/, `<meta name="robots" content="${esc(robots)}" />`);
   if (jsonld) h = h.replace("</head>", `<script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, "\\u003c")}</script>\n</head>`);
   return h;
 }
@@ -128,6 +129,15 @@ function aboutHtml() {
 <h2>Who's behind it</h2><p>ShowUpAI is built by Ashutosh Kumar Singh, a B2B marketer with 13+ years across SEO, content, demand generation and events.</p>
 <h2>Facts</h2><ul><li>Product: webinar attendance software (web app)</li><li>Website: <a href="https://showupai.live">showupai.live</a></li><li>Launched: 2026</li><li>Plans: Starter $29/month, Growth $79/month, Agency $199/month; 14-day free trial, no card required</li><li>Contact: <a href="mailto:hello@showupai.live">hello@showupai.live</a></li></ul>
 <p><a href="/waitlist">Increase my attendance</a> · <a href="/blog">Read the blog</a></p></main>`;
+}
+
+function waitlistHtml() {
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a> · <a href="/login">Sign in</a></p></header>
+<main><h1>Join the ShowUpAI waitlist</h1>
+<p>Stop losing your registrants. ShowUpAI writes personalised reminder touches for every webinar across email, LinkedIn, WhatsApp, Instagram and more. You approve every message. They show up.</p>
+<h2>What early access gets you</h2><ul><li>3 months free for early access members</li><li>AI-written reminder sequence for each webinar, from registration to no-show follow-up</li><li>Multi-channel sends: email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites</li><li>No credit card required</li></ul>
+<h2>Who it's for</h2><p>Coaches and consultants, B2B SaaS companies, course creators, agencies, EdTech platforms, community managers and HR / L&amp;D teams who run webinars.</p>
+<p>Questions? <a href="mailto:hello@showupai.live">hello@showupai.live</a> · <a href="/blog">Read the blog</a></p></main>`;
 }
 
 // Static sitemap: Googlebot often times out on the proxied Render sitemap while Render wakes up
@@ -183,7 +193,29 @@ async function main() {
   // Flat files (about.html, blog.html, blog/<slug>.html), not <dir>/index.html: Netlify 301s /x to /x/ for a
   // directory index, which fights the no-slash canonical + sitemap URLs and makes Google report "Redirect error".
   fs.writeFileSync(path.join(BUILD, "about.html"), aboutPage);
-  console.log("[prerender] wrote homepage + about + app-shell");
+
+  // Waitlist: the main signup landing page, indexed and in the sitemap. Without this file it is served the
+  // app shell, whose canonical points at the homepage, so Google treats /waitlist as a duplicate of /.
+  fs.writeFileSync(path.join(BUILD, "waitlist.html"), withRoot(setHead(homeShell, {
+    title: "Join the ShowUpAI Waitlist — Early Access, 3 Months Free",
+    description: "Get early access to ShowUpAI, the AI that makes webinar registrants actually show up. Early access members get 3 months free. No credit card.",
+    url: `${SITE}/waitlist`, image: `${SITE}/og-image.png`, type: "website",
+    jsonld: { "@context": "https://schema.org", "@type": "WebPage", "@id": `${SITE}/waitlist#webpage`, url: `${SITE}/waitlist`,
+      name: "Join the ShowUpAI waitlist", about: { "@id": `${SITE}/#organization` }, isPartOf: { "@id": `${SITE}/#website` } },
+  }), waitlistHtml()));
+
+  // Login and register: account forms with no search value (and /register competes with /waitlist).
+  // noindex keeps them out of Google; follow lets link equity pass. Self canonical instead of the homepage.
+  const authPages = [
+    ["login", "Sign in | ShowUpAI", "Sign in to your ShowUpAI account."],
+    ["register", "Create your account | ShowUpAI", "Create a ShowUpAI account and start your free trial."],
+  ];
+  for (const [slug, title, description] of authPages) {
+    fs.writeFileSync(path.join(BUILD, `${slug}.html`), setHead(shell, {
+      title, description, url: `${SITE}/${slug}`, type: "website", robots: "noindex, follow",
+    }));
+  }
+  console.log("[prerender] wrote homepage + about + waitlist + login + register + app-shell");
 
   if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
   const md = await loadMarkdown();

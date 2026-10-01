@@ -238,13 +238,13 @@ export default function Waitlist() {
                   <p className="text-xs text-white/50 mb-3">Share2 ShowUpAI with others who run webinars — every referral moves you up.</p>
                   <div className="flex gap-2">
                     <button onClick={() => {
-                      navigator.clipboard.writeText("https://showupai.app/waitlist");
+                      navigator.clipboard.writeText("https://showupai.live/waitlist");
                       alert("Link copied!");
                     }} className="flex-1 text-xs py-2 rounded-lg font-semibold text-white transition-colors"
                       style={{ background: "#EA580C" }}>
                       Copy referral link
                     </button>
-                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUpAI — AI that makes people actually show up to your webinar. 62%+ attendance rate. Check it out: https://showupai.app/waitlist")}`}
+                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUpAI — AI that makes people actually show up to your webinar. 62%+ attendance rate. Check it out: https://showupai.live/waitlist")}`}
                       target="_blank" rel="noreferrer"
                       className="flex-1 text-xs py-2 rounded-lg font-semibold text-white text-center transition-colors"
                       style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)" }}>
