@@ -130,6 +130,30 @@ function aboutHtml() {
 <p><a href="/waitlist">Increase my attendance</a> · <a href="/blog">Read the blog</a></p></main>`;
 }
 
+// Static sitemap: Googlebot often times out on the proxied Render sitemap while Render wakes up
+// ("Temporary processing error"). Publishing triggers a Netlify build, so this stays current.
+// If Render can't be reached, no file is written and /_redirects falls back to the live proxy.
+async function writeSitemap() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 70000);
+      const r = await fetch(`${API}/sitemap.xml`, { signal: ctrl.signal });
+      clearTimeout(t);
+      const xml = r.ok ? await r.text() : "";
+      if (xml.includes("<urlset")) {
+        fs.writeFileSync(path.join(BUILD, "sitemap.xml"), xml);
+        return console.log("[prerender] wrote static sitemap.xml");
+      }
+      console.log(`[prerender] sitemap -> HTTP ${r.status}`);
+    } catch (e) {
+      console.log(`[prerender] sitemap attempt ${i + 1} failed: ${e.message}`);
+    }
+    await new Promise((res) => setTimeout(res, 5000));
+  }
+  console.log("[prerender] no static sitemap, /sitemap.xml stays proxied to Render");
+}
+
 async function main() {
   const shellPath = path.join(BUILD, "index.html");
   const cleanPath = path.join(BUILD, "app-shell.html");
@@ -141,6 +165,7 @@ async function main() {
   fs.writeFileSync(path.join(BUILD, "app-shell.html"), shell);
 
   const list = await getJSON(`${API}/blog`);
+  await writeSitemap();
   const graph = graphFrom(shell);
 
   // Homepage + About: static, crawler-readable HTML (React mounts over it for humans)
@@ -155,8 +180,9 @@ async function main() {
     jsonld: { "@context": "https://schema.org", "@type": "AboutPage", "@id": `${SITE}/about#webpage`, url: `${SITE}/about`,
       name: "About ShowUpAI", about: { "@id": `${SITE}/#organization` }, isPartOf: { "@id": `${SITE}/#website` } },
   }), aboutHtml());
-  fs.mkdirSync(path.join(BUILD, "about"), { recursive: true });
-  fs.writeFileSync(path.join(BUILD, "about", "index.html"), aboutPage);
+  // Flat files (about.html, blog.html, blog/<slug>.html), not <dir>/index.html: Netlify 301s /x to /x/ for a
+  // directory index, which fights the no-slash canonical + sitemap URLs and makes Google report "Redirect error".
+  fs.writeFileSync(path.join(BUILD, "about.html"), aboutPage);
   console.log("[prerender] wrote homepage + about + app-shell");
 
   if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
@@ -203,9 +229,8 @@ ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a hr
 <p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
     const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);
-    const dir = path.join(BUILD, "blog", p.slug);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "index.html"), page);
+    fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
+    fs.writeFileSync(path.join(BUILD, "blog", `${p.slug}.html`), page);
   }
 
   const listHtml = `${nav}<h1>ShowUpAI Blog</h1><p>Insights on webinars, attendance, and growing your audience.</p>
@@ -215,8 +240,7 @@ ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a hr
     url: `${SITE}/blog`, type: "website",
     jsonld: { "@context": "https://schema.org", "@type": "Blog", name: "ShowUpAI Blog", url: `${SITE}/blog`,
       blogPost: posts.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: `${SITE}/blog/${p.slug}`, datePublished: p.published_at })) } }), listHtml);
-  fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
-  fs.writeFileSync(path.join(BUILD, "blog", "index.html"), listPage);
+  fs.writeFileSync(path.join(BUILD, "blog.html"), listPage);
   // RSS feed
   const rfc = (d) => { try { return new Date(d).toUTCString(); } catch (e) { return ""; } };
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
