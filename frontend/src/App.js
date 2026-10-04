@@ -22,6 +22,7 @@ import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
 import Compare from "@/pages/Compare";
 import About from "@/pages/About";
+import Privacy from "@/pages/Privacy";
 import BlogPost from "@/pages/BlogPost";
 
 function Protected({ children }) {
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
               <Route path="/about" element={<About />} />
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/:slug" element={<BlogPost />} />
               <Route path="/compare/:competitor" element={<Compare />} />
