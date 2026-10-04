@@ -29,10 +29,15 @@ from . import (
     GROWTH_SLOTS_IST,
 )
 from . import analytics, blog_engine, news_engine, prospect_engine, queue, visual_engine
+from .integrations import router as integrations_router
 
 logger = logging.getLogger("showup.growth.api")
 
 router = APIRouter(prefix="/api/growth")
+
+# LinkedIn OAuth + integration status live under the same /api/growth prefix.
+# Mounted here so server.py stays untouched.
+router.include_router(integrations_router)
 
 
 # ── config / status ──────────────────────────────────────────────────────────
