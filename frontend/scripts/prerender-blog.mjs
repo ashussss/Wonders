@@ -100,7 +100,7 @@ function homeHtml(graph, posts) {
   const app = graph.find((n) => n["@type"] === "SoftwareApplication") || {};
   const faq = (graph.find((n) => n["@type"] === "FAQPage") || {}).mainEntity || [];
   const offers = ((app.offers || {}).offers) || [];
-  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a> · <a href="/waitlist">Start free trial</a></p></header>
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a> · <a href="/waitlist">Start free trial</a></p></header>
 <main>
 <h1>Make people actually show up for your webinar</h1>
 <p class="hero-description">${esc(app.description || "")}</p>
