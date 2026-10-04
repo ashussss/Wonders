@@ -201,6 +201,34 @@ def unsourced_numbers(content: str) -> list:
     return out
 
 
+_NUM = r"(\d[\d,]*(?:\.\d+)?)"
+_SUM = re.compile(_NUM + r"\s*(%?)\s*([x\u00d7*+/-])\s*" + _NUM + r"\s*(%?)\s*=\s*" + _NUM + r"\s*(%?)")
+
+
+def bad_math(content: str) -> list:
+    """Simple 'A op B = C' sums (x, *, +, -, /, with % on B meaning a rate) whose result is wrong."""
+    out = []
+    for m in _SUM.finditer(content or ""):
+        a, ap, op, b, bp, c, cp = m.groups()
+        try:
+            a, b, c = (float(v.replace(",", "")) for v in (a, b, c))
+        except ValueError:
+            continue
+        if op in "x\u00d7*":
+            want = a * b / 100 if (bp and not ap and not cp) else a * b
+        elif op == "+":
+            want = a + b
+        elif op == "-":
+            want = a - b
+        else:
+            if b == 0:
+                continue
+            want = a / b * 100 if (cp and not ap and not bp) else a / b
+        if abs(want - c) > max(1.0, abs(want) * 0.02):
+            out.append(m.group(0).strip())
+    return out
+
+
 def empty_tables(content: str) -> int:
     """Count markdown tables whose body cells are mostly blank or dashes (a hollow table)."""
     n, rows = 0, []
@@ -425,10 +453,23 @@ STRICT WRITING GUIDELINES
      channel mix (e.g. Email + WhatsApp + Calendar invite), and exact subject lines / message copy templates
      (put templates in ``` code blocks).
    - Include at least one worked example with simple arithmetic, labelled as an example
-     (e.g. "Example: 400 registrants x 40% = 160 attendees; lifting that to 50% adds 40 people").
+     (format: "Example: <registrants> x <rate>% = <attendees>; lifting that to <rate2>% adds <n> people", with numbers
+     that fit this topic's scenario).
    - Write as a practitioner: trade-offs, and when NOT to do something.
 
-4. Native product placement (ShowUpAI).
+4. Deliver exactly what the topic promises, and be different from the other posts.
+   - Every H2 must serve this exact topic. If the topic names a platform (Circle, LinkedIn, Zoom), an audience
+     (EdTech, agencies) or a format (SMS examples, subject lines), the article must be specific to it throughout,
+     not a generic attendance post with the name swapped in.
+   - Template/example topics ("examples", "template", "message", "subject lines", "email") need 15 to 25 distinct,
+     ready-to-paste examples grouped by situation, not 2 or 3.
+   - Avoid the skeleton every other post on this site already uses: do NOT include the full 11-touch reminder table,
+     do NOT use "400 registrants" as the example (pick numbers that fit this topic's scenario), and cite the ON24 60%
+     figure only if the topic is about benchmarks or rates.
+   - Worked examples must show every step with real numbers and correct arithmetic, and must be complete (never cut
+     off or left with blank steps). Check each sum before you return.
+
+5. Native product placement (ShowUpAI).
    - Mention ShowUpAI exactly ONCE, in the middle or toward the end, as a logical tool recommendation that solves a
      specific technical barrier (e.g. running a multi-channel 11-touch automated reminder sequence across WhatsApp,
      SMS and Email without manual effort). Not a sales pitch. Link that mention to https://showupai.live.
@@ -748,6 +789,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "banned_phrases": banned_phrases_in(content),
         "brand_mentions": brand_mentions(content),
         "unsourced_numbers": unsourced_numbers(content),
+        "bad_math": bad_math(content),
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
         "published_at": now_iso() if PSEO_AUTO_PUBLISH else None,
@@ -804,6 +846,9 @@ def passes_quality_gate(post: dict) -> tuple:
     loose = unsourced_numbers(post.get("content"))
     if loose:
         return False, f"unsourced numbers: {loose[0][:80]}"
+    wrong = bad_math(post.get("content"))
+    if wrong:
+        return False, f"wrong arithmetic: {wrong[0]}"
     if empty_tables(post.get("content")):
         return False, "table with empty cells"
     if brand_mentions(post.get("content")) > 2:

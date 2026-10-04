@@ -124,3 +124,12 @@ def test_unsourced_numbers_and_empty_tables():
     base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m"}
     assert not pseo.passes_quality_gate({**base, "content": "62% of firms churn."})[0]
     assert not pseo.passes_quality_gate({**base, "content": hollow})[0]
+
+
+def test_bad_math_flags_wrong_sums_only():
+    ok = "Example: 250 registrants x 36% = 90 attendees. 90 + 15 = 105. 1,000 x 8% = 80. 45 / 300 = 15%."
+    assert pseo.bad_math(ok) == []
+    assert pseo.bad_math("Example: 400 x 55% = 220 opens, then 220 x 30% = 80 clicks.") == ["220 x 30% = 80"]
+    assert pseo.bad_math("45 + 36 = 61") == ["45 + 36 = 61"]
+    base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m"}
+    assert not pseo.passes_quality_gate({**base, "content": "Example: 300 x 40% = 150 attendees."})[0]
