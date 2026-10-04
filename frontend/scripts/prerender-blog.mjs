@@ -232,7 +232,7 @@ async function main() {
     const image = `${API}/blog/${p.slug}/cover.png`;
     const desc = p.seo_description || p.meta_description || p.excerpt || "";
     const faqs = (p.faq_items || []).filter((f) => f.question && f.answer);
-    const related = posts.filter((x) => x.slug !== p.slug).slice(0, 3);
+    const related = md.relatedPosts(p, posts, 3);
     const person = p.author && p.author !== "ShowUpAI Team";
     const graph = [
       {

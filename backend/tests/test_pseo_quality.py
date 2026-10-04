@@ -82,3 +82,45 @@ def test_next_publish_slot_respects_daily_cap_and_varies_minutes(monkeypatch):
     assert max(days.values()) == 1
     assert len({(s.hour, s.minute) for s in slots}) > 1
     assert all(s > datetime.now(IST) for s in slots)
+
+
+def test_seo_title_never_cut_mid_word():
+    assert pseo.make_seo_title("Webinar Statistics") == "Webinar Statistics | ShowUpAI"
+    long = "How to Write a Webinar Confirmation Email That Drives Attendance"
+    assert pseo.make_seo_title(long) == long
+    very = "Mastering Webinar Reminder Cadence for B2B SaaS: A Complete Playbook for Busy Teams"
+    out = pseo.make_seo_title(very)
+    assert len(out) <= 70 and very.startswith(out) and very[len(out)] == " "
+
+
+def test_clean_post_fields_repairs_auto_cut_title_but_keeps_custom():
+    t = "How to Write a Webinar Confirmation Email That Drives Attendance"
+    d = pseo.clean_post_fields({"title": t, "seo_title": f"{t} | ShowUpAI"[:70], "content": "x"})
+    assert d["seo_title"] == t
+    d = pseo.clean_post_fields({"title": t, "seo_title": "Custom SEO Title", "content": "x"})
+    assert d["seo_title"] == "Custom SEO Title"
+
+
+def test_unknown_blog_links_are_unwrapped():
+    c = ("See [follow-up emails](https://showupai.live/blog/best-practices-for-post-webinar-followup-emails) "
+         "and [stats](https://showupai.live/blog/webinar-statistics) and [home](https://showupai.live).")
+    out = pseo.strip_unknown_blog_links(c, {"webinar-statistics"})
+    assert "post-webinar-followup-emails" not in out and "See follow-up emails and" in out
+    assert "(https://showupai.live/blog/webinar-statistics)" in out and "(https://showupai.live)" in out
+
+
+def test_unsourced_numbers_and_empty_tables():
+    fact = pseo.FACTS[0]["url"]
+    c = "\n".join([
+        f"[ON24 reports]({fact}) a 60% conversion.",
+        "Example: 400 x 40% = 160 attendees.",
+        "62% of firms experience a data breach.",
+        "```", "Open rate 45%", "```",
+    ])
+    assert pseo.unsourced_numbers(c) == ["62% of firms experience a data breach."]
+    hollow = "| Industry | Rate |\n|---|---|\n| SaaS | - |\n| EdTech | — |\n"
+    full = "| Channel | When |\n|---|---|\n| Email | T-24h |\n| SMS | T-1h |\n"
+    assert pseo.empty_tables(hollow) == 1 and pseo.empty_tables(full) == 0
+    base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m"}
+    assert not pseo.passes_quality_gate({**base, "content": "62% of firms churn."})[0]
+    assert not pseo.passes_quality_gate({**base, "content": hollow})[0]

@@ -324,7 +324,7 @@ async def seo_edit(request: Request, payload: dict = Body(default={})):
         if payload.get(k):
             post[k] = payload[k]
     if payload.get("title"):
-        post["seo_title"] = f"{payload['title']} | ShowUpAI"[:70]
+        post["seo_title"] = pseo.make_seo_title(payload["title"])
     if payload.get("meta_description"):
         post["seo_description"] = payload["meta_description"]
     pseo.clean_post_fields(post)

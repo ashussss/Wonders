@@ -137,3 +137,26 @@ export function tocFrom(md) {
     .filter((b) => b.type === "h" && b.level === 2)
     .map((b) => ({ id: headingId(b.text), text: b.text }));
 }
+
+// Pick the n posts that share the most topic words with `current` (keyword, falling back to title).
+// Generic words every post shares are ignored, so ties don't collapse to "the newest n posts".
+const RELATED_STOP = new Set(
+  "webinar webinars event events with that your from into what when best how practices guide tips proven strategies drive drives attendance b2b"
+    .split(" ")
+);
+const topicWords = (p) =>
+  new Set(String((p && (p.keyword || p.title)) || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3 && !RELATED_STOP.has(w)));
+
+export function relatedPosts(current, all, n = 3) {
+  const mine = topicWords(current);
+  return (all || [])
+    .filter((p) => p && p.slug && p.slug !== current.slug)
+    .map((p, i) => {
+      let s = 0;
+      topicWords(p).forEach((w) => { if (mine.has(w)) s++; });
+      return { p, s, i };
+    })
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .slice(0, n)
+    .map((x) => x.p);
+}

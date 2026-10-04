@@ -164,6 +164,59 @@ def clean_content(content: str, has_faq: bool) -> str:
     return c
 
 
+def make_seo_title(title: str, limit: int = 60) -> str:
+    """'<title> | ShowUpAI' when it fits, else the title alone, cut at a word boundary only if still too long."""
+    title = (title or "").strip()
+    branded = f"{title} | {BRAND}"
+    if len(branded) <= limit:
+        return branded
+    if len(title) <= 70:
+        return title
+    return title[:70].rsplit(" ", 1)[0].rstrip(" :-,|")
+
+
+_BLOG_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://(?:www\.)?showupai\.live)?/blog/([a-z0-9-]+)/?\)")
+
+
+def strip_unknown_blog_links(content: str, known_slugs: set) -> str:
+    """Unwrap markdown links to /blog/<slug> pages that don't exist (the writer sometimes invents slugs)."""
+    return _BLOG_LINK.sub(lambda m: m.group(0) if m.group(2) in known_slugs else m.group(1), content or "")
+
+
+_EXAMPLE_WORDS = re.compile(r"\b(example|e\.g\.|assume|assuming|hypothetical|illustrative|say you|if you|suppose)\b", re.I)
+
+
+def unsourced_numbers(content: str) -> list:
+    """Lines that state a percentage without one of the verified FACTS links and without being labelled an example."""
+    urls = [f["url"] for f in FACTS]
+    out, in_code = [], False
+    for line in (content or "").split("\n"):
+        t = line.strip()
+        if t.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or "%" not in t or any(u in t for u in urls) or _EXAMPLE_WORDS.search(t):
+            continue
+        out.append(t[:160])
+    return out
+
+
+def empty_tables(content: str) -> int:
+    """Count markdown tables whose body cells are mostly blank or dashes (a hollow table)."""
+    n, rows = 0, []
+    for line in (content or "").split("\n") + [""]:
+        if line.strip().startswith("|"):
+            rows.append(line)
+            continue
+        if rows:
+            body = [r for r in rows[1:] if not re.match(r"^\s*\|?\s*:?-{2,}", r)]
+            cells = [c.strip() for r in body for c in r.strip().strip("|").split("|")[1:]]
+            if cells and sum(c in ("", "-", "--", "\u2014", "\u2013", "n/a", "N/A") for c in cells) / len(cells) > 0.5:
+                n += 1
+            rows = []
+    return n
+
+
 def clean_post_fields(doc: dict) -> dict:
     """Normalise every text field of a post in place and return it."""
     for k in ("title", "seo_title", "meta_description", "seo_description", "excerpt", "author", "author_bio"):
@@ -174,6 +227,9 @@ def clean_post_fields(doc: dict) -> dict:
         for f in (doc.get("faq_items") or []) if isinstance(f, dict) and f.get("question")
     ]
     doc["faq_items"] = faqs
+    t = doc.get("title") or ""
+    if t and doc.get("seo_title") in (None, "", f"{t} | {BRAND}"[:70], f"{t} | ShowUpAI"[:70], t):
+        doc["seo_title"] = make_seo_title(t)
     doc["content"] = clean_content(doc.get("content", ""), bool(faqs))
     if doc.get("author") in (None, "", f"{BRAND} Team"):
         doc["author"], doc["author_bio"], doc["author_url"] = AUTHOR_NAME, AUTHOR_BIO, AUTHOR_URL
@@ -238,8 +294,8 @@ def _link_first(content: str, phrase: str, url: str) -> tuple:
 def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> str:
     """Guarantee a link to showupai.live and contextual links to other published posts.
     others: [{"slug", "title", "keyword"}] of published posts (self excluded here). Idempotent."""
-    c = content or ""
     home = SITE_URL
+    c = strip_unknown_blog_links(content or "", {o["slug"] for o in others if o.get("slug")} | {slug})
     # 1) ShowUpAI -> homepage
     if not re.search(r"\]\(" + re.escape(home) + r"/?\)", c):
         c, done = _link_first(c, BRAND, home)
@@ -384,7 +440,9 @@ STRICT WRITING GUIDELINES
 
 Verified facts you MAY use (only the 1-3 most relevant, each with its markdown link, phrased as "<Source> reports ...";
 if you compare benchmarks, note they differ because each reflects one vendor's customers). Any other number must be
-clearly labelled example arithmetic, never presented as a statistic:
+clearly labelled example arithmetic, never presented as a statistic. Every line that contains a "%" must either
+carry the matching fact link on that same line or say "Example" on that line. Never put an empty or "-" placeholder in a
+table cell; leave a table out if you have no real values for it:
 {facts}
 
 Published articles on the same site (title - URL). Your article must cover an angle NONE of these already covers;
@@ -396,7 +454,8 @@ Format rules:
   paragraphs, simple markdown tables, ``` code blocks, and "> **Key Takeaway:** ..." callout lines.
 - No H1 (the title is shown separately). No images, no emojis, no YAML frontmatter inside "content".
   Use plain ASCII hyphens "-", never em-dashes.
-- Links ONLY to: the fact URLs above, https://showupai.live, and the published articles listed. Do not invent URLs.
+- Links ONLY to: the fact URLs above, https://showupai.live, and the published articles listed, copied exactly.
+  Do not invent or guess URLs; unknown /blog/ links are removed.
 - Do NOT add a "By the numbers" section or a table listing all the facts. Only if the topic itself is about rates,
   benchmarks or statistics may you add one comparison table of the relevant facts.
 
@@ -668,7 +727,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "keyword": keyword,
         "intent": intent,
         "title": title,
-        "seo_title": f"{title} | ShowUpAI"[:70],
+        "seo_title": make_seo_title(title),
         "meta_description": (data.get("meta_description") or "")[:160],
         "seo_description": (data.get("meta_description") or "")[:160],
         "excerpt": (data.get("excerpt") or "")[:220],
@@ -688,6 +747,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "fact_check_ok": fixes is not None,
         "banned_phrases": banned_phrases_in(content),
         "brand_mentions": brand_mentions(content),
+        "unsourced_numbers": unsourced_numbers(content),
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
         "published_at": now_iso() if PSEO_AUTO_PUBLISH else None,
@@ -741,6 +801,11 @@ def passes_quality_gate(post: dict) -> tuple:
         return False, f"too short ({post.get('word_count')} words)"
     if banned_phrases_in(post.get("content")):
         return False, f"banned phrases: {', '.join(banned_phrases_in(post.get('content')))}"
+    loose = unsourced_numbers(post.get("content"))
+    if loose:
+        return False, f"unsourced numbers: {loose[0][:80]}"
+    if empty_tables(post.get("content")):
+        return False, "table with empty cells"
     if brand_mentions(post.get("content")) > 2:
         return False, f"{BRAND} mentioned {brand_mentions(post.get('content'))} times"
     if "](https://showupai.live" not in (post.get("content") or ""):
@@ -866,7 +931,7 @@ async def seed_content_posts() -> int:
             pub_at = datetime.fromisoformat(pub_at.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
         doc = {
             "id": str(uuid.uuid4()), "slug": slug, "keyword": m.get("keyword", ""), "intent": "product",
-            "title": title, "seo_title": title if len(title) > 55 else f"{title} | {BRAND}",
+            "title": title, "seo_title": make_seo_title(title),
             "meta_description": m.get("meta_description", "")[:160], "seo_description": m.get("meta_description", "")[:160],
             "excerpt": m.get("excerpt", ""), "content": m["content"], "faq_items": m["faq_items"],
             "author": AUTHOR_NAME, "author_bio": AUTHOR_BIO, "author_url": AUTHOR_URL,
