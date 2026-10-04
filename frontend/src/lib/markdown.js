@@ -1,6 +1,6 @@
 // Minimal, safe markdown parser for blog posts -> plain AST (rendered as React elsewhere).
 // Supports: ## headings, paragraphs, - / 1. lists (one nesting level), - [ ] checklists,
-// ``` code blocks, | tables |, --- rules. Inline: **bold**, `code`.
+// ``` code blocks, | tables |, > callouts, --- rules. Inline: **bold**, `code`.
 
 const LIST_RE = /^(\s*)([-*]|\d+\.)\s+(.*)$/;
 
@@ -39,6 +39,15 @@ export function parseMarkdown(md) {
       flushPara();
       blocks.push({ type: "h", level: Math.max(2, Math.min(h[1].length, 4)), text: h[2].replace(/\*\*/g, "") });
       i++;
+      continue;
+    }
+
+    if (t.startsWith(">")) {
+      flushPara();
+      const q = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) q.push(lines[i++].trim().replace(/^>\s?/, ""));
+      const text = q.join(" ").trim();
+      if (text) blocks.push({ type: "quote", text });
       continue;
     }
 

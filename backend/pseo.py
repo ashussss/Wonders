@@ -21,11 +21,17 @@ logger = logging.getLogger("showup.pseo")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
-PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
+PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
 # Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
+# Publishing cadence: a steady, human-looking rhythm instead of bursts at identical clock times.
+PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "1"))
+PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
+PSEO_SCHEDULE_HORIZON_DAYS = int(os.environ.get("PSEO_SCHEDULE_HORIZON_DAYS", "14"))
+# Topic dedup: skip queued keywords whose search intent an existing post already covers.
+PSEO_DEDUP = os.environ.get("PSEO_DEDUP", "true").lower() == "true"
 AUTHOR_NAME = os.environ.get("AUTHOR_NAME", "Ashutosh Kumar Singh")
 AUTHOR_BIO = os.environ.get(
     "AUTHOR_BIO",
@@ -335,57 +341,91 @@ async def add_keyword(keyword: str, intent: str = "informational", notes: str = 
     return 1 if res.upserted_id else 0
 
 
-PROMPT = """You are a senior B2B marketer who has run hundreds of webinars. Write an in-depth blog article.
+PROMPT = """You are a senior B2B Growth Lead specializing in webinar distribution, retention, and event marketing.
+Write a comprehensive, highly tactical B2B blog article on the TARGET TOPIC below.
 
-Target keyword: "{keyword}"
+TARGET TOPIC (target keyword): "{keyword}"
 Search intent: {intent}
-Product context: ShowUpAI (showupai.live) helps webinar hosts get more registrants to actually attend, using an
-AI-written, multi-channel reminder sequence (email, LinkedIn, WhatsApp/SMS, calendar) timed around the event.
-Mention ShowUpAI naturally at most twice, near the end. The article must be genuinely useful without the product.
-Only describe ShowUpAI with these true facts: it generates an 11-touch reminder sequence timed from about three weeks
-before the event to after it; channels are email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar
-invites; the host reviews and approves messages before they send; it tracks attendance by channel. Do NOT claim it adapts
-timing to engagement, personalises send times per person, matches brand tone, or anything else not listed.
-
 Author: {author}. {author_bio}
 {notes_block}
-Published articles on the same site you can link to (title - URL):
-{related}
+STRICT WRITING GUIDELINES
+
+1. No AI cliches or filler.
+   - NEVER use these words/phrases (or variants): "In today's fast-paced digital landscape", "game-changer", "tapestry",
+     "delve", "mastering", "unlock", "revolutionize", "let's dive in", "look no further".
+   - Skip introductory fluff. Sentence 1 leads directly with a strong data point (only from the verified facts below,
+     or clearly labelled example arithmetic), a counter-intuitive insight, or a direct operational reality.
+   - The first paragraph is shown to readers as the "Quick answer" box, so it must also answer the topic directly
+     in 2-4 sentences.
+
+2. Structure variation.
+   - Choose H2/H3 headings that fit THIS topic. Do NOT use the stock template (Introduction -> What is X -> 5 Steps
+     -> Conclusion), and do not reuse the heading pattern of the published articles listed below.
+   - Include at least two concrete visual elements: an ASCII flowchart inside a ``` code block, a timed bulleted
+     sequence, a comparison table, and/or a callout line written exactly as "> **Key Takeaway:** ...".
+
+3. Specificity over generality.
+   - Never just say "send a reminder email". Give exact timing (e.g. "24 hours before + 15 minutes before"), the
+     channel mix (e.g. Email + WhatsApp + Calendar invite), and exact subject lines / message copy templates
+     (put templates in ``` code blocks).
+   - Include at least one worked example with simple arithmetic, labelled as an example
+     (e.g. "Example: 400 registrants x 40% = 160 attendees; lifting that to 50% adds 40 people").
+   - Write as a practitioner: trade-offs, and when NOT to do something.
+
+4. Native product placement (ShowUpAI).
+   - Mention ShowUpAI exactly ONCE, in the middle or toward the end, as a logical tool recommendation that solves a
+     specific technical barrier (e.g. running a multi-channel 11-touch automated reminder sequence across WhatsApp,
+     SMS and Email without manual effort). Not a sales pitch. Link that mention to https://showupai.live.
+   - Only describe ShowUpAI with these true facts: it generates an 11-touch reminder sequence timed from about three
+     weeks before the event to after it; channels are email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so
+     and calendar invites; the host reviews and approves messages before they send; it tracks attendance by channel.
+     Do NOT claim it adapts timing to engagement, personalises send times per person, detects who has joined live,
+     matches brand tone, or anything else not listed.
 
 Verified facts you MAY use (only the 1-3 most relevant, each with its markdown link, phrased as "<Source> reports ...";
-if you compare benchmarks, note they differ because each reflects one vendor's customers):
+if you compare benchmarks, note they differ because each reflects one vendor's customers). Any other number must be
+clearly labelled example arithmetic, never presented as a statistic:
 {facts}
 
-Rules:
-- 1300 to 1800 words. Markdown only: "## " and "### " headings, "- " bullets, "1. " numbered lists, plain paragraphs.
-  Simple markdown tables and ``` code blocks (for email templates) are allowed.
-- No H1 (the title is shown separately). No images, no emojis. Use plain ASCII hyphens "-".
-- Links (markdown [text](url)) allowed ONLY to: the fact URLs above, https://showupai.live, and the published
-  articles listed below. Link the first natural mention of ShowUpAI to https://showupai.live.
-- Where it genuinely fits, link 2-3 of the related articles below inside sentences, using descriptive anchor text
-  (never "click here"). Do not invent other URLs.
-- Write from a practitioner's point of view: concrete examples, specific message wording, trade-offs and when NOT to
-  do something. Add one short "Key takeaways" list near the end.
-- Use numbers where they help the reader decide or act, not as decoration:
-  * pick the 1-3 verified facts MOST relevant to this topic and weave them into the paragraphs where they support a
-    point, each with its link. Do NOT add a "By the numbers" section or a table that lists all the facts.
-  * ONLY if the keyword itself is about rates, benchmarks, averages or statistics, you may add one comparison table
-    of the relevant facts and explain why they differ.
-  * when you cite a benchmark, you may link readers to the full statistics page if it is in the related articles list.
-  * include at least one worked example with simple arithmetic, clearly labelled as an example
-    (e.g. "Example: 400 registrants x 40% = 160 attendees; lifting that to 50% adds 40 people"),
-    plus exact timings (e.g. "send at T-24h and T-1h") and concrete counts (e.g. "3 emails, 1 SMS").
+Published articles on the same site (title - URL). Your article must cover an angle NONE of these already covers;
+link 2-3 of them inside sentences where they genuinely fit, with descriptive anchor text:
+{related}
 
-Return ONLY a JSON object with these keys:
+Format rules:
+- 1400 to 2200 words. Markdown only: "## " and "### " headings, "- " bullets, "1. " numbered lists, plain
+  paragraphs, simple markdown tables, ``` code blocks, and "> **Key Takeaway:** ..." callout lines.
+- No H1 (the title is shown separately). No images, no emojis, no YAML frontmatter inside "content".
+  Use plain ASCII hyphens "-", never em-dashes.
+- Links ONLY to: the fact URLs above, https://showupai.live, and the published articles listed. Do not invent URLs.
+- Do NOT add a "By the numbers" section or a table listing all the facts. Only if the topic itself is about rates,
+  benchmarks or statistics may you add one comparison table of the relevant facts.
+
+Return ONLY a JSON object with these keys (title/summary/tags map to the post's frontmatter):
 {{
-  "title": "compelling title, max 65 chars, includes the keyword naturally",
+  "title": "specific title, max 65 chars, includes the topic naturally",
   "meta_description": "max 155 chars",
   "excerpt": "1-2 sentence summary, max 200 chars",
+  "tags": ["3-6 short topic tags"],
   "content": "the full markdown article",
   "faq_items": [{{"question": "...", "answer": "2-3 sentence answer"}}],   // 4 to 6 items
   "entities": ["key concepts/tools mentioned"],
-  "related_topics": ["3-5 related topics to write about next"]
+  "related_topics": ["3-5 related topics to write about next, each clearly different from the published articles"]
 }}"""
+
+# Phrases the writing prompt forbids; drafts that still contain them after the style pass are held back.
+BANNED_PHRASES = [
+    "in today's fast-paced", "digital landscape", "game-changer", "game changer", "tapestry", "delve",
+    "mastering", "unlock", "revolutionize", "revolutionise", "let's dive in", "dive in", "look no further",
+]
+
+
+def banned_phrases_in(text: str) -> list:
+    t = (text or "").replace("\u2019", "'").lower()
+    return [p for p in BANNED_PHRASES if re.search(r"(?<![a-z])" + re.escape(p), t)]
+
+
+def brand_mentions(text: str) -> int:
+    return len(re.findall(r"(?<![\w/.])" + re.escape(BRAND) + r"(?!\w|\.\w)", text or "", re.I))
 
 
 def _parse_json(text: str) -> dict:
@@ -488,6 +528,112 @@ async def fact_check(content: str) -> tuple:
     return content, applied
 
 
+STYLE_FIX_PROMPT = """You are a copy editor. The article below contains banned filler phrases: {phrases}.
+
+ARTICLE (markdown):
+<<<
+{article}
+>>>
+
+For EVERY sentence, heading or bullet containing a banned phrase, give an edit: "find" must be an EXACT substring
+copied from the article (the whole sentence or heading), "replace" is the same point rewritten plainly and directly
+without any banned phrase. Change nothing else. Keep markdown formatting intact.
+
+Return ONLY JSON: {{"edits": [{{"find": "...", "replace": "..."}}]}}"""
+
+
+async def style_fix(content: str) -> str:
+    """Rewrite sentences that still contain banned filler phrases. Best effort; the quality gate re-checks."""
+    found = banned_phrases_in(content)
+    if not found:
+        return content
+    prompt = STYLE_FIX_PROMPT.format(phrases=", ".join(f'"{p}"' for p in found), article=content)
+    try:
+        data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
+    except Exception as e:
+        logger.warning(f"style-fix failed: {e}")
+        return content
+    for e in (data.get("edits") or [])[:40]:
+        find, repl = normalize_text(e.get("find") or ""), normalize_text(e.get("replace") or "")
+        if len(find) >= 4 and find != repl and find in content:
+            content = content.replace(find, repl, 1)
+    return content
+
+
+_DEDUP_STOP = set(
+    "a an the to for of in on and or with via how what why when is are do does your you best practice practices tip "
+    "tips guide using use leveraging effective compelling write writing create creating boost increase get people "
+    "b2b webinar webinars event events".split()
+)
+_DEDUP_SYN = {
+    "signup": "registration", "signups": "registration", "registrations": "registration", "registrants": "registration",
+    "registrant": "registration", "register": "registration", "promote": "promotion", "promoting": "promotion",
+    "marketing": "promotion", "emails": "email", "messages": "message", "templates": "template",
+    "reminders": "reminder", "attend": "attendance", "companies": "company", "postevent": "post",
+}
+
+
+def topic_tokens(text: str) -> set:
+    t = normalize_text(text or "").lower().replace("\u2011", "-")
+    for a, b in (("no-show", "noshow"), ("no show", "noshow"), ("follow-up", "followup"), ("follow up", "followup"),
+                 ("post-event", "postevent"), ("post-webinar", "postevent"), ("sign-up", "signup"), ("sign up", "signup")):
+        t = t.replace(a, b)
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", t):
+        w = _DEDUP_SYN.get(w, w)
+        if w in _DEDUP_STOP:
+            continue
+        if len(w) > 4 and w.endswith("s"):
+            w = w[:-1]
+        out.add(w)
+    return out
+
+
+def topic_similarity(a: str, b: str) -> float:
+    ta, tb = topic_tokens(a), topic_tokens(b)
+    return len(ta & tb) / len(ta | tb) if ta and tb else 0.0
+
+
+OVERLAP_PROMPT = """You are an SEO editor preventing keyword cannibalisation on a small B2B blog.
+
+Candidate topic: "{keyword}"
+
+Existing posts (slug - keyword - title):
+{existing}
+
+Would a post on the candidate topic target the SAME search intent as one of the existing posts (a searcher would be
+satisfied by either, so the two would compete in Google)? Different channel, audience, or stage of the funnel counts
+as a different intent. Synonyms and rephrasings of the same thing count as the same intent.
+
+Return ONLY JSON: {{"duplicate_of": "<existing slug, or empty string>", "reason": "short"}}"""
+
+
+async def find_overlap(keyword: str) -> dict | None:
+    """Return {"slug", "reason"} of an existing post (published, scheduled or draft) covering the same intent, else None."""
+    rows = await db.blog_posts.find(
+        {}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1}).to_list(5000)
+    if not rows:
+        return None
+    scored = sorted(((max(topic_similarity(keyword, r.get("keyword") or ""), topic_similarity(keyword, r.get("title") or "")), r)
+                     for r in rows), key=lambda x: -x[0])
+    best, top = scored[0]
+    if best >= 0.75:
+        return {"slug": top["slug"], "reason": f"near-identical keyword ({best:.2f})"}
+    if not GROQ_API_KEY:
+        return {"slug": top["slug"], "reason": f"similar keyword ({best:.2f})"} if best >= 0.6 else None
+    existing = "\n".join(f"- {r['slug']} - {r.get('keyword', '')} - {r.get('title', '')}" for r in rows)
+    try:
+        data = await asyncio.get_running_loop().run_in_executor(
+            None, _groq_json, OVERLAP_PROMPT.format(keyword=keyword, existing=existing))
+    except Exception as e:
+        logger.warning(f"overlap check failed: {e}")
+        return {"slug": top["slug"], "reason": f"similar keyword ({best:.2f})"} if best >= 0.6 else None
+    dup = (data.get("duplicate_of") or "").strip().strip("/").split("/")[-1]
+    if dup and dup in {r["slug"] for r in rows}:
+        return {"slug": dup, "reason": str(data.get("reason") or "same search intent")[:200]}
+    return None
+
+
 async def generate_post(keyword: str, intent: str = "informational") -> dict:
     """Generate one long-form draft and save it to blog_posts (unpublished unless auto-publish)."""
     if not GROQ_API_KEY:
@@ -508,6 +654,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
     data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
     content = clean_content((data.get("content") or "").strip(), bool(data.get("faq_items")))
     content, fixes = await fact_check(content)
+    content = await style_fix(content)
     words = len(content.split())
     if words < 600:
         raise RuntimeError(f"Draft too short ({words} words)")
@@ -527,6 +674,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "excerpt": (data.get("excerpt") or "")[:220],
         "content": content,
         "faq_items": faqs[:6],
+        "tags": [normalize_text(t).strip() for t in (data.get("tags") or []) if isinstance(t, str)][:6],
         "entities": data.get("entities") or [],
         "related_topics": data.get("related_topics") or [],
         "reading_time": max(1, round(words / 200)),
@@ -538,6 +686,8 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "source": "pseo",
         "fact_check_edits": fixes or [],
         "fact_check_ok": fixes is not None,
+        "banned_phrases": banned_phrases_in(content),
+        "brand_mentions": brand_mentions(content),
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
         "published": PSEO_AUTO_PUBLISH,
         "published_at": now_iso() if PSEO_AUTO_PUBLISH else None,
@@ -551,30 +701,48 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
 
 
 async def next_publish_slot() -> str | None:
-    """Earliest future IST slot (today or the next 7 days) that no other post is scheduled for. UTC ISO."""
+    """Earliest future IST slot within the horizon on a day that has fewer than PSEO_MAX_PUBLISH_PER_DAY posts
+    published or scheduled. The time is a random base time plus random jitter, so posts don't all land on the same
+    clock minute. Returns UTC ISO."""
+    import random
+    from collections import Counter
     from datetime import timedelta
     ist = timezone(timedelta(hours=5, minutes=30))
-    taken = {d.get("publish_at") for d in await db.blog_posts.find(
-        {"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"_id": 0, "publish_at": 1}).to_list(500)}
+    rows = await db.blog_posts.find(
+        {"$or": [{"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"published": True}]},
+        {"_id": 0, "publish_at": 1, "published_at": 1, "published": 1}).to_list(5000)
+    per_day = Counter()
+    for r in rows:
+        ts = r.get("published_at") if r.get("published") else r.get("publish_at")
+        try:
+            per_day[datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ist).date()] += 1
+        except Exception:
+            continue
     now = datetime.now(ist)
-    for day in range(8):
+    for day in range(PSEO_SCHEDULE_HORIZON_DAYS + 1):
         date = (now + timedelta(days=day)).date()
-        for t in PSEO_PUBLISH_TIMES_IST:
+        if per_day[date] >= PSEO_MAX_PUBLISH_PER_DAY:
+            continue
+        bases = list(PSEO_PUBLISH_TIMES_IST)
+        random.shuffle(bases)
+        for t in bases:
             hh, mm = (int(x) for x in t.split(":"))
             slot = datetime(date.year, date.month, date.day, hh, mm, tzinfo=ist)
-            if slot <= now + timedelta(minutes=10):
-                continue
-            iso = slot.astimezone(timezone.utc).isoformat()
-            if iso not in taken:
-                return iso
+            slot += timedelta(minutes=random.randint(0, max(PSEO_PUBLISH_JITTER_MIN, 0)), seconds=random.randint(0, 59))
+            if slot > now + timedelta(minutes=10):
+                return slot.astimezone(timezone.utc).isoformat()
     return None
 
 
 def passes_quality_gate(post: dict) -> tuple:
     if not post.get("fact_check_ok"):
         return False, "fact-check did not run"
-    if (post.get("word_count") or 0) < 900:
+    if (post.get("word_count") or 0) < 1200:
         return False, f"too short ({post.get('word_count')} words)"
+    if banned_phrases_in(post.get("content")):
+        return False, f"banned phrases: {', '.join(banned_phrases_in(post.get('content')))}"
+    if brand_mentions(post.get("content")) > 2:
+        return False, f"{BRAND} mentioned {brand_mentions(post.get('content'))} times"
     if "](https://showupai.live" not in (post.get("content") or ""):
         pass  # autolink adds it at publish time
     if not post.get("title") or not post.get("meta_description"):
@@ -600,8 +768,13 @@ async def run_pipeline(count: int | None = None) -> dict:
     await ensure_indexes()
     await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
 
-    results = []
-    for _ in range(count):
+    backlog = await db.blog_posts.count_documents({"published": {"$ne": True}, "publish_at": {"$ne": None}})
+    if PSEO_AUTO_SCHEDULE and backlog >= PSEO_SCHEDULE_HORIZON_DAYS * PSEO_MAX_PUBLISH_PER_DAY:
+        return {"ok": True, "processed": 0, "results": [], "skipped": f"{backlog} posts already scheduled"}
+
+    results, drafted, attempts = [], 0, 0
+    while drafted < count and attempts < count * 5:
+        attempts += 1
         cand = await db.seo_candidates.find_one_and_update(
             {"status": "pending"},
             {"$set": {"status": "processing", "started_at": now_iso()}},
@@ -609,6 +782,15 @@ async def run_pipeline(count: int | None = None) -> dict:
         )
         if not cand:
             break
+        if PSEO_DEDUP:
+            overlap = await find_overlap(cand["keyword"])
+            if overlap:
+                await db.seo_candidates.update_one({"_id": cand["_id"]}, {"$set": {
+                    "status": "duplicate", "duplicate_of": overlap["slug"], "error": overlap["reason"], "done_at": now_iso()}})
+                results.append({"keyword": cand["keyword"], "skipped": f"duplicate of {overlap['slug']}: {overlap['reason']}"})
+                logger.info(f"pSEO skipped '{cand['keyword']}' (duplicate of {overlap['slug']})")
+                continue
+        drafted += 1
         kw = cand["keyword"]
         try:
             post = await generate_post(kw, cand.get("intent", "informational"))

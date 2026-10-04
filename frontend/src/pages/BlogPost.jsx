@@ -79,6 +79,13 @@ function MarkdownBody({ content, insert }) {
         </p>
       );
     }
+    if (b.type === "quote") {
+      return (
+        <blockquote key={i} className="my-6 p-5 rounded-xl bg-black/[0.03] border-l-4 border-orange-600">
+          <p className="m-0"><Inline text={b.text} /></p>
+        </blockquote>
+      );
+    }
     if (b.type === "code") {
       return (
         <pre key={i} className="my-5 p-4 rounded-lg border bg-black/[0.03] text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
