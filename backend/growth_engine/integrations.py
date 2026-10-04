@@ -30,12 +30,18 @@ router = APIRouter()
 # Where the browser lands after a successful connect / failed connect.
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://showupai.live").rstrip("/")
 
+# The OAuth callback is a server-side redirect, so it must return the browser to
+# the actual protected React route (/app/integrations) — not a bare /integrations,
+# which is not a registered route and would 404.
+INTEGRATIONS_PATH = "/app/integrations"
 
-def _redirect(path: str, **params: str) -> RedirectResponse:
-    """Redirect into the frontend app with a query string (no secrets, ever)."""
+
+def _redirect(**params: str) -> RedirectResponse:
+    """Redirect back to the Integrations page with a query string (no secrets, ever)."""
     from urllib.parse import urlencode
     qs = urlencode({k: v for k, v in params.items() if v})
-    return RedirectResponse(f"{FRONTEND_URL}{path}{'?' + qs if qs else ''}", status_code=302)
+    return RedirectResponse(f"{FRONTEND_URL}{INTEGRATIONS_PATH}{'?' + qs if qs else ''}",
+                            status_code=302)
 
 
 # ── capability discovery ────────────────────────────────────────────────────
@@ -106,7 +112,7 @@ async def linkedin_callback(
     if error:
         # LinkedIn refused (e.g. a scope is not approved for this app).
         logger.warning(f"linkedin oauth denied by user/app: {error}")
-        return _redirect("/integrations",
+        return _redirect(
                          li_status="error",
                          li_error=error,
                          li_detail=error_description or "")
@@ -132,20 +138,20 @@ async def linkedin_callback(
         profile = await li.fetch_userinfo(access_token)
     except li.LinkedInError as e:
         logger.warning(f"linkedin connect failed for owner={owner_id}: {e}")
-        return _redirect("/integrations", li_status="error", li_error=str(e)[:300])
+        return _redirect(li_status="error", li_error=str(e)[:300])
 
     try:
         await li.save_connection(db, owner_id, token_data, profile)
     except li.EncryptionUnavailable as e:
         # Token cannot be stored encrypted — refuse rather than persist plaintext.
         logger.error(f"linkedin connect aborted for owner={owner_id}: {e}")
-        return _redirect("/integrations", li_status="error",
+        return _redirect(li_status="error",
                          li_error="LinkedIn connected, but this server cannot store credentials "
                                   "securely (FERNET_KEY missing). Please contact support.")
 
     # Give the frontend a short-lived hand-off so it can show the identity
     # without the callback URL itself ever carrying the member's email.
-    return _redirect("/integrations", li_status="connected",
+    return _redirect(li_status="connected",
                      li_name=profile.get("name") or "",
                      li_sub=profile.get("platform_user_id") or "")
 

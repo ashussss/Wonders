@@ -166,8 +166,12 @@ async def main():
         r = await c.get("/api/growth/integrations/linkedin/callback",
                         params={"code": "auth-code-xyz", "state": state})
         check("first callback redirects to frontend", r.status_code in (302, 307), r.status_code)
-        check("frontend redirect", r.headers.get("location", "").startswith("https://showupai.live"),
-              r.headers.get("location"))
+        loc = r.headers.get("location", "")
+        check("frontend redirect", loc.startswith("https://showupai.live"), loc)
+        # Must land on the real protected React route, not a bare /integrations
+        # (which is not registered and would 404).
+        check("redirect path is /app/integrations", "/app/integrations" in loc, loc)
+        check("redirect carries success status", "li_status=connected" in loc, loc)
         check("token exchanged once", mock_state["token_calls"] == 1, mock_state["token_calls"])
         r2 = await c.get("/api/growth/integrations/linkedin/callback",
                          params={"code": "auth-code-xyz", "state": state})
