@@ -29,13 +29,14 @@ async function getJSON(url, tries = 4) {
   return null;
 }
 
-async function loadMarkdown() {
-  // src/lib/markdown.js is ESM source inside a CommonJS package; load it through a temp .mjs copy.
-  const src = fs.readFileSync(path.resolve("src/lib/markdown.js"), "utf8");
-  const tmp = path.join(os.tmpdir(), `md-${Date.now()}.mjs`);
+// src/lib/*.js is ESM source inside a CommonJS package; load it through a temp .mjs copy.
+async function loadLib(name) {
+  const src = fs.readFileSync(path.resolve(`src/lib/${name}.js`), "utf8");
+  const tmp = path.join(os.tmpdir(), `${name}-${Date.now()}.mjs`);
   fs.writeFileSync(tmp, src);
   return import(tmp);
 }
+const loadMarkdown = () => loadLib("markdown");
 
 function inlineHtml(md, text) {
   return md.splitInline(text).map((p) =>
@@ -116,7 +117,7 @@ function homeHtml(graph, posts) {
 ${faq.map((q) => `<h3>${esc(q.name)}</h3><p>${esc((q.acceptedAnswer || {}).text || "")}</p>`).join("\n")}
 ${posts && posts.length ? `<h2>Latest from the blog</h2><ul>${posts.slice(0, 6).map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></li>`).join("")}</ul>` : ""}
 </main>
-<footer><p>© ShowUpAI · <a href="/about">About</a> · <a href="/blog">Blog</a> · <a href="mailto:hello@showupai.live">hello@showupai.live</a></p></footer>`;
+<footer><p>© ShowUpAI · <a href="/about">About</a> · <a href="/blog">Blog</a> · <a href="/privacy">Privacy</a> · <a href="mailto:hello@showupai.live">hello@showupai.live</a></p></footer>`;
 }
 
 function aboutHtml() {
@@ -204,6 +205,23 @@ async function main() {
       name: "Join the ShowUpAI waitlist", about: { "@id": `${SITE}/#organization` }, isPartOf: { "@id": `${SITE}/#website` } },
   }), waitlistHtml()));
 
+  // Privacy policy: same text as the /privacy React page (src/lib/privacyPolicy.js), indexed and in the sitemap.
+  try {
+    const md = await loadMarkdown();
+    const { PRIVACY_MD, PRIVACY_UPDATED } = await loadLib("privacyPolicy");
+    fs.writeFileSync(path.join(BUILD, "privacy.html"), withRoot(setHead(shell, {
+      title: "Privacy Policy | ShowUpAI",
+      description: "How ShowUpAI collects, uses, shares and protects personal data on showupai.live, and your rights under the GDPR.",
+      url: `${SITE}/privacy`, image: `${SITE}/og-image.png`, type: "website",
+      jsonld: { "@context": "https://schema.org", "@type": "WebPage", "@id": `${SITE}/privacy#webpage`, url: `${SITE}/privacy`,
+        name: "ShowUpAI Privacy Policy", dateModified: PRIVACY_UPDATED, about: { "@id": `${SITE}/#organization` }, isPartOf: { "@id": `${SITE}/#website` } },
+    }), `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a></p></header>
+<main><h1>Privacy Policy</h1><p>Last updated <time datetime="${PRIVACY_UPDATED}">${PRIVACY_UPDATED}</time></p>
+${bodyHtml(md, PRIVACY_MD)}</main>`));
+  } catch (e) {
+    console.log("[prerender] privacy page skipped:", e.message);
+  }
+
   // Login and register: account forms with no search value (and /register competes with /waitlist).
   // noindex keeps them out of Google; follow lets link equity pass. Self canonical instead of the homepage.
   const authPages = [
@@ -215,7 +233,7 @@ async function main() {
       title, description, url: `${SITE}/${slug}`, type: "website", robots: "noindex, follow",
     }));
   }
-  console.log("[prerender] wrote homepage + about + waitlist + login + register + app-shell");
+  console.log("[prerender] wrote homepage + about + waitlist + privacy + login + register + app-shell");
 
   if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
   const md = await loadMarkdown();

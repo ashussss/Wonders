@@ -210,7 +210,7 @@ export default function Waitlist() {
                 </motion.button>
 
                 <p className="text-[10px] text-white/25 text-center mt-3">
-                  No spam. No credit card. Unsubscribe anytime.
+                  No spam. No credit card. Unsubscribe anytime. <Link to="/privacy" className="underline hover:text-white/50">Privacy policy</Link>
                 </p>
               </motion.form>
 
