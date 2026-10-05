@@ -127,6 +127,21 @@ ENGAGEMENT_ANGLES = [
 ]
 
 
+def _pick_angle(pool: List[str], seed: str) -> str:
+    """Rotate through ``pool`` across days and within a day.
+
+    ``seed`` is "YYYY-MM-DD-n". The day's ordinal shifts the start each day and
+    ``n`` steps within the day, so two campaigns on one day differ and the same
+    slot gets a different angle tomorrow. Unparseable seeds fall back to a hash.
+    """
+    day, _, n = seed.rpartition("-")
+    try:
+        idx = datetime.fromisoformat(day).date().toordinal() * 2 + int(n)
+    except ValueError:
+        idx = sum(seed.encode())
+    return pool[idx % len(pool)]
+
+
 async def build_original_campaign(kind: CampaignKind, seed: str) -> Optional[CampaignDraft]:
     """pain_point = webinar/event-marketing lead-gen. engagement = conversation.
 
@@ -135,8 +150,7 @@ async def build_original_campaign(kind: CampaignKind, seed: str) -> Optional[Cam
     rather than asking it to invent a topic from nothing.
     """
     if kind == "pain_point":
-        angle_pool = PAIN_ANGLES
-        angle = angle_pool[int(seed[-2:]) % len(angle_pool)] if seed[-2:].isdigit() else angle_pool[0]
+        angle = _pick_angle(PAIN_ANGLES, seed)
         hint = (
             "ORIGINAL lead-gen campaign. The pain point is fixed by the brief below — write to it directly. "
             "The reader is an event host who is losing registrants. Make it practical and specific, "
@@ -144,8 +158,7 @@ async def build_original_campaign(kind: CampaignKind, seed: str) -> Optional[Cam
             f"Brief pain point: {angle}"
         )
     else:
-        angle_pool = ENGAGEMENT_ANGLES
-        angle = angle_pool[int(seed[-2:]) % len(angle_pool)] if seed[-2:].isdigit() else angle_pool[0]
+        angle = _pick_angle(ENGAGEMENT_ANGLES, seed)
         hint = (
             "ORIGINAL engagement campaign designed to start a conversation, not to sell. "
             "Ask a real question people will answer in the comments. No pitch in the caption. "
@@ -288,6 +301,40 @@ async def edit(db, cid: str, patch: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": bool(r.modified_count)}
 
 
+async def _with_linkedin_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Prefer the Growth Engine's own LinkedIn OAuth connection for publishing.
+
+    The connection belongs to the brand account (SOCIAL_ACCOUNT_EMAIL), the same
+    owner social.account_settings() reads. When it is connected and not expired,
+    its token and member URN replace the legacy settings values, so posts go out
+    as the connected member. Otherwise the legacy settings are used unchanged.
+    """
+    from social import SOCIAL_ACCOUNT_EMAIL
+    from . import linkedin as li
+
+    if not SOCIAL_ACCOUNT_EMAIL:
+        return settings
+    user = await db.users.find_one({"email": SOCIAL_ACCOUNT_EMAIL}, {"_id": 0, "id": 1})
+    if not user:
+        return settings
+    conn = await li.get_connection(db, user["id"], li.PLATFORM)
+    if not conn or conn.get("status") != "connected" or not conn.get("platform_user_id"):
+        return settings
+    expires = conn.get("expires_at")
+    if expires:
+        try:
+            if datetime.fromisoformat(expires) <= datetime.now(timezone.utc):
+                logger.warning("linkedin oauth token expired, reconnect on /app/integrations")
+                return settings
+        except ValueError:
+            pass
+    token = await li.get_access_token(db, user["id"], li.PLATFORM)
+    if not token or token.startswith("enc::"):          # missing, or could not decrypt
+        return settings
+    return {**settings, "linkedin_marketing_token": token,
+            "linkedin_org_urn": f"urn:li:person:{conn['platform_user_id']}"}
+
+
 async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
     """Publish ONE approved campaign to its platforms. Writes to growth_campaigns only.
 
@@ -296,6 +343,7 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
     import social
 
     settings = await social.account_settings()
+    settings = await _with_linkedin_oauth(db, settings)
     conn = social.connected(settings)
     results = dict(doc.get("results") or {})
     copy = doc.get("platform_copy") or {}
@@ -361,7 +409,13 @@ async def dispatch_due(db, force: bool = False) -> Dict[str, Any]:
         return {"ok": True, "published": 0}
     out = []
     for d in due:
-        await db[COLLECTIONS["campaigns"]].update_one({"id": d["id"]}, {"$set": {"status": "publishing"}})
+        # Atomic claim: only the tick that flips approved -> publishing posts it,
+        # so overlapping ticks or a second server instance cannot double-post.
+        claimed = await db[COLLECTIONS["campaigns"]].update_one(
+            {"id": d["id"], "status": "approved"},
+            {"$set": {"status": "publishing", "updated_at": now_iso()}})
+        if not claimed.modified_count:
+            continue
         out.append(await publish_campaign(db, d))
     return {"ok": True, "published": len(out), "results": out}
 

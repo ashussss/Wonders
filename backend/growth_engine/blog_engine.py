@@ -4,8 +4,8 @@ READ-ONLY with respect to the production blog pipeline: this module only issues
 ``find``/``aggregate`` against ``blog_posts``. It never writes to blog_posts,
 never calls ``publish_due``, never touches the pSEO scheduler, and never marks a
 post as used. Deduplication for the Growth Engine lives in its own
-``growth_campaigns`` collection, so the existing ``social_posts`` dedupe
-(``source_slug`` + ``social_used_at``) is left completely untouched.
+``growth_campaigns`` collection. ``social_posts`` is only READ, to skip posts the
+existing social autopilot has already promoted (no double posting).
 
 Detection window: any post published within the last N hours that has not yet had
 a Growth Engine campaign built for it.
@@ -82,8 +82,25 @@ async def pick_todays_posts(db, want: int = GROWTH_BLOG_CAMPAIGNS,
     if not recent:
         return []
     done = await unprocessed_slugs(db, [r.get("slug") or "" for r in recent])
+    done |= await promoted_by_social_autopilot(db, [r.get("slug") or "" for r in recent])
     fresh = [r for r in recent if r.get("slug") and r["slug"] not in done]
     return fresh[:want]
+
+
+async def promoted_by_social_autopilot(db, slugs: List[str]) -> set:
+    """Slugs the existing social.py autopilot already queued a blog promo for.
+
+    Read-only. social.queue_blog_promo fires at publish time (auto-approved by
+    default), so without this check the same post would go out twice on the
+    same channels: once from social_posts and once from growth_campaigns.
+    """
+    slugs = [s for s in slugs if s]
+    if not slugs:
+        return set()
+    rows = await db.social_posts.find(
+        {"kind": "blog", "source_slug": {"$in": slugs}}, {"_id": 0, "source_slug": 1}
+    ).to_list(len(slugs))
+    return {r["source_slug"] for r in rows if r.get("source_slug")}
 
 
 def _fact_block(post: Dict[str, Any]) -> str:
