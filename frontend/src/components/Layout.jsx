@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart3, BookOpen, CalendarDays, Inbox, LayoutDashboard, LogOut, Mail, Menu, Moon, Plug, Settings, Star, Sun, X, Zap } from "@/components/Icons";
+import { BarChart3, BookOpen, CalendarDays, Inbox, LayoutDashboard, LogOut, Mail, Menu, Moon, Plug, Send, Settings, Star, Sun, X, Zap } from "@/components/Icons";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -97,6 +97,19 @@ export default function Layout() {
               }}>
               <Star size={15} className="text-orange-500/70" />
               Admin
+            </Link>
+          </motion.div>
+        )}
+        {isAdmin && (
+          <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.38 }}>
+            <Link to="/app/growth" onClick={() => setOpenMobile(false)} data-testid="nav-growth"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{
+                background: loc.pathname === "/app/growth" ? "rgba(234,88,12,0.1)" : "transparent",
+                color: loc.pathname === "/app/growth" ? "#EA580C" : "var(--text-muted)",
+              }}>
+              <Send size={15} className="text-orange-500/70" />
+              Growth review
             </Link>
           </motion.div>
         )}
