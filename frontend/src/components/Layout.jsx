@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart3, BookOpen, CalendarDays, Inbox, LayoutDashboard, LogOut, Mail, Menu, Moon, Settings, Star, Sun, X, Zap } from "@/components/Icons";
+import { BarChart3, BookOpen, CalendarDays, Inbox, LayoutDashboard, LogOut, Mail, Menu, Moon, Plug, Settings, Star, Sun, X, Zap } from "@/components/Icons";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/app/analytics",  label: "Analytics",     icon: BarChart3,       testId: "nav-analytics" },
   { to: "/app/email",       label: "Email Stats",   icon: Mail,            testId: "nav-email" },
   { to: "/app/settings",   label: "Settings",      icon: Settings,             testId: "nav-settings" },
+  { to: "/app/integrations", label: "Integrations", icon: Plug,               testId: "nav-integrations" },
 ];
 
 export default function Layout() {

@@ -11,6 +11,7 @@ import ApprovalQueue from "@/pages/ApprovalQueue";
 import Analytics from "@/pages/Analytics";
 import Schedule from "@/pages/Schedule";
 import Settings from "@/pages/Settings";
+import Integrations from "@/pages/Integrations";
 import ContentLibrary from "@/pages/ContentLibrary";
 import AdminDashboard from "@/pages/AdminDashboard";
 import Waitlist from "@/pages/Waitlist";
@@ -22,6 +23,7 @@ import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
 import Compare from "@/pages/Compare";
 import About from "@/pages/About";
+import Privacy from "@/pages/Privacy";
 import BlogPost from "@/pages/BlogPost";
 
 function Protected({ children }) {
@@ -50,6 +52,7 @@ export default function App() {
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
               <Route path="/about" element={<About />} />
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/:slug" element={<BlogPost />} />
               <Route path="/compare/:competitor" element={<Compare />} />
@@ -62,6 +65,7 @@ export default function App() {
                 <Route path="/app/analytics" element={<Analytics />} />
                 <Route path="/app/schedule" element={<Schedule />} />
                 <Route path="/app/settings" element={<Settings />} />
+                <Route path="/app/integrations" element={<Integrations />} />
                 <Route path="/app/library" element={<ContentLibrary />} />
                 <Route path="/app/admin" element={<AdminDashboard />} />
                 <Route path="/app/email" element={<EmailAnalytics />} />

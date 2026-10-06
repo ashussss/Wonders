@@ -45,7 +45,7 @@ function Inline({ text }) {
 
 const looksLikeHtml = (s) => /^\s*<(p|h[1-6]|div|section|article|ul|ol)[\s>]/i.test(s || "");
 
-function MarkdownBody({ content, insert }) {
+export function MarkdownBody({ content, insert }) {
   const blocks = parseMarkdown(content);
   // put the mid-article box before the first H2 that comes after ~40% of the article
   let insertAt = -1;
