@@ -1,2 +1,14 @@
+# Blog posts merged into another post or removed (Oct 2026 refresh, backend/blog_refresh.py)
+/blog/using-linkedin-for-b2b-event-promotion  /blog/using-linkedin-to-promote-b2b-webinars  301!
+/blog/leveraging-linkedin-for-b2b-event-marketing  /blog/using-linkedin-to-promote-b2b-webinars  301!
+/blog/best-practices-for-webinar-postevent-followup  /blog/best-practices-for-post-webinar-followup  301!
+/blog/best-practices-for-webinar-followup-emails  /blog/best-practices-for-post-webinar-followup  301!
+/blog/webinar-replay-email-for-no-shows  /blog/webinar-follow-up-email-for-no-shows  301!
+/blog/webinar-reminder-whatsapp-message  /blog/webinar-reminder-whatsapp-template  301!
+/blog/webinar-attendance-for-edtech-companies  /blog/edtech-webinar-attendance  301!
+/blog/webinar-registration-optimization  /blog/how-to-increase-webinar-registrations  301!
+/blog/effective-webinar-promotion-tactics  /blog/webinar-promotion-checklist  301!
+/blog/webinar-attendance-benchmarks-by-industry  /blog/webinar-statistics  301!
+
 /sitemap.xml  https://showup-backend-2bfj.onrender.com/api/sitemap.xml  200
 /*    /app-shell.html   200

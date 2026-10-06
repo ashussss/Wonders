@@ -41,7 +41,7 @@ So treat these as a range, not a target. A B2B webinar landing at 40% is not fai
 - [Banzai's analysis of about 800,000 webinars](https://www.banzai.io/2024-webinar-statistics) run on Demio found that attendance rises when brands use email notifications, regardless of company size.
 - [Livestorm reports](https://livestorm.co/blog/boost-webinar-attendance-rate) that browser-based webinar platforms showed a 53% higher attendance rate than traditional, download-based ones.
 
-What this means in practice: schedule in your audience's working hours, send reminders, and remove friction at the moment of joining. For a practical reminder plan, see [how many webinar reminders to send](https://showupai.live/blog/how-many-webinar-reminders-to-send).
+What this means in practice: schedule in your audience's working hours, send reminders, and remove friction at the moment of joining. For a practical reminder plan, see [how many reminders to send, and when](https://showupai.live/blog/webinar-reminder-cadence-for-b2b-saas).
 
 ## Calls to action and webinar programs
 

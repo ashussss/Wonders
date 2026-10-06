@@ -730,3 +730,49 @@ def _get_geo_recommendations(entities: List[str], related_topics: List[str]) -> 
     if not recs:
         recs.append("Entity and topic coverage strong for GEO")
     return recs
+
+# One-off refresh of the posts published before the pipeline fixes (see blog_refresh.py).
+_refresh_task = None
+
+
+@router.post("/seo/refresh")
+async def seo_refresh(request: Request, payload: dict = Body(default={})):
+    """Body: {"apply": false} lists the plan; {"apply": true} starts the refresh in the background (resumable:
+    call again after a restart and finished posts are skipped). Optional "only": [slugs] refreshes just those."""
+    global _refresh_task
+    _require_key(request)
+    import blog_refresh
+    if not payload.get("apply"):
+        return await blog_refresh.run(apply=False)
+    if _refresh_task and not _refresh_task.done():
+        return {"ok": True, "note": "already running; see GET /api/seo/refresh/status"}
+
+    async def _go():
+        await blog_refresh.run(apply=True, only=payload.get("only"))
+        await _trigger_rebuild("refreshed existing posts")
+        rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).to_list(5000)
+        _indexnow_later([f"{pseo.SITE_URL}/blog"] + [f"{pseo.SITE_URL}/blog/{r['slug']}" for r in rows])
+
+    _refresh_task = asyncio.get_running_loop().create_task(_go())
+    return {"ok": True, "started": True, "status": "GET /api/seo/refresh/status"}
+
+
+@router.get("/seo/refresh/status")
+async def seo_refresh_status(request: Request):
+    _require_key(request)
+    import blog_refresh
+    run = await db.blog_refresh_runs.find_one({"run_id": blog_refresh.RUN_ID}, {"_id": 0}) or {}
+    return {**run, "running": bool(_refresh_task and not _refresh_task.done())}
+
+
+@router.post("/seo/refresh/restore")
+async def seo_refresh_restore(request: Request, payload: dict = Body(default={})):
+    """Put back the pre-refresh version. Body: {"slug": "..."} for one post, or {"all": true}."""
+    _require_key(request)
+    import blog_refresh
+    if not payload.get("slug") and not payload.get("all"):
+        raise HTTPException(400, "Give a slug or all: true")
+    done = await blog_refresh.restore(payload.get("slug"))
+    if done:
+        await _trigger_rebuild("restored posts")
+    return {"ok": True, "restored": done}

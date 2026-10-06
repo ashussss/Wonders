@@ -29,6 +29,27 @@ async function getJSON(url, tries = 4) {
   return null;
 }
 
+// og:image / Article image: copy the cover from Render into the Netlify build, so link previews and Google Images
+// don't depend on Render being awake. Falls back to the Render URL if the copy fails.
+async function staticCover(slug) {
+  const remote = `${API}/blog/${slug}/cover.png`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30000);
+    const r = await fetch(remote, { signal: ctrl.signal });
+    clearTimeout(t);
+    const type = r.headers.get("content-type") || "";
+    if (!r.ok || !type.startsWith("image/")) throw new Error(`HTTP ${r.status} ${type}`);
+    const dir = path.join(BUILD, "blog-covers");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${slug}.png`), Buffer.from(await r.arrayBuffer()));
+    return `${SITE}/blog-covers/${slug}.png`;
+  } catch (e) {
+    console.log(`[prerender] cover ${slug} not copied (${e.message}), using Render URL`);
+    return remote;
+  }
+}
+
 // src/lib/*.js is ESM source inside a CommonJS package; load it through a temp .mjs copy.
 async function loadLib(name) {
   const src = fs.readFileSync(path.resolve(`src/lib/${name}.js`), "utf8");
@@ -247,7 +268,7 @@ ${bodyHtml(md, PRIVACY_MD)}</main>`));
   const nav = `<p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a></p>`;
   for (const p of posts) {
     const url = `${SITE}/blog/${p.slug}`;
-    const image = `${API}/blog/${p.slug}/cover.png`;
+    const image = await staticCover(p.slug);
     const desc = p.seo_description || p.meta_description || p.excerpt || "";
     const faqs = (p.faq_items || []).filter((f) => f.question && f.answer);
     const related = md.relatedPosts(p, posts, 3);
