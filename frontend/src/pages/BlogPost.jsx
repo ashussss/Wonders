@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, fmtDate, API_BASE } from "@/lib/api";
-import { parseMarkdown, splitInline, headingId, tocFrom } from "@/lib/markdown";
+import { parseMarkdown, splitInline, headingId, tocFrom, relatedPosts } from "@/lib/markdown";
 import SubscribeBox from "@/components/SubscribeBox";
 import BlogHeader from "@/components/BlogHeader";
 
@@ -77,6 +77,13 @@ export function MarkdownBody({ content, insert }) {
         <p key={i} className="my-4">
           <Inline text={b.text} />
         </p>
+      );
+    }
+    if (b.type === "quote") {
+      return (
+        <blockquote key={i} className="my-6 p-5 rounded-xl bg-black/[0.03] border-l-4 border-orange-600">
+          <p className="m-0"><Inline text={b.text} /></p>
+        </blockquote>
       );
     }
     if (b.type === "code") {
@@ -188,10 +195,7 @@ function RelatedPosts({ current }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
     api.get("/blog").then((res) => {
-      const all = (Array.isArray(res.data) ? res.data : []).filter((p) => p.slug !== current.slug);
-      const words = new Set(String(current.keyword || current.title || "").toLowerCase().split(/\W+/).filter((w) => w.length > 3));
-      const score = (p) => String(p.keyword || p.title || "").toLowerCase().split(/\W+/).filter((w) => words.has(w)).length;
-      setItems(all.map((p) => [score(p), p]).sort((a, b) => b[0] - a[0]).slice(0, 3).map((x) => x[1]));
+      setItems(relatedPosts(current, Array.isArray(res.data) ? res.data : [], 3));
     }).catch(() => {});
   }, [current.slug, current.keyword, current.title]);
   if (!items.length) return null;

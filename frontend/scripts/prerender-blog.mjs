@@ -52,6 +52,7 @@ function bodyHtml(md, content) {
     if (b.type === "h") return `<h${b.level} id="${esc(md.headingId(b.text))}">${esc(b.text)}</h${b.level}>`;
     if (b.type === "p" && i === 0) return `<div class="qa"><p><strong>Quick answer:</strong> ${inlineHtml(md, b.text)}</p></div>`;
     if (b.type === "p") return `<p>${inlineHtml(md, b.text)}</p>`;
+    if (b.type === "quote") return `<blockquote class="qa"><p>${inlineHtml(md, b.text)}</p></blockquote>`;
     if (b.type === "code") return `<pre>${esc(b.text)}</pre>`;
     if (b.type === "table")
       return `<table><thead><tr>${b.head.map((c) => `<th>${inlineHtml(md, c)}</th>`).join("")}</tr></thead><tbody>${b.rows
@@ -249,7 +250,7 @@ ${bodyHtml(md, PRIVACY_MD)}</main>`));
     const image = `${API}/blog/${p.slug}/cover.png`;
     const desc = p.seo_description || p.meta_description || p.excerpt || "";
     const faqs = (p.faq_items || []).filter((f) => f.question && f.answer);
-    const related = posts.filter((x) => x.slug !== p.slug).slice(0, 3);
+    const related = md.relatedPosts(p, posts, 3);
     const person = p.author && p.author !== "ShowUpAI Team";
     const graph = [
       {
