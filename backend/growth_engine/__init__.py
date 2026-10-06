@@ -48,23 +48,24 @@ APPROVAL_MODE = _flag("GROWTH_APPROVAL_MODE", "true")
 GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 
 # ── Posting plan ─────────────────────────────────────────────────────────────
-# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06). That is
-# above the commonly cited B2B guidance (about one LinkedIn post per weekday, one
-# Facebook post a day, 3-5 Instagram feed posts a week), so the two daily posts are
-# spaced six hours apart and always use different formats.
+# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06): one blog
+# post every morning, then one other type in the afternoon. That is above the
+# commonly cited B2B guidance (about one LinkedIn post per weekday, one Facebook post
+# a day, 3-5 Instagram feed posts a week), so the two posts are six hours apart and
+# never share a visual format.
 #
 # Override with GROWTH_WEEKLY_PLAN. Format, comma separated:
 #   <day>=<kind>:<visual format>[@platform+platform]
 # Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
 # A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
 DEFAULT_WEEKLY_PLAN = (
-    "mon=pain_point:carousel,mon=engagement:quote,"
-    "tue=blog:carousel,tue=pain_point:checklist,"
-    "wed=news:infographic,wed=engagement:quote,"
-    "thu=competitor:comparison,thu=blog:carousel,"
-    "fri=pain_point:carousel,fri=blog:infographic,"
-    "sat=blog:checklist,sat=engagement:quote,"
-    "sun=pain_point:carousel,sun=blog:infographic"
+    "mon=blog:infographic,mon=pain_point:carousel,"
+    "tue=blog:carousel,tue=engagement:quote,"
+    "wed=blog:checklist,wed=engagement:poll,"
+    "thu=blog:carousel,thu=competitor:comparison,"
+    "fri=blog:infographic,fri=pain_point:carousel,"
+    "sat=blog:carousel,sat=engagement:poll,"
+    "sun=blog:checklist,sun=news:infographic"
 )
 GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 
@@ -143,6 +144,7 @@ VISUAL_FORMATS = (
     "checklist",
     "comparison",
     "quote",
+    "poll",
 )
 
 __all__ = [

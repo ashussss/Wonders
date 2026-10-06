@@ -92,6 +92,10 @@ fields that format uses:
 - checklist:     {"format":"checklist","title":"<=9 words","rows":["<=12 words each, 5-6 checklist items"]}
 - comparison:    {"format":"comparison","title":"<=9 words","left":{"title":"<=5 words","rows":["<=10 words, 3-4"]},"right":{"title":"<=5 words","rows":["<=10 words, 3-4"]}}   (left = the usual way, right = the better way)
 - quote:         {"format":"quote","quote":"<=28 words, a strong opinion the reader will recognise","attribution":"role or team, not a real person's name"}
+- poll:          {"format":"poll","title":"the poll question, <=120 characters","rows":["option, <=30 characters", "2-4 options"]}
+                 A real choice people disagree on, every option a fair answer. On LinkedIn it becomes a native
+                 poll; on Facebook and Instagram the image shows options A-D, so those captions must ask
+                 readers to comment their letter (A, B, C or D) and why.
 Carousels are the best-performing format on LinkedIn and Instagram: prefer them for how-to.
 stat_card only when you were given a citable number.
 """
@@ -120,7 +124,7 @@ FORMAT_PREFERENCE = {
     "blog": ["carousel", "infographic", "checklist", "stat_card"],
     "news": ["stat_card", "quote", "comparison", "carousel"],
     "pain_point": ["checklist", "comparison", "carousel", "infographic"],
-    "engagement": ["quote", "stat_card", "carousel"],
+    "engagement": ["quote", "poll", "carousel"],
     "competitor": ["comparison", "carousel", "infographic"],
 }
 
@@ -252,6 +256,11 @@ def _visual(d: Dict[str, Any], kind: str, seed: str, preferred: str = "") -> Vis
                 "rows": [str(r)[:120] for r in (blk.get("rows") or []) if isinstance(r, (str, int))][:5],
             })
 
+    if spec.format == "poll":
+        # LinkedIn's limits: question 140 characters, 2-4 options of 30 characters.
+        spec.title = spec.title[:140]
+        spec.rows = [r[:30].strip() for r in spec.rows if r.strip()][:4]
+
     # Normalise an unusable format into one that can actually be drawn.
     # Order matters: each branch is guarded on renderability so a format can never
     # bounce back to the one it just left (that loop previously ended unrenderable).
@@ -287,6 +296,8 @@ def is_renderable(spec: VisualSpec) -> bool:
         return bool(spec.left.get("rows")) and bool(spec.right.get("rows"))
     if f == "quote":
         return bool(spec.quote)
+    if f == "poll":
+        return bool(spec.title) and 2 <= len(spec.rows) <= 4
     return False
 
 

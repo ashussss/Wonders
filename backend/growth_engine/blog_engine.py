@@ -164,7 +164,7 @@ async def build_blog_campaign(db, post: Dict[str, Any], **overrides: Any) -> Opt
 
 # ── evergreen + competitor picks ─────────────────────────────────────────────
 
-EVERGREEN_COOLDOWN_DAYS = 45
+EVERGREEN_COOLDOWN_DAYS = 30
 
 # Slugs/titles that read as "us vs them". "-vs-" alone is not enough: plenty of
 # posts compare two approaches (live vs on-demand), so it must also name a tool.
