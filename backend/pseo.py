@@ -116,6 +116,50 @@ SEED_KEYWORDS = [
     ("webinar reminder cadence for b2b saas", "informational"),
     ("how to reduce zoom webinar no shows", "informational"),
     ("webinar attendance tracking", "informational"),
+    # batch 3 (2026-10-06): the first 36 were all used by 5 Oct, which stopped daily posts
+    # competitor "alternative" searches first (high buying intent)
+    ("best tools to reduce webinar no shows", "commercial"),
+    ("demio alternatives", "commercial"),
+    ("livestorm alternatives", "commercial"),
+    ("webinarjam alternatives", "commercial"),
+    ("zoom webinar alternatives", "commercial"),
+    ("gotowebinar alternatives", "commercial"),
+    ("on24 alternatives", "commercial"),
+    ("ewebinar alternatives", "commercial"),
+    ("easywebinar alternatives", "commercial"),
+    ("airmeet alternatives", "commercial"),
+    ("webinarninja alternatives", "commercial"),
+    ("bigmarker alternatives", "commercial"),
+    ("webinar late joiner email", "informational"),
+    ("last minute webinar reminder message", "informational"),
+    ("webinar countdown email", "informational"),
+    ("webinar email subject lines", "informational"),
+    ("webinar invitation email for b2b", "informational"),
+    ("webinar thank you email for attendees", "informational"),
+    ("webinar lead nurturing sequence", "informational"),
+    ("how to qualify webinar leads", "informational"),
+    ("webinar to sales pipeline conversion", "informational"),
+    ("how to measure webinar roi", "informational"),
+    ("webinar kpis to track", "informational"),
+    ("webinar landing page conversion tips", "informational"),
+    ("webinar registration form best practices", "informational"),
+    ("webinar title ideas that get registrations", "informational"),
+    ("best day of the week to host a webinar", "informational"),
+    ("best time of day to host a webinar", "informational"),
+    ("how long should a webinar be", "informational"),
+    ("webinar timezone strategy for global audiences", "informational"),
+    ("recurring webinar series attendance", "informational"),
+    ("webinar q&a best practices", "informational"),
+    ("product demo webinar best practices", "informational"),
+    ("customer onboarding webinars for saas", "informational"),
+    ("webinar co-marketing with partners", "informational"),
+    ("how to repurpose a webinar recording", "informational"),
+    ("webinar speaker prep checklist", "informational"),
+    ("webinar attendance incentives", "informational"),
+    ("online workshop attendance for course creators", "informational"),
+    ("masterclass attendance for coaches", "informational"),
+    ("webinar confirmation page ideas", "informational"),
+    ("webinar reminder automation for small teams", "commercial"),
 ]
 
 
@@ -608,6 +652,7 @@ async def run_pipeline(count: int | None = None) -> dict:
             sort=[("created_at", 1)],
         )
         if not cand:
+            logger.warning("pSEO keyword queue is empty: no new blog drafts until keywords are added")
             break
         kw = cand["keyword"]
         try:
@@ -631,6 +676,15 @@ async def run_pipeline(count: int | None = None) -> dict:
             results.append({"keyword": kw, "error": str(e)[:300]})
             logger.error(f"pSEO failed '{kw}': {e}")
     return {"ok": True, "processed": len(results), "results": results}
+
+
+async def catch_up() -> dict:
+    """On startup: if no pipeline post was drafted today (UTC), e.g. the 03:30 run found an empty queue or the
+    server was asleep, draft one now so the day still gets a post."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if await db.blog_posts.find_one({"keyword": {"$exists": True}, "created_at": {"$gte": today}}, {"_id": 1}):
+        return {"ok": True, "skipped": "already drafted today"}
+    return await run_pipeline(1)
 
 
 async def retry_failed() -> int:
@@ -700,7 +754,7 @@ async def seed_content_posts() -> int:
 
 
 async def build_sitemap() -> str:
-    static = [("/", "1.0", "weekly"), ("/blog", "0.8", "daily"), ("/about", "0.6", "monthly"), ("/waitlist", "0.7", "monthly")]
+    static = [("/", "1.0", "weekly"), ("/blog", "0.8", "daily"), ("/about", "0.6", "monthly"), ("/waitlist", "0.7", "monthly"), ("/privacy", "0.3", "yearly")]
     urls = [
         f"<url><loc>{SITE_URL}{p}</loc><changefreq>{f}</changefreq><priority>{pr}</priority></url>"
         for p, pr, f in static
