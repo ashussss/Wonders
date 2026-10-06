@@ -12,6 +12,7 @@ social_posts. Approval mode gates all dispatch.
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
@@ -414,6 +415,42 @@ async def _with_meta_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
+LINKEDIN_API_VERSION = os.environ.get("LINKEDIN_API_VERSION", "202604").strip()
+
+
+async def post_linkedin_poll(settings: Dict[str, Any], text: str, question: str,
+                             options: List[str], duration: str = "THREE_DAYS") -> Dict[str, Any]:
+    """Native LinkedIn poll through the versioned Posts API (ugcPosts has no polls).
+
+    Facebook Pages and Instagram have no poll API, so those platforms post the poll
+    card image and ask people to comment their letter instead.
+    """
+    import httpx
+
+    token, author = settings.get("linkedin_marketing_token"), settings.get("linkedin_org_urn")
+    body = {
+        "author": author,
+        "commentary": text[:2900],
+        "visibility": "PUBLIC",
+        "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [],
+                         "thirdPartyDistributionChannels": []},
+        "content": {"poll": {
+            "question": question[:140],
+            "options": [{"text": o[:30]} for o in options[:4]],
+            "settings": {"duration": duration},
+        }},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+    headers = {"Authorization": f"Bearer {token}", "LinkedIn-Version": LINKEDIN_API_VERSION,
+               "X-Restli-Protocol-Version": "2.0.0", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post("https://api.linkedin.com/rest/posts", headers=headers, json=body)
+    if r.status_code >= 400:
+        return {"ok": False, "detail": f"poll:{r.status_code}: {r.text[:200]}"}
+    return {"ok": True, "id": r.headers.get("x-restli-id") or r.headers.get("x-linkedin-id")}
+
+
 async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
     """Publish ONE approved campaign to its platforms. Writes to growth_campaigns only.
 
@@ -443,7 +480,11 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
             continue
         try:
             if platform == "linkedin":
-                if imgs:
+                vis = doc.get("visual") or {}
+                if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
+                    res = await post_linkedin_poll(settings, text, vis.get("title") or "",
+                                                   vis.get("rows") or [])
+                elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:
                     res = await social.post_linkedin(settings, text, link=link or None,

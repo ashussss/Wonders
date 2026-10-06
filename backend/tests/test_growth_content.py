@@ -21,6 +21,9 @@ def test_default_plan_is_two_posts_a_day_on_every_platform():
     assert all(items[0]["format"] != items[1]["format"] for items in plan.values())
     kinds = [x["kind"] for items in plan.values() for x in items]
     assert {"pain_point", "blog", "news", "competitor", "engagement"} <= set(kinds)
+    # a blog post every day, first slot
+    assert all(items[0]["kind"] == "blog" for items in plan.values())
+    assert sum(1 for items in plan.values() for x in items if x["format"] == "poll") == 2
 
 
 def test_plan_skips_bad_entries_and_falls_back():
@@ -33,7 +36,7 @@ def test_plan_skips_bad_entries_and_falls_back():
 
 def test_plan_for_a_date():
     assert len(queue.plan_for("2026-10-11")) == 2       # a Sunday
-    assert queue.plan_for("2026-10-08")[0]["kind"] == "competitor"   # a Thursday
+    assert queue.plan_for("2026-10-08")[1]["kind"] == "competitor"   # a Thursday
 
 
 def test_humanize_strips_ai_tells():
@@ -84,3 +87,42 @@ def test_every_caption_gets_the_site():
     assert ce.ensure_site("Hook. Question?").endswith("\n\nshowupai.live")
     already = "See showupai.live\nQuestion?"
     assert ce.ensure_site(already) == already
+
+
+def test_poll_spec_is_trimmed_to_linkedin_limits():
+    from growth_engine.content_engine import _visual, is_renderable
+    spec = _visual({"visual": {"format": "poll", "title": "Q" * 200,
+                               "rows": ["a" * 50, "Two", "Three", "Four", "Five"]}},
+                   "engagement", "s", "poll")
+    assert spec.format == "poll" and is_renderable(spec)
+    assert len(spec.title) <= 140 and len(spec.rows) == 4
+    assert all(len(r) <= 30 for r in spec.rows)
+
+
+def test_poll_renders_a_jpeg():
+    from growth_engine import visual_engine as ve
+    from growth_engine.models import VisualSpec
+    b = ve.render_poll(VisualSpec(format="poll", title="When do you send the first reminder?",
+                                  rows=["Right after signup", "A week before", "The day before"]))
+    assert b[:2] == b"\xff\xd8"
+
+
+@pytest.mark.asyncio
+async def test_linkedin_poll_uses_posts_api(monkeypatch):
+    import httpx
+    sent = {}
+
+    def handler(req):
+        sent["url"], sent["headers"], sent["body"] = str(req.url), req.headers, req.content
+        return httpx.Response(201, headers={"x-restli-id": "urn:li:share:1"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda *a, **k: real(*a, transport=httpx.MockTransport(handler), **k))
+    res = await queue.post_linkedin_poll({"linkedin_marketing_token": "t",
+                                          "linkedin_org_urn": "urn:li:person:x"},
+                                         "Vote below?", "Which?", ["A", "B"])
+    assert res == {"ok": True, "id": "urn:li:share:1"}
+    assert sent["url"] == "https://api.linkedin.com/rest/posts"
+    assert sent["headers"]["LinkedIn-Version"]
+    assert b'"poll"' in sent["body"] and b'"question":"Which?"' in sent["body"]
