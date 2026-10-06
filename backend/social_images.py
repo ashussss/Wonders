@@ -9,7 +9,7 @@ All JPEG (Instagram's Graph API only accepts JPEG).
 import hashlib
 import io
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 from blog_cover import THEMES, _font, _hex, _logo, _logo_inverted, _wrap
 
@@ -22,12 +22,9 @@ def _theme(seed: str, offset: int = 0):
 
 
 def _canvas(t, w, h, glow_box=None):
-    img = Image.new("RGBA", (w, h), _hex(t["bg"]))
-    if glow_box:
-        g = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(g).ellipse(glow_box, fill=_hex(t["glow"], 70))
-        img = Image.alpha_composite(img, g.filter(ImageFilter.GaussianBlur(110)))
-    return img
+    """Flat brand background. glow_box is accepted for old callers but ignored: the
+    blurred glow read as generic AI art, and plain flat colour reads as designed."""
+    return Image.new("RGBA", (w, h), _hex(t["bg"]))
 
 
 def _brand(img, t, x, y, size=44):

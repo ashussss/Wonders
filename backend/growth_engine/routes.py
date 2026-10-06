@@ -20,13 +20,9 @@ from . import (
     APPROVAL_MODE,
     COLLECTIONS,
     GROWTH_AUTO_PUBLISH,
-    GROWTH_BLOG_CAMPAIGNS,
-    GROWTH_CAMPAIGNS_PER_DAY,
-    GROWTH_ENGAGEMENT_CAMPAIGNS,
-    GROWTH_NEWS_CAMPAIGNS,
-    GROWTH_PAIN_CAMPAIGNS,
     GROWTH_PLATFORMS,
     GROWTH_SLOTS_IST,
+    GROWTH_WEEKLY_PLAN,
 )
 from . import analytics, blog_engine, news_engine, prospect_engine, queue, visual_engine
 from .integrations import router as integrations_router
@@ -54,9 +50,8 @@ async def growth_status(request: Request):
         "approval_mode": APPROVAL_MODE,
         "auto_publish": GROWTH_AUTO_PUBLISH,
         "publishing_blocked": APPROVAL_MODE or not GROWTH_AUTO_PUBLISH,
-        "targets_per_day": GROWTH_CAMPAIGNS_PER_DAY,
-        "mix": {"blog": GROWTH_BLOG_CAMPAIGNS, "news": GROWTH_NEWS_CAMPAIGNS,
-                "pain_point": GROWTH_PAIN_CAMPAIGNS, "engagement": GROWTH_ENGAGEMENT_CAMPAIGNS},
+        "weekly_plan": {d: queue.parse_weekly_plan(GROWTH_WEEKLY_PLAN).get(i, [])
+                        for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))},
         "platforms": GROWTH_PLATFORMS,
         "slots_ist": GROWTH_SLOTS_IST,
         "counts": counts,

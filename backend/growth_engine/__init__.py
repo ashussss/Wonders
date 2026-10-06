@@ -47,19 +47,39 @@ APPROVAL_MODE = _flag("GROWTH_APPROVAL_MODE", "true")
 # Second, independent gate. Both must be open before anything reaches a platform.
 GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 
-# ── Campaign targets ─────────────────────────────────────────────────────────
-GROWTH_CAMPAIGNS_PER_DAY = _int("GROWTH_CAMPAIGNS_PER_DAY", 9)
-GROWTH_BLOG_CAMPAIGNS = _int("GROWTH_BLOG_CAMPAIGNS", 4)   # from today's blogs
-GROWTH_NEWS_CAMPAIGNS = _int("GROWTH_NEWS_CAMPAIGNS", 2)   # industry news
-GROWTH_PAIN_CAMPAIGNS = _int("GROWTH_PAIN_CAMPAIGNS", 2)   # webinar/event pain-point lead-gen
-GROWTH_ENGAGEMENT_CAMPAIGNS = _int("GROWTH_ENGAGEMENT_CAMPAIGNS", 1)
+# ── Posting plan ─────────────────────────────────────────────────────────────
+# One post a day, Monday to Saturday, each one a different format. This follows the
+# commonly cited B2B guidance (Hootsuite, Sprout Social, LinkedIn's own Page tips):
+# about one LinkedIn post per weekday, roughly one Facebook post a day, and 3-5
+# Instagram feed posts a week. More than that mostly splits reach: LinkedIn shows a
+# Page's posts to fewer people when it posts several times within a few hours.
+#
+# Override with GROWTH_WEEKLY_PLAN. Format, comma separated:
+#   <day>=<kind>:<visual format>[@platform+platform]
+# Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
+# A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
+DEFAULT_WEEKLY_PLAN = (
+    "mon=pain_point:carousel,"          # lead-gen how-to carousel
+    "tue=blog:carousel,"                # latest blog as a swipeable carousel
+    "wed=news:infographic,"             # industry insight (falls back to a blog)
+    "thu=competitor:comparison,"        # alternative / vs post
+    "fri=engagement:quote,"             # opinion that asks for comments
+    "sat=blog:checklist@facebook"       # light weekend post, Facebook only
+)
+GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 
 GROWTH_PLATFORMS = _csv("GROWTH_PLATFORMS", "linkedin,facebook,instagram")
-GROWTH_SLOTS_IST = _csv(
-    "GROWTH_SLOTS_IST",
-    # 4 blog + 2 news + 2 pain + 1 engagement = 9 slots across the working day
-    "09:00,10:15,11:30,12:45,14:00,15:15,16:30,18:00,19:30",
-)
+# B2B feeds are busiest mid-morning on weekdays. A second post on the same day takes
+# the next slot.
+GROWTH_SLOTS_IST = _csv("GROWTH_SLOTS_IST", "10:00,16:00")
+
+# Legacy per-kind daily counts (the old 9-a-day mix). Kept so existing env vars
+# do not break anything; generate_day now follows GROWTH_WEEKLY_PLAN instead.
+GROWTH_CAMPAIGNS_PER_DAY = _int("GROWTH_CAMPAIGNS_PER_DAY", 1)
+GROWTH_BLOG_CAMPAIGNS = _int("GROWTH_BLOG_CAMPAIGNS", 1)
+GROWTH_NEWS_CAMPAIGNS = _int("GROWTH_NEWS_CAMPAIGNS", 1)
+GROWTH_PAIN_CAMPAIGNS = _int("GROWTH_PAIN_CAMPAIGNS", 1)
+GROWTH_ENGAGEMENT_CAMPAIGNS = _int("GROWTH_ENGAGEMENT_CAMPAIGNS", 1)
 
 # ── Prospecting ──────────────────────────────────────────────────────────────
 # LinkedIn has no public people-search API for the Marketing API tier. We never
@@ -112,7 +132,7 @@ COLLECTIONS = {
 
 ASSET_BUCKET = "growth_assets_fs"
 
-CAMPAIGN_KINDS = ("blog", "news", "pain_point", "engagement")
+CAMPAIGN_KINDS = ("blog", "news", "pain_point", "engagement", "competitor")
 
 FUNNEL_STAGES = ("awareness", "consideration", "intent", "conversion", "retention")
 
@@ -137,6 +157,8 @@ __all__ = [
     "GROWTH_ENGAGEMENT_CAMPAIGNS",
     "GROWTH_PLATFORMS",
     "GROWTH_SLOTS_IST",
+    "GROWTH_WEEKLY_PLAN",
+    "DEFAULT_WEEKLY_PLAN",
     "GROWTH_NEWS_FEEDS",
     "GROWTH_NEWS_MAX_AGE_HOURS",
     "GROWTH_ALLOW_AUTOMATED_ENGAGEMENT",

@@ -47,26 +47,54 @@ ABSOLUTE RULES (violating these fails the campaign):
 - Do not fabricate a study or attribute a number to a source that is not given.
 - Speak to one specific person, not "businesses" or "teams" in the abstract."""
 
+# How the copy should sound. The goal is a post a real person at ShowUpAI could have
+# written, built to get comments (reach) and clicks to the site (leads).
+VOICE_RULES = """
+VOICE (applies to every platform):
+- Sound like one experienced person talking to a peer. Not a brand, not a press release.
+- Assertive. Take a clear position. No hedging ("might", "could potentially", "in some cases").
+- Short sentences. Most under 12 words. One sentence per line. A blank line between ideas.
+- Concrete over clever: a specific situation, a specific step, a specific mistake.
+- No emojis. No decorative symbols or arrows. No em dashes. Plain "1." "2." "3." for lists.
+- Banned words and phrases: in today's, fast-paced, landscape, dive in, let's dive, delve,
+  game-changer, game changer, unlock, elevate, leverage, harness, supercharge, seamless,
+  revolutionize, robust, navigate, realm, tapestry, embark, buckle up, level up,
+  "here's the thing", "the truth is", "it's not just X, it's Y", "let that sink in".
+- End with ONE question about this exact subject that a reader can answer from their own
+  experience, then ask them to answer in the comments. Vary the wording; never a bare
+  "Thoughts?" or "What do you think?". The question is always the last line before hashtags.
+"""
+
 PLATFORM_RULES = """
-PLATFORM COPY RULES (return each as a separate object):
-- linkedin: 600-1100 characters. First line must be the hook and must work on its own. Short paragraphs (1-2
-  sentences), 3-5 total. End with ONE genuine question to invite comments. 3-5 hashtags at the end.
-  Do NOT put a URL in the caption.
-- facebook: 250-500 characters, conversational, short paragraphs, 1-2 hashtags. No URL.
-- instagram: 300-900 characters. Hook on the first line. End with a short CTA and 8-12 relevant hashtags.
+PLATFORM COPY RULES (LinkedIn and Meta best practice; return each as a separate object):
+- linkedin: 700-1300 characters. Line 1 is the hook, under 12 words, alone on its line, and
+  must make someone click "see more". Line 2 adds tension or a stake. Then the substance as
+  short lines or a plain numbered list. If the visual is a carousel, say what they get by
+  swiping. For lead-gen, add one plain line pointing to showupai.live (domain only, no full
+  URL, no "link in bio"). Then the question and the comment ask. Exactly 3 hashtags on the
+  last line.
+- facebook: 150-450 characters. Hook line, 2-4 short lines, the question and the comment ask.
+  0-2 hashtags. No URL in the caption (the link is attached separately).
+- instagram: 400-1100 characters. Hook in the first 125 characters. Short lines. Ask them
+  to save or share the post if it is useful, then the question and the comment ask. Point
+  to "the link in our bio" for the full guide. 3-5 specific hashtags on the last line.
+- Put the hashtags inside the caption text and also list them in "hashtags".
 """
 
 VISUAL_RULES = """
-VISUAL RULES — you describe the image, a renderer draws it.
-Pick exactly one format and fill only the fields that format uses:
-- carousel:      {"format":"carousel","title":"hook slide headline (<=12 words)","slides":[{"title":"<=9 words","body":"<=32 words, actionable"}],"cta":"last slide (<=14 words)"}  (4-6 slides)
-- infographic:   {"format":"infographic","title":"<=9 words","rows":["<=12 words each, 4-6 rows"]}
+VISUAL RULES — you describe the image, a renderer draws it in the flat ShowUpAI brand style
+(no stock photos, no illustrations, no AI art). Text on the image must be short and readable
+on a phone. One idea per slide or row.
+Pick the format you are told to use, or the best fit if none is given, and fill only the
+fields that format uses:
+- carousel:      {"format":"carousel","title":"cover headline, a bold claim or promise (<=10 words)","slides":[{"title":"<=8 words","body":"<=25 words, one actionable point"}],"cta":"last slide: the comment question or a save prompt (<=14 words)"}  (4-6 slides)
+- infographic:   {"format":"infographic","title":"<=9 words","rows":["<=12 words each, 4-6 rows, an insight or step per row"]}
 - stat_card:     {"format":"stat_card","title":"short label","number":"e.g. 51.3%","label":"what it means, <=22 words","source":"the exact source name provided"}   (needs a number you were GIVEN)
 - checklist:     {"format":"checklist","title":"<=9 words","rows":["<=12 words each, 5-6 checklist items"]}
-- comparison:    {"format":"comparison","title":"<=9 words","left":{"title":"<=5 words","rows":["<=10 words, 3-4"]},"right":{"title":"<=5 words","rows":["<=10 words, 3-4"]}}
+- comparison:    {"format":"comparison","title":"<=9 words","left":{"title":"<=5 words","rows":["<=10 words, 3-4"]},"right":{"title":"<=5 words","rows":["<=10 words, 3-4"]}}   (left = the usual way, right = the better way)
 - quote:         {"format":"quote","quote":"<=28 words, a strong opinion the reader will recognise","attribution":"role or team, not a real person's name"}
-Choose the format that best fits the message: carousels and checklists for how-to, stat_cards only when you were
-given a citable number, comparisons for myth-vs-reality, quotes for hot takes.
+Carousels are the best-performing format on LinkedIn and Instagram: prefer them for how-to.
+stat_card only when you were given a citable number.
 """
 
 STAGE_HINTS = {
@@ -85,14 +113,16 @@ KIND_STAGE = {
     "news": "awareness",
     "pain_point": "consideration",
     "engagement": "awareness",
+    "competitor": "consideration",
 }
 
-# Visual rotation so a day's 9 campaigns don't all look identical.
+# Fallback visual rotation when the model returns an unknown format.
 FORMAT_PREFERENCE = {
     "blog": ["carousel", "infographic", "checklist", "stat_card"],
     "news": ["stat_card", "quote", "comparison", "carousel"],
     "pain_point": ["checklist", "comparison", "carousel", "infographic"],
     "engagement": ["quote", "stat_card", "carousel"],
+    "competitor": ["comparison", "carousel", "infographic"],
 }
 
 
@@ -107,13 +137,13 @@ async def ai_json(prompt: str) -> Dict[str, Any]:
 
 
 def _clean(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply the repo's brand + text normalisation to every string in the payload."""
+    """Apply the repo's brand + text normalisation (and humanize) to every string in the payload."""
     out: Dict[str, Any] = {}
     for k, v in (d or {}).items():
         if isinstance(v, str):
-            out[k] = pseo.rebrand(pseo.normalize_text(v))
+            out[k] = humanize(pseo.rebrand(pseo.normalize_text(v)))
         elif isinstance(v, list):
-            out[k] = [pseo.rebrand(pseo.normalize_text(x)) if isinstance(x, str)
+            out[k] = [humanize(pseo.rebrand(pseo.normalize_text(x))) if isinstance(x, str)
                       else _clean(x) if isinstance(x, dict) else x for x in v]
         elif isinstance(v, dict):
             out[k] = _clean(v)
@@ -185,14 +215,15 @@ def _platform_copy(d: Dict[str, Any], platforms: List[str]) -> Dict[str, Platfor
     return out
 
 
-def _visual(d: Dict[str, Any], kind: str, seed: str) -> VisualSpec:
+def _visual(d: Dict[str, Any], kind: str, seed: str, preferred: str = "") -> VisualSpec:
     """Validate the AI's visual declaration, falling back to a safe, renderable spec."""
     raw = d.get("visual") or {}
     if not isinstance(raw, dict):
         raw = {}
     fmt = str(raw.get("format") or "").strip().lower().replace(" ", "_").replace("-", "_")
     if fmt not in VISUAL_FORMATS:
-        fmt = FORMAT_PREFERENCE[kind][int(hashlib8(seed)) % len(FORMAT_PREFERENCE[kind])]
+        pool = FORMAT_PREFERENCE.get(kind) or list(VISUAL_FORMATS)
+        fmt = preferred if preferred in VISUAL_FORMATS else pool[int(hashlib8(seed)) % len(pool)]
 
     spec = VisualSpec(format=cast(VisualFormat, fmt))
     spec.title = str(raw.get("title") or "").strip()[:200]
@@ -296,6 +327,47 @@ def _synthesize_spec(spec: VisualSpec, original_fmt: str) -> VisualSpec:
     return spec
 
 
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u20E3\u2190-\u21FF]")
+_DASH = re.compile(r"\s*[\u2014\u2013]\s*")
+
+BANNED_PHRASES = (
+    "in today's", "fast-paced", "landscape", "dive in", "let's dive", "delve", "game-changer",
+    "game changer", "unlock", "elevate", "leverage", "harness", "supercharge", "seamless",
+    "revolutioniz", "robust", "navigate", "realm", "tapestry", "embark", "buckle up",
+    "level up", "here's the thing", "the truth is", "let that sink in",
+)
+
+
+def humanize(text: str) -> str:
+    """Strip the tells that make a caption read as machine-written: emojis, arrows,
+    em/en dashes and runs of blank lines. Wording problems are caught by copy_issues."""
+    if not isinstance(text, str):
+        return text
+    t = _EMOJI.sub("", text)
+    t = _DASH.sub(", ", t)
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+
+def copy_issues(copy: Dict[str, PlatformCopy]) -> List[str]:
+    """Rule checks a reviewer would otherwise do by hand. Empty list = good."""
+    issues: List[str] = []
+    for platform, block in copy.items():
+        cap = block.caption or ""
+        low = cap.lower()
+        hits = [p for p in BANNED_PHRASES if p in low]
+        if hits:
+            issues.append(f"{platform}: remove the phrases {', '.join(hits)}")
+        if "?" not in cap:
+            issues.append(f"{platform}: end with a question that asks readers to comment")
+        first = cap.strip().split("\n", 1)[0]
+        if platform == "linkedin" and len(first.split()) > 14:
+            issues.append("linkedin: the first line must be a hook under 12 words")
+    return issues
+
+
 def hashlib8(seed: str) -> int:
     """Stable small-int hash (no hashlib import needed in hot path)."""
     h = 2166136261
@@ -318,10 +390,14 @@ async def build_campaign(
     seed: str = "",
     platforms: Optional[List[str]] = None,
     angle_hint: str = "",
+    visual_format: str = "",
 ) -> Optional[CampaignDraft]:
     """Generate one validated campaign. Returns None if the AI output is unusable."""
     platforms = [p for p in (platforms or GROWTH_PLATFORMS) if p in GROWTH_PLATFORMS] or ["linkedin"]
     seed = seed or f"{kind}:{source_slug or source_title}"
+    visual_format = visual_format if visual_format in VISUAL_FORMATS else ""
+    format_line = (f"VISUAL FORMAT: use \"{visual_format}\"." if visual_format
+                   else "VISUAL FORMAT: pick the best fit.")
 
     prompt = f"""{BRAND_RULES}
 
@@ -348,8 +424,10 @@ Strategy fields:
 - cta: what the reader should do next.
 - rationale: 1-2 sentences on why this angle suits this audience at this stage.
 
+{VOICE_RULES}
 {PLATFORM_RULES}
 {VISUAL_RULES}
+{format_line}
 
 Return ONLY a JSON object with exactly this shape:
 {{
@@ -363,21 +441,36 @@ Return ONLY a JSON object with exactly this shape:
     "facebook": {{"caption": "...", "hashtags": ["..."], "cta": "..."}},
     "instagram": {{"caption": "...", "hashtags": ["..."], "cta": "..."}}
   }},
+  (only include the platforms in this list: {", ".join(platforms)})
   "visual": {{...one of the six formats above...}}
 }}"""
 
-    try:
-        raw = _clean(await ai_json(prompt))
-    except Exception as e:                                  # noqa: BLE001
-        logger.error(f"content_engine: AI failed for {kind}/{seed}: {e}")
-        return None
+    raw: Dict[str, Any] = {}
+    copy: Dict[str, PlatformCopy] = {}
+    feedback = ""
+    # One rewrite pass: if the first draft breaks the voice rules, send the exact
+    # problems back once. A second miss is kept and left to the human reviewer.
+    for attempt in range(2):
+        try:
+            raw = _clean(await ai_json(prompt + feedback))
+        except Exception as e:                              # noqa: BLE001
+            logger.error(f"content_engine: AI failed for {kind}/{seed}: {e}")
+            return None
+        copy = _platform_copy(raw, platforms)
+        for block in copy.values():
+            block.caption = humanize(block.caption)
+        issues = copy_issues(copy) if copy else ["no captions returned"]
+        if not issues:
+            break
+        logger.info(f"content_engine: rewrite {kind}/{seed}: {issues}")
+        feedback = ("\n\nYOUR PREVIOUS DRAFT BROKE THESE RULES. Rewrite everything and fix them:\n- "
+                    + "\n- ".join(issues))
 
     strategy = _strategy(raw.get("strategy"), kind)
-    copy = _platform_copy(raw, platforms)
     if not copy:
         logger.error(f"content_engine: no usable platform copy for {kind}/{seed}")
         return None
-    visual = _visual(raw, kind, seed)
+    visual = _visual(raw, kind, seed, visual_format)
 
     return CampaignDraft(
         kind=cast(CampaignKind, kind),
@@ -401,7 +494,7 @@ def stage_hint_for(kind: str) -> str:
 
 def source_type_default(kind: str) -> str:
     return {"blog": "blog", "news": "news", "pain_point": "original",
-            "engagement": "original"}[kind]
+            "engagement": "original", "competitor": "original"}.get(kind, "original")
 
 
 __all__ = [
@@ -409,6 +502,9 @@ __all__ = [
     "build_campaign",
     "FORMAT_PREFERENCE",
     "BRAND_RULES",
+    "VOICE_RULES",
+    "humanize",
+    "copy_issues",
     "STAGE_HINTS",
     "stage_hint_for",
 ]
