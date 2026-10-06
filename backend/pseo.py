@@ -117,6 +117,19 @@ SEED_KEYWORDS = [
     ("how to reduce zoom webinar no shows", "informational"),
     ("webinar attendance tracking", "informational"),
     # batch 3 (2026-10-06): the first 36 were all used by 5 Oct, which stopped daily posts
+    # competitor "alternative" searches first (high buying intent)
+    ("best tools to reduce webinar no shows", "commercial"),
+    ("demio alternatives", "commercial"),
+    ("livestorm alternatives", "commercial"),
+    ("webinarjam alternatives", "commercial"),
+    ("zoom webinar alternatives", "commercial"),
+    ("gotowebinar alternatives", "commercial"),
+    ("on24 alternatives", "commercial"),
+    ("ewebinar alternatives", "commercial"),
+    ("easywebinar alternatives", "commercial"),
+    ("airmeet alternatives", "commercial"),
+    ("webinarninja alternatives", "commercial"),
+    ("bigmarker alternatives", "commercial"),
     ("webinar late joiner email", "informational"),
     ("last minute webinar reminder message", "informational"),
     ("webinar countdown email", "informational"),
@@ -663,6 +676,15 @@ async def run_pipeline(count: int | None = None) -> dict:
             results.append({"keyword": kw, "error": str(e)[:300]})
             logger.error(f"pSEO failed '{kw}': {e}")
     return {"ok": True, "processed": len(results), "results": results}
+
+
+async def catch_up() -> dict:
+    """On startup: if no pipeline post was drafted today (UTC), e.g. the 03:30 run found an empty queue or the
+    server was asleep, draft one now so the day still gets a post."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if await db.blog_posts.find_one({"keyword": {"$exists": True}, "created_at": {"$gte": today}}, {"_id": 1}):
+        return {"ok": True, "skipped": "already drafted today"}
+    return await run_pipeline(1)
 
 
 async def retry_failed() -> int:

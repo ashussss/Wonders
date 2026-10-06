@@ -19,7 +19,7 @@ from routes_blog import publish_due
 from routes_social import router as social_router
 import social
 import pseo
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("showup")
@@ -38,6 +38,9 @@ async def lifespan(_app: FastAPI):
     # Programmatic SEO: draft new blog posts daily at 03:30 UTC (09:00 IST)
     scheduler.add_job(pseo.run_pipeline, "cron", hour=3, minute=30, id="pseo-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
+    # ...and catch up once on startup if today's draft is missing (2 min delay so the app finishes booting)
+    scheduler.add_job(pseo.catch_up, "date", id="pseo-catch-up", replace_existing=True,
+                      run_date=datetime.now(timezone.utc) + timedelta(minutes=2))
     scheduler.start()
     logger.info("Scheduler started")
     try:
