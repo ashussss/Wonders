@@ -38,6 +38,12 @@ def _brand(img, t, x, y, size=44):
     return d
 
 
+def _site(img, t, w, h, pad):
+    """showupai.live in the bottom-right corner, level with the logo."""
+    ImageDraw.Draw(img).text((w - pad, h - pad - 22), BRAND_URL, font=_font("semi", 26),
+                             fill=_hex(t["muted"]), anchor="rm")
+
+
 def _text_block(d, text, font, x, y, max_w, fill, line_h, max_lines=None):
     lines = _wrap(d, text, font, max_w)
     if max_lines and len(lines) > max_lines:
@@ -110,6 +116,7 @@ def render_carousel(hook: str, slides: list, cta: str, seed: str = "") -> list:
     d.line([(ax, ay), (ax + 44, ay)], fill=sc, width=5)
     d.polygon([(ax + 44, ay - 11), (ax + 60, ay), (ax + 44, ay + 11)], fill=sc)
     _brand(img, t, pad, H - pad - 44, 44)
+    _site(img, t, W, H, pad)
     pages.append(_jpeg(img))
 
     # tip slides
@@ -124,6 +131,7 @@ def render_carousel(hook: str, slides: list, cta: str, seed: str = "") -> list:
         bf, bl = _fit(d, s.get("body", ""), "reg", W - 2 * pad, H - y - 300, 40, 28, max_lines=9, lh=1.4)
         _text_block(d, s.get("body", ""), bf, pad, y + 40, W - 2 * pad, _hex(t["muted"] if t["bg"] != "#FAF6EF" else "#333333"), bl)
         _brand(img, t, pad, H - pad - 44, 44)
+        _site(img, t, W, H, pad)
         pages.append(_jpeg(img))
 
     # CTA slide

@@ -70,14 +70,13 @@ PLATFORM COPY RULES (LinkedIn and Meta best practice; return each as a separate 
 - linkedin: 700-1300 characters. Line 1 is the hook, under 12 words, alone on its line, and
   must make someone click "see more". Line 2 adds tension or a stake. Then the substance as
   short lines or a plain numbered list. If the visual is a carousel, say what they get by
-  swiping. For lead-gen, add one plain line pointing to showupai.live (domain only, no full
-  URL, no "link in bio"). Then the question and the comment ask. Exactly 3 hashtags on the
-  last line.
-- facebook: 150-450 characters. Hook line, 2-4 short lines, the question and the comment ask.
-  0-2 hashtags. No URL in the caption (the link is attached separately).
+  swiping. Always one plain line pointing to showupai.live (domain only, no https, no
+  "link in bio"). Then the question and the comment ask. Exactly 3 hashtags on the last line.
+- facebook: 150-450 characters. Hook line, 2-4 short lines, one line mentioning showupai.live,
+  the question and the comment ask. 0-2 hashtags.
 - instagram: 400-1100 characters. Hook in the first 125 characters. Short lines. Ask them
-  to save or share the post if it is useful, then the question and the comment ask. Point
-  to "the link in our bio" for the full guide. 3-5 specific hashtags on the last line.
+  to save or share the post if it is useful, one line "More at showupai.live (link in bio)",
+  then the question and the comment ask. 3-5 specific hashtags on the last line.
 - Put the hashtags inside the caption text and also list them in "hashtags".
 """
 
@@ -351,6 +350,20 @@ def humanize(text: str) -> str:
     return t.strip()
 
 
+SITE_DOMAIN = "showupai.live"
+
+
+def ensure_site(caption: str) -> str:
+    """Every caption carries showupai.live once. If the model left it out, add it as
+    its own line just above the hashtag line (or at the end when there are none)."""
+    if SITE_DOMAIN in caption.lower():
+        return caption
+    lines = caption.rstrip().split("\n")
+    if lines and lines[-1].strip().startswith("#"):
+        return "\n".join(lines[:-1]).rstrip() + f"\n\n{SITE_DOMAIN}\n\n" + lines[-1].strip()
+    return caption.rstrip() + f"\n\n{SITE_DOMAIN}"
+
+
 def copy_issues(copy: Dict[str, PlatformCopy]) -> List[str]:
     """Rule checks a reviewer would otherwise do by hand. Empty list = good."""
     issues: List[str] = []
@@ -458,7 +471,7 @@ Return ONLY a JSON object with exactly this shape:
             return None
         copy = _platform_copy(raw, platforms)
         for block in copy.values():
-            block.caption = humanize(block.caption)
+            block.caption = ensure_site(humanize(block.caption))
         issues = copy_issues(copy) if copy else ["no captions returned"]
         if not issues:
             break
@@ -505,6 +518,7 @@ __all__ = [
     "VOICE_RULES",
     "humanize",
     "copy_issues",
+    "ensure_site",
     "STAGE_HINTS",
     "stage_hint_for",
 ]

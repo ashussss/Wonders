@@ -48,23 +48,23 @@ APPROVAL_MODE = _flag("GROWTH_APPROVAL_MODE", "true")
 GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 
 # ── Posting plan ─────────────────────────────────────────────────────────────
-# One post a day, Monday to Saturday, each one a different format. This follows the
-# commonly cited B2B guidance (Hootsuite, Sprout Social, LinkedIn's own Page tips):
-# about one LinkedIn post per weekday, roughly one Facebook post a day, and 3-5
-# Instagram feed posts a week. More than that mostly splits reach: LinkedIn shows a
-# Page's posts to fewer people when it posts several times within a few hours.
+# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06). That is
+# above the commonly cited B2B guidance (about one LinkedIn post per weekday, one
+# Facebook post a day, 3-5 Instagram feed posts a week), so the two daily posts are
+# spaced six hours apart and always use different formats.
 #
 # Override with GROWTH_WEEKLY_PLAN. Format, comma separated:
 #   <day>=<kind>:<visual format>[@platform+platform]
 # Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
 # A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
 DEFAULT_WEEKLY_PLAN = (
-    "mon=pain_point:carousel,"          # lead-gen how-to carousel
-    "tue=blog:carousel,"                # latest blog as a swipeable carousel
-    "wed=news:infographic,"             # industry insight (falls back to a blog)
-    "thu=competitor:comparison,"        # alternative / vs post
-    "fri=engagement:quote,"             # opinion that asks for comments
-    "sat=blog:checklist@facebook"       # light weekend post, Facebook only
+    "mon=pain_point:carousel,mon=engagement:quote,"
+    "tue=blog:carousel,tue=pain_point:checklist,"
+    "wed=news:infographic,wed=engagement:quote,"
+    "thu=competitor:comparison,thu=blog:carousel,"
+    "fri=pain_point:carousel,fri=blog:infographic,"
+    "sat=blog:checklist,sat=engagement:quote,"
+    "sun=pain_point:carousel,sun=blog:infographic"
 )
 GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 

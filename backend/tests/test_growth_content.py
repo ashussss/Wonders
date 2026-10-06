@@ -12,18 +12,15 @@ from growth_engine.blog_engine import is_competitor_post
 from growth_engine.models import PlatformCopy
 
 
-def test_default_plan_is_one_post_a_day_mon_to_sat():
+def test_default_plan_is_two_posts_a_day_on_every_platform():
     plan = queue.parse_weekly_plan(DEFAULT_WEEKLY_PLAN)
-    assert sorted(plan) == [0, 1, 2, 3, 4, 5]
-    assert all(len(items) == 1 for items in plan.values())
-    kinds = [plan[d][0]["kind"] for d in range(6)]
-    assert kinds == ["pain_point", "blog", "news", "competitor", "engagement", "blog"]
-    assert plan[1][0]["format"] == "carousel"
-    assert plan[5][0]["platforms"] == ["facebook"]
-    # Instagram and LinkedIn: 5 a week. Facebook: 6.
-    per = {p: sum(1 for i in plan.values() for x in i if not x["platforms"] or p in x["platforms"])
-           for p in ("linkedin", "facebook", "instagram")}
-    assert per == {"linkedin": 5, "facebook": 6, "instagram": 5}
+    assert sorted(plan) == list(range(7))
+    assert all(len(items) == 2 for items in plan.values())
+    assert all(not x["platforms"] for items in plan.values() for x in items)
+    # the two posts on a day never share a format
+    assert all(items[0]["format"] != items[1]["format"] for items in plan.values())
+    kinds = [x["kind"] for items in plan.values() for x in items]
+    assert {"pain_point", "blog", "news", "competitor", "engagement"} <= set(kinds)
 
 
 def test_plan_skips_bad_entries_and_falls_back():
@@ -34,8 +31,8 @@ def test_plan_skips_bad_entries_and_falls_back():
     assert [i["kind"] for i in two[0]] == ["blog", "engagement"]
 
 
-def test_plan_for_sunday_is_empty():
-    assert queue.plan_for("2026-10-11") == []           # a Sunday
+def test_plan_for_a_date():
+    assert len(queue.plan_for("2026-10-11")) == 2       # a Sunday
     assert queue.plan_for("2026-10-08")[0]["kind"] == "competitor"   # a Thursday
 
 
@@ -80,3 +77,10 @@ async def test_build_campaign_rewrites_once_when_rules_broken(monkeypatch):
     assert 'VISUAL FORMAT: use "carousel"' in calls[0]
     assert draft.platform_copy["linkedin"].caption.startswith("Your no-shows")
     assert draft.visual.format == "carousel"
+
+
+def test_every_caption_gets_the_site():
+    assert ce.ensure_site("Hook.\n\nQuestion?\n\n#a #b #c").endswith("showupai.live\n\n#a #b #c")
+    assert ce.ensure_site("Hook. Question?").endswith("\n\nshowupai.live")
+    already = "See showupai.live\nQuestion?"
+    assert ce.ensure_site(already) == already

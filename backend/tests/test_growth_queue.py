@@ -138,13 +138,13 @@ async def test_generate_day_follows_weekly_plan(db, monkeypatch):
     monkeypatch.setattr(news_engine, "ai_json", _no_ai)
     monkeypatch.setattr(q, "_build_planned", fake_build)
 
-    # 2031-02-03 is a Monday: one pain-point carousel.
+    # 2031-02-03 is a Monday: a pain-point carousel and an engagement quote.
     res = await queue.generate_day(db, day="2031-02-03", render=False, force=True)
-    assert res["count"] == 1, res["created"]
-    assert seen[-1]["kind"] == "pain_point" and seen[-1]["format"] == "carousel"
-    # 2031-02-09 is a Sunday: nothing planned.
-    res = await queue.generate_day(db, day="2031-02-09", render=False, force=True)
-    assert res["count"] == 0 and "nothing planned" in res["note"]
+    assert res["count"] == 2, res["created"]
+    assert [(i["kind"], i["format"]) for i in seen] == [("pain_point", "carousel"),
+                                                       ("engagement", "quote")]
+    times = [c["scheduled_at"] for c in res["created"]]
+    assert times[0] != times[1], "the two posts must take different slots"
 
 
 @pytest.mark.asyncio(loop_scope="session")
