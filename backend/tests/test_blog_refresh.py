@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 def test_plan_covers_each_post_once():
     slugs = [i["slug"] for i in br.REFRESH]
-    assert len(slugs) == len(set(slugs)) == 32
+    assert len(slugs) == len(set(slugs)) == 35
     gone = set(br.MERGED) | set(br.REMOVED)
     assert not gone & set(slugs)
     assert len(br.MERGED) == 9 and len(br.REMOVED) == 1

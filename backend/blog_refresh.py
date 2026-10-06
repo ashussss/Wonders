@@ -1,6 +1,6 @@
-"""One-off refresh of the blog posts published before the pipeline fixes (Sept 24 - Oct 4, 2026).
+"""One-off refresh of the blog posts published before the pipeline fixes (Sept 24 - Oct 6, 2026).
 
-Why: the first 44 posts were written from one prompt and share one skeleton (ON24 60% opener, the full 11-touch
+Why: the first 47 posts were written from one prompt and share one skeleton (ON24 60% opener, the full 11-touch
 table, a "400 registrants" worked example), several contain invented numbers or wrong sums, and 9 of them duplicate
 another post's search intent. This module:
 
@@ -35,7 +35,7 @@ CADENCE_SLUG = "webinar-reminder-cadence-for-b2b-saas"  # the one post that keep
 #
 # scenario: the numbers this post's worked example must use, so no two posts share an example.
 REFRESH = [
-    {"slug": CADENCE_SLUG, "facts": [3], "scenario": "a SaaS product-launch webinar with 620 registrants, moving from a 38% to a 47% show-up rate",
+    {"slug": CADENCE_SLUG, "facts": [3], "title": "Webinar Reminder Cadence for B2B SaaS: The Full 11-Touch Schedule", "scenario": "a SaaS product-launch webinar with 620 registrants, moving from a 38% to a 47% show-up rate",
      "brief": "This is the site's home for the full 11-touch sequence: keep the timing table. Remove the unsourced "
               "'12% absolute lift' and 'AI can cut churn by 15%' claims. Add the reasoning for each touch's timing and "
               "what to cut for a smaller event."},
@@ -144,6 +144,24 @@ REFRESH = [
     {"slug": "why-people-register-for-webinars-but-dont-attend", "facts": [2], "scenario": "560 registrants grouped by when they signed up (3 weeks out, 1 week out, the day before)",
      "brief": "Keep the reasons-first angle. For each reason, give the fix and one ready-to-paste message. Remove fake "
               "scarcity ('20 seats left')."},
+    # Published Oct 5-6 by the old pipeline, before the prompt/dedup fixes went live: same skeleton, so refresh too.
+    {"slug": "best-tools-to-reduce-webinar-no-shows", "facts": [3], "scenario": "a team comparing a manual email-only setup with an automated multi-channel setup for a 480-registrant webinar",
+     "title": "Best Tools to Reduce Webinar No-Shows: What Each Type of Tool Does",
+     "brief": "The searcher wants a comparison of tool types. Organise by category (webinar platforms' built-in reminders, email "
+              "automation, SMS/WhatsApp tools, calendar tools, community tools, attendance-focused tools like ShowUpAI). For each: "
+              "what it handles, what it misses, setup effort, and who it suits. Describe only features you are sure of in general "
+              "terms; do not invent prices, ratings or vendor claims. Remove the 11-touch table."},
+    {"slug": "how-to-reduce-zoom-webinar-no-shows", "facts": [], "scenario": "a Zoom webinar with 640 registrants, where 210 never open the Zoom confirmation email",
+     "title": "How to Reduce Zoom Webinar No-Shows: Settings and Reminders That Work",
+     "brief": "Make every section Zoom-specific: Zoom's registration settings, its built-in confirmation and reminder emails "
+              "(what they can and cannot customise), join links and the 'add to calendar' links, practice sessions, panelist "
+              "setup, and the follow-up email for absentees. Say clearly what Zoom does natively and what needs another tool. "
+              "Remove the generic 11-touch table; for general tactics link the attendance post."},
+    {"slug": "webinar-attendance-tracking", "facts": [0], "scenario": "four monthly webinars with 300, 260, 410 and 190 registrants and 108, 99, 152 and 61 attendees",
+     "title": "Webinar Attendance Tracking: What to Measure and How",
+     "brief": "Make it a measurement post: which numbers to track (show-up rate, by channel, live vs replay, minutes watched, "
+              "drop-off point), where each comes from (webinar platform reports, UTM tags, CRM), a simple tracking sheet layout "
+              "with its columns, and how to compare events fairly. No reminder-sequence table."},
 ]
 
 # duplicate -> the post it was merged into (also in frontend/public/_redirects)
@@ -171,7 +189,7 @@ EXACT_EDITS = {
 
 
 REFRESH_PROMPT = """You are the editor of a B2B blog about webinar attendance. Rewrite the article below so it reads as
-a specific, trustworthy, practitioner-written piece. It is one of about 30 posts on the same site; readers and Google
+a specific, trustworthy, practitioner-written piece. It is one of about 37 posts on the same site; readers and Google
 see them side by side, so it must not repeat the other posts' skeleton.
 
 TITLE: {title}
@@ -212,6 +230,9 @@ Rules:
   "studies", "industry data" or "internal tests".
 - {table_rule}
 - Do not use "400 registrants", and do not open with the ON24 60% figure unless the topic is benchmarks or rates.
+- Trust (E-E-A-T): write as an experienced practitioner giving concrete, checkable advice. Never invent first-hand
+  stories, customers, quotes, case studies, tests or results ("we ran", "our clients saw", "in our experience X%").
+  Say plainly where advice depends on the reader's audience or platform, and name the limits of each tactic.
 - No fake scarcity or fake social proof. No "delve", "unlock", "game-changer", "mastering", "dive in", "landscape".
 - Every table cell must have a real value; leave a table out rather than use "-" placeholders.
 - Keep the post's topic and promise; every section must serve this exact title.

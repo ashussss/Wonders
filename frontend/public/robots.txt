@@ -8,15 +8,21 @@ Allow: /sitemap.xml
 Disallow: /app/
 Disallow: /api/
 
-# Major search engines
+# Major search engines (a named group replaces the * group for that bot, so repeat the Disallows)
 User-agent: Googlebot
 Allow: /
+Disallow: /app/
+Disallow: /api/
 
 User-agent: Bingbot
 Allow: /
+Disallow: /app/
+Disallow: /api/
 
 User-agent: Slurp
 Allow: /
+Disallow: /app/
+Disallow: /api/
 
 # AI / LLM crawlers — explicitly welcome
 User-agent: GPTBot
