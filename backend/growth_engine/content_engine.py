@@ -375,6 +375,23 @@ def ensure_site(caption: str) -> str:
     return caption.rstrip() + f"\n\n{SITE_DOMAIN}"
 
 
+def ensure_link(caption: str, url: str) -> str:
+    """Put the exact blog URL in the caption once, above the hashtag line, so readers
+    can open the post itself. LinkedIn image posts and Instagram carry no link card."""
+    if not url or url.lower() in caption.lower():
+        return caption
+    line = f"Read it here: {url}"
+    lines = caption.rstrip().split("\n")
+    if lines and lines[-1].strip().startswith("#"):
+        return "\n".join(lines[:-1]).rstrip() + f"\n\n{line}\n\n" + lines[-1].strip()
+    return caption.rstrip() + f"\n\n{line}"
+
+
+def is_blog_link(url: str) -> bool:
+    from . import SITE_URL
+    return bool(url) and url.startswith(SITE_URL.rstrip("/") + "/blog/")
+
+
 def copy_issues(copy: Dict[str, PlatformCopy]) -> List[str]:
     """Rule checks a reviewer would otherwise do by hand. Empty list = good."""
     issues: List[str] = []
@@ -489,6 +506,11 @@ Return ONLY a JSON object with exactly this shape:
         logger.info(f"content_engine: rewrite {kind}/{seed}: {issues}")
         feedback = ("\n\nYOUR PREVIOUS DRAFT BROKE THESE RULES. Rewrite everything and fix them:\n- "
                     + "\n- ".join(issues))
+
+    blog_link = link_url or source_url
+    if is_blog_link(blog_link):
+        for block in copy.values():
+            block.caption = ensure_link(block.caption, blog_link)
 
     strategy = _strategy(raw.get("strategy"), kind)
     if not copy:

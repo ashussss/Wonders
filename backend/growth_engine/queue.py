@@ -490,7 +490,8 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
                     res = await social.post_linkedin(settings, text, link=link or None,
                                                     link_title=doc.get("link_title", ""))
             elif platform == "facebook":
-                res = await social.post_facebook(settings, text, link=link or None, image_urls=imgs)
+                fb_link = None if (imgs and link and link.lower() in text.lower()) else (link or None)
+                res = await social.post_facebook(settings, text, link=fb_link, image_urls=imgs)
             elif platform == "instagram":
                 if not imgs:
                     res = {"ok": False, "detail": "instagram needs an image"}

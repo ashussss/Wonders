@@ -126,3 +126,14 @@ async def test_linkedin_poll_uses_posts_api(monkeypatch):
     assert sent["url"] == "https://api.linkedin.com/rest/posts"
     assert sent["headers"]["LinkedIn-Version"]
     assert b'"poll"' in sent["body"] and b'"question":"Which?"' in sent["body"]
+
+
+def test_ensure_link_adds_blog_url_above_hashtags():
+    from growth_engine.content_engine import ensure_link, is_blog_link
+    url = "https://showupai.live/blog/webinar-no-shows"
+    out = ensure_link("Hook.\n\nBody?\n\n#webinars #b2b", url)
+    assert f"Read it here: {url}\n\n#webinars #b2b" in out
+    assert ensure_link(out, url) == out
+    assert is_blog_link(url)
+    assert not is_blog_link("https://showupai.live/blog")
+    assert not is_blog_link("https://marketingdive.com/news/x")
