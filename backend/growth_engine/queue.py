@@ -335,6 +335,26 @@ async def _with_linkedin_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
             "linkedin_org_urn": f"urn:li:person:{conn['platform_user_id']}"}
 
 
+async def _with_meta_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Prefer the brand account's Facebook/Instagram OAuth connection over the legacy Settings token."""
+    from social import SOCIAL_ACCOUNT_EMAIL
+    from . import meta
+
+    if not SOCIAL_ACCOUNT_EMAIL:
+        return settings
+    user = await db.users.find_one({"email": SOCIAL_ACCOUNT_EMAIL}, {"_id": 0, "id": 1})
+    if not user:
+        return settings
+    extra = await meta.publishing_settings(db, user["id"])
+    if not extra:
+        return settings
+    merged = {**settings, **extra}
+    if "instagram_business_id" not in extra:
+        # The selected Page has no Instagram account: don't pair its token with a legacy IG id.
+        merged.pop("instagram_business_id", None)
+    return merged
+
+
 async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
     """Publish ONE approved campaign to its platforms. Writes to growth_campaigns only.
 
@@ -344,6 +364,7 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
 
     settings = await social.account_settings()
     settings = await _with_linkedin_oauth(db, settings)
+    settings = await _with_meta_oauth(db, settings)
     conn = social.connected(settings)
     results = dict(doc.get("results") or {})
     copy = doc.get("platform_copy") or {}

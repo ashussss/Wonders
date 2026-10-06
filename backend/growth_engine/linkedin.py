@@ -126,7 +126,7 @@ def state_fingerprint(state: str) -> str:
     return hashlib.sha256(state.encode()).hexdigest()
 
 
-async def create_state(db, owner_id: str) -> str:
+async def create_state(db, owner_id: str, platform: str = PLATFORM) -> str:
     """Persist a one-time, expiring state bound to this owner. Returns the raw value.
 
     Only the SHA-256 fingerprint is stored — the raw token exists solely in the
@@ -137,7 +137,7 @@ async def create_state(db, owner_id: str) -> str:
         "id": uuid.uuid4().hex,
         "state_hash": state_fingerprint(state),
         "owner_id": owner_id,
-        "platform": PLATFORM,
+        "platform": platform,
         "created_at": now_iso(),
         "expires_at_ts": time.time() + STATE_TTL_SECONDS,
         "used": False,
