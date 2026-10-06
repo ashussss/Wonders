@@ -204,7 +204,11 @@ export default function GrowthReview() {
     setGenerating(true);
     setError("");
     try {
-      const { data } = await api.post("/growth/generate", {});
+      let { data } = await api.post("/growth/generate", {});
+      if (data?.note === "already generated for this day" &&
+          window.confirm("Today's drafts already exist. Create a fresh set anyway? The old drafts stay until you reject them.")) {
+        ({ data } = await api.post("/growth/generate", { force: true }));
+      }
       setNotice(data?.note || `${data?.count || 0} draft(s) created.`);
       setStatus("pending_review");
       await load();
