@@ -116,6 +116,37 @@ SEED_KEYWORDS = [
     ("webinar reminder cadence for b2b saas", "informational"),
     ("how to reduce zoom webinar no shows", "informational"),
     ("webinar attendance tracking", "informational"),
+    # batch 3 (2026-10-06): the first 36 were all used by 5 Oct, which stopped daily posts
+    ("webinar late joiner email", "informational"),
+    ("last minute webinar reminder message", "informational"),
+    ("webinar countdown email", "informational"),
+    ("webinar email subject lines", "informational"),
+    ("webinar invitation email for b2b", "informational"),
+    ("webinar thank you email for attendees", "informational"),
+    ("webinar lead nurturing sequence", "informational"),
+    ("how to qualify webinar leads", "informational"),
+    ("webinar to sales pipeline conversion", "informational"),
+    ("how to measure webinar roi", "informational"),
+    ("webinar kpis to track", "informational"),
+    ("webinar landing page conversion tips", "informational"),
+    ("webinar registration form best practices", "informational"),
+    ("webinar title ideas that get registrations", "informational"),
+    ("best day of the week to host a webinar", "informational"),
+    ("best time of day to host a webinar", "informational"),
+    ("how long should a webinar be", "informational"),
+    ("webinar timezone strategy for global audiences", "informational"),
+    ("recurring webinar series attendance", "informational"),
+    ("webinar q&a best practices", "informational"),
+    ("product demo webinar best practices", "informational"),
+    ("customer onboarding webinars for saas", "informational"),
+    ("webinar co-marketing with partners", "informational"),
+    ("how to repurpose a webinar recording", "informational"),
+    ("webinar speaker prep checklist", "informational"),
+    ("webinar attendance incentives", "informational"),
+    ("online workshop attendance for course creators", "informational"),
+    ("masterclass attendance for coaches", "informational"),
+    ("webinar confirmation page ideas", "informational"),
+    ("webinar reminder automation for small teams", "commercial"),
 ]
 
 
@@ -608,6 +639,7 @@ async def run_pipeline(count: int | None = None) -> dict:
             sort=[("created_at", 1)],
         )
         if not cand:
+            logger.warning("pSEO keyword queue is empty: no new blog drafts until keywords are added")
             break
         kw = cand["keyword"]
         try:
