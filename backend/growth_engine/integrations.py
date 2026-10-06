@@ -12,13 +12,14 @@ token, or an OAuth code.
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
 from auth_utils import get_user
 from database import db
 
 from . import linkedin as li
+from . import meta
 
 logger = logging.getLogger("showup.growth.integrations")
 
@@ -50,10 +51,13 @@ def _redirect(**params: str) -> RedirectResponse:
 async def integrations_status(request: Request, user=Depends(get_user)):
     """Connection state for the authenticated owner. Never returns credentials."""
     conn = await li.get_connection(db, user["id"], li.PLATFORM)
+    mconn = await li.get_connection(db, user["id"], meta.PLATFORM)
     return {
         "linkedin": li.public_view(conn),
         "configured": li.configured(),
         "capabilities": li.CAPABILITY,
+        "meta": meta.public_view(mconn),
+        "meta_configured": meta.configured(),
     }
 
 
@@ -163,6 +167,61 @@ async def linkedin_disconnect(request: Request, user=Depends(get_user)):
     """Remove only this owner's LinkedIn connection. Other clients are untouched."""
     removed = await li.disconnect(db, user["id"], li.PLATFORM)
     return {"ok": True, "disconnected": removed, "platform": li.PLATFORM}
+
+
+# ── Meta: Facebook Page + Instagram ─────────────────────────────────────────
+
+@router.get("/integrations/meta/connect")
+async def meta_connect(request: Request, user=Depends(get_user)):
+    """Start Facebook Login. Returns the dialog URL; the frontend navigates to it."""
+    if not meta.configured():
+        raise HTTPException(503, f"Facebook integration is not configured (missing: {', '.join(meta.missing_config())})")
+    await li.ensure_indexes(db)
+    state = await li.create_state(db, user["id"], platform=meta.PLATFORM)
+    return {"authorization_url": meta.build_authorization_url(state), "scopes": meta.SCOPES}
+
+
+@router.get("/integrations/meta/callback")
+async def meta_callback(code: str = Query(default=""), state: str = Query(default=""),
+                        error: str = Query(default=""), error_description: str = Query(default="")):
+    """Facebook redirect target. Owner comes from the stored state, never the URL."""
+    if error:
+        logger.warning(f"meta oauth denied: {error}")
+        return _redirect(meta_status="error", meta_error=error_description or error)
+    try:
+        owner_id = await li.consume_state(db, state, platform=meta.PLATFORM)
+    except li.StateError as e:
+        logger.warning(f"meta callback rejected: {e}")
+        raise HTTPException(400, "Invalid or expired authorization state. Please start the connect flow again.") from None
+    if not owner_id or not await db.users.find_one({"id": owner_id}, {"_id": 1}):
+        raise HTTPException(400, "The account that started this connection no longer exists.")
+    try:
+        token = await meta.exchange_code(code)
+        member, *pages = await meta.fetch_pages(token)
+    except meta.MetaError as e:
+        return _redirect(meta_status="error", meta_error=str(e)[:300])
+    if not pages:
+        return _redirect(meta_status="error",
+                         meta_error="No Facebook Pages were shared. Reconnect and select your Page (and its Instagram account).")
+    try:
+        await meta.save_connection(db, owner_id, member, pages)
+    except li.EncryptionUnavailable:
+        return _redirect(meta_status="error", meta_error="This server cannot store credentials securely (FERNET_KEY missing).")
+    return _redirect(meta_status="connected")
+
+
+@router.post("/integrations/meta/page")
+async def meta_select_page(payload: dict = Body(default={}), user=Depends(get_user)):
+    """Choose which connected Page (and its Instagram account) the Growth Engine posts to."""
+    if not await meta.select_page(db, user["id"], str(payload.get("page_id") or "")):
+        raise HTTPException(404, "That Page is not part of your Facebook connection.")
+    return meta.public_view(await li.get_connection(db, user["id"], meta.PLATFORM))
+
+
+@router.delete("/integrations/meta")
+async def meta_disconnect(user=Depends(get_user)):
+    removed = await li.disconnect(db, user["id"], meta.PLATFORM)
+    return {"ok": True, "disconnected": removed, "platform": meta.PLATFORM}
 
 
 # ── housekeeping ────────────────────────────────────────────────────────────
