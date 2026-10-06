@@ -113,64 +113,38 @@ async def test_blog_detection_dedupes_via_growth_queue_only(db):
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_generate_day_creates_full_mix(db, monkeypatch):
-    from datetime import datetime, timezone
-    import growth_engine.blog_engine as blog_engine
+async def test_generate_day_follows_weekly_plan(db, monkeypatch):
     import growth_engine.content_engine as content_engine
     import growth_engine.news_engine as news_engine
     import growth_engine.queue as q
-    from growth_engine.models import CampaignDraft, PlatformCopy, Strategy, VisualSpec
-
-    now = datetime.now(timezone.utc).isoformat()
-    for i in range(4):
-        await db.blog_posts.insert_one({"slug": f"b{i}", "title": f"Blog {i}", "content": "x" * 200,
-                                        "published": True, "published_at": now, "word_count": 200})
-
-    async def fake_news(_self, want=2, exclude_ids=None):
-        return [{"id": f"n{i}", "title": f"News {i}", "url": "https://e.test/i",
-                 "summary": "B2B event benchmark.", "source": "Pub", "published_at": now,
-                 "relevance": 5} for i in range(want)]
 
     async def _no_ai(*a, **kw):
         raise AssertionError("test reached the live AI — stub build_campaign")
 
-    async def fake_campaign(kind, **kw):
-        # Originals have no source of their own, so derive a UNIQUE slug from the
-        # seed — otherwise pain_point #0 and #1 collide and one is deduped away.
-        slug = kw.get("source_slug") or kw.get("seed") or f"{kind}-unique"
+    seen = []
+
+    async def fake_build(_db, item, day, n):
+        seen.append(item)
         return CampaignDraft(
-            kind=kind, source_type="original", source_slug=slug,
+            kind=item["kind"], source_type="original", source_slug=f"{item['kind']}-{day}-{n}",
             strategy=Strategy(target_audience="Event hosts", pain_point="No-shows",
                               intent="Fix attendance", funnel_stage="awareness",
                               content_angle="angle", hook="hook line"),
-            platform_copy={"linkedin": PlatformCopy(caption="copy")},
+            platform_copy={"linkedin": PlatformCopy(caption="copy?")},
             platforms=["linkedin"],
             visual=VisualSpec(format="stat_card", number="1%", label="l"))
 
-    async def fake_blog_campaign(_self_db, post):
-        return await fake_campaign("blog", source_slug=post["slug"], source_title=post["title"])
-
-    async def fake_news_campaign(item):
-        return await fake_campaign("news", source_slug=item["id"], source_title=item["title"])
-
     monkeypatch.setattr(content_engine, "ai_json", _no_ai)
-    # news_engine imports ai_json into its own namespace (used by triage).
     monkeypatch.setattr(news_engine, "ai_json", _no_ai)
-    monkeypatch.setattr(news_engine, "pick_news", fake_news)
-    # blog_engine/news_engine import build_campaign lazily inside their functions,
-    # so patch the wrapper entry points that generate_day actually calls.
-    monkeypatch.setattr(blog_engine, "build_blog_campaign", fake_blog_campaign)
-    monkeypatch.setattr(news_engine, "build_news_campaign", fake_news_campaign)
-    monkeypatch.setattr(q, "build_original_campaign", fake_campaign)
+    monkeypatch.setattr(q, "_build_planned", fake_build)
 
-    res = await queue.generate_day(db, render=False, force=True)
-    made = [c for c in res["created"] if c.get("id")]
-    kinds = [c["kind"] for c in made]
-    assert res["count"] == 9, res["created"]
-    assert kinds.count("blog") == 4
-    assert kinds.count("news") == 2
-    assert kinds.count("pain_point") == 2
-    assert kinds.count("engagement") == 1
+    # 2031-02-03 is a Monday: a pain-point carousel and an engagement quote.
+    res = await queue.generate_day(db, day="2031-02-03", render=False, force=True)
+    assert res["count"] == 2, res["created"]
+    assert [(i["kind"], i["format"]) for i in seen] == [("pain_point", "carousel"),
+                                                       ("engagement", "quote")]
+    times = [c["scheduled_at"] for c in res["created"]]
+    assert times[0] != times[1], "the two posts must take different slots"
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -218,12 +192,14 @@ async def test_generate_day_is_idempotent(db, monkeypatch):
     # news_engine imports ai_json into its own namespace (used by triage).
     monkeypatch.setattr(news_engine, "ai_json", _no_ai)
     monkeypatch.setattr(news_engine, "pick_news", fake_news)
-    monkeypatch.setattr(q, "build_campaign", fake_campaign)
-    monkeypatch.setattr(q, "build_original_campaign", fake_campaign)
+    async def fake_build(_db, item, day, n):
+        return await fake_campaign(item["kind"], seed=f"{day}-{n}")
+
+    monkeypatch.setattr(q, "_build_planned", fake_build)
 
     # Own plan_day: the session-scoped DB may already hold today's plan from an
     # earlier test, and generate_day is idempotent per day.
-    res = await queue.generate_day(db, day="2031-02-01", render=False, force=True)
+    res = await queue.generate_day(db, day="2031-02-04", render=False, force=True)
     assert res["count"] >= 1
-    res2 = await queue.generate_day(db, day="2031-02-01", render=False)
+    res2 = await queue.generate_day(db, day="2031-02-04", render=False)
     assert res2.get("note") == "already generated for this day"
