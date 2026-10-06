@@ -29,6 +29,9 @@ logger = logging.getLogger("showup.growth.meta")
 APP_ID = os.environ.get("META_APP_ID", "").strip()
 APP_SECRET = os.environ.get("META_APP_SECRET", "").strip()
 REDIRECT_URI = os.environ.get("META_REDIRECT_URI", "").strip()
+# Optional: a "Facebook Login for Business" configuration ID. When set, the dialog uses
+# config_id (permissions come from the configuration) instead of the scope list.
+CONFIG_ID = os.environ.get("META_CONFIG_ID", "").strip()
 GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "v25.0").strip()
 GRAPH_URL = f"https://graph.facebook.com/{GRAPH_VERSION}"
 DIALOG_URL = f"https://www.facebook.com/{GRAPH_VERSION}/dialog/oauth"
@@ -54,10 +57,12 @@ def missing_config() -> list:
 
 def build_authorization_url(state: str) -> str:
     from urllib.parse import urlencode
-    return f"{DIALOG_URL}?" + urlencode({
-        "client_id": APP_ID, "redirect_uri": REDIRECT_URI, "state": state,
-        "response_type": "code", "scope": ",".join(SCOPES),
-    })
+    params = {"client_id": APP_ID, "redirect_uri": REDIRECT_URI, "state": state, "response_type": "code"}
+    if CONFIG_ID:
+        params["config_id"] = CONFIG_ID
+    else:
+        params["scope"] = ",".join(SCOPES)
+    return f"{DIALOG_URL}?" + urlencode(params)
 
 
 def _err(r: httpx.Response, what: str) -> MetaError:
