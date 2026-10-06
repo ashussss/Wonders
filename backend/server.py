@@ -41,9 +41,12 @@ async def lifespan(_app: FastAPI):
     # Programmatic SEO: draft new blog posts daily at 03:30 UTC (09:00 IST)
     scheduler.add_job(pseo.run_pipeline, "cron", hour=3, minute=30, id="pseo-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
-    # ...and catch up once on startup if today's draft is missing (2 min delay so the app finishes booting)
+    # ...and catch up if nothing is published or scheduled today: on startup (2 min delay so the app finishes
+    # booting) and again at 06:30 UTC (12:00 IST) in case the 09:00 IST draft failed the quality gate
     scheduler.add_job(pseo.catch_up, "date", id="pseo-catch-up", replace_existing=True,
                       run_date=datetime.now(timezone.utc) + timedelta(minutes=2))
+    scheduler.add_job(pseo.catch_up, "cron", hour=6, minute=30, id="pseo-catch-up-daily",
+                      replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     # Growth Engine: own daily draft job + own dispatch tick (approval-gated)
     growth_scheduler.register()
     scheduler.start()

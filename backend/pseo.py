@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from database import db
 
@@ -970,13 +970,24 @@ async def run_pipeline(count: int | None = None) -> dict:
     return {"ok": True, "processed": len(results), "results": results}
 
 
-async def catch_up() -> dict:
-    """On startup: if no pipeline post was drafted today (UTC), e.g. the 03:30 run found an empty queue or the
-    server was asleep, draft one now so the day still gets a post."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if await db.blog_posts.find_one({"keyword": {"$exists": True}, "created_at": {"$gte": today}}, {"_id": 1}):
-        return {"ok": True, "skipped": "already drafted today"}
-    return await run_pipeline(1)
+async def catch_up(max_tries: int = 3) -> dict:
+    """If nothing is published or scheduled for today (IST), e.g. the 09:00 IST run found an empty queue, its draft
+    failed the quality gate, or the server was asleep, draft up to `max_tries` keywords until one gets scheduled."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    start = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0)
+    lo, hi = start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
+    if await db.blog_posts.find_one({"$or": [
+            {"published": True, "published_at": {"$gte": lo, "$lt": hi}},
+            {"published": {"$ne": True}, "publish_at": {"$gte": lo, "$lt": hi}}]}, {"_id": 1}):
+        return {"ok": True, "skipped": "a post is already published or scheduled today"}
+    tries = []
+    for _ in range(max_tries):
+        res = await run_pipeline(1)
+        tries.append(res)
+        if not res.get("results") or any(r.get("status") == "scheduled" for r in res["results"]):
+            break
+    logger.info(f"pSEO catch-up: {tries}")
+    return {"ok": True, "tries": tries}
 
 
 async def retry_failed() -> int:
