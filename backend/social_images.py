@@ -9,7 +9,7 @@ All JPEG (Instagram's Graph API only accepts JPEG).
 import hashlib
 import io
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 from blog_cover import THEMES, _font, _hex, _logo, _logo_inverted, _wrap
 
@@ -22,12 +22,9 @@ def _theme(seed: str, offset: int = 0):
 
 
 def _canvas(t, w, h, glow_box=None):
-    img = Image.new("RGBA", (w, h), _hex(t["bg"]))
-    if glow_box:
-        g = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(g).ellipse(glow_box, fill=_hex(t["glow"], 70))
-        img = Image.alpha_composite(img, g.filter(ImageFilter.GaussianBlur(110)))
-    return img
+    """Flat brand background. glow_box is accepted for old callers but ignored: the
+    blurred glow read as generic AI art, and plain flat colour reads as designed."""
+    return Image.new("RGBA", (w, h), _hex(t["bg"]))
 
 
 def _brand(img, t, x, y, size=44):
@@ -39,6 +36,12 @@ def _brand(img, t, x, y, size=44):
     ax = x + size + 14 + int(d.textlength("ShowUp", font=f))
     d.text((ax, y + size // 2), "AI", font=f, fill=_hex("#FFFFFF" if orange else (t["accent"] if t["accent"] != "#111111" else "#FFFFFF")), anchor="lm")
     return d
+
+
+def _site(img, t, w, h, pad):
+    """showupai.live in the bottom-right corner, level with the logo."""
+    ImageDraw.Draw(img).text((w - pad, h - pad - 22), BRAND_URL, font=_font("semi", 26),
+                             fill=_hex(t["muted"]), anchor="rm")
 
 
 def _text_block(d, text, font, x, y, max_w, fill, line_h, max_lines=None):
@@ -113,6 +116,7 @@ def render_carousel(hook: str, slides: list, cta: str, seed: str = "") -> list:
     d.line([(ax, ay), (ax + 44, ay)], fill=sc, width=5)
     d.polygon([(ax + 44, ay - 11), (ax + 60, ay), (ax + 44, ay + 11)], fill=sc)
     _brand(img, t, pad, H - pad - 44, 44)
+    _site(img, t, W, H, pad)
     pages.append(_jpeg(img))
 
     # tip slides
@@ -127,6 +131,7 @@ def render_carousel(hook: str, slides: list, cta: str, seed: str = "") -> list:
         bf, bl = _fit(d, s.get("body", ""), "reg", W - 2 * pad, H - y - 300, 40, 28, max_lines=9, lh=1.4)
         _text_block(d, s.get("body", ""), bf, pad, y + 40, W - 2 * pad, _hex(t["muted"] if t["bg"] != "#FAF6EF" else "#333333"), bl)
         _brand(img, t, pad, H - pad - 44, 44)
+        _site(img, t, W, H, pad)
         pages.append(_jpeg(img))
 
     # CTA slide

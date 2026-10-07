@@ -120,6 +120,45 @@ def render_quote(spec: VisualSpec, seed: str = "") -> bytes:
     return si._jpeg(img)
 
 
+def render_poll(spec: VisualSpec, seed: str = "") -> bytes:
+    """Poll card: the question, then options A-D. On Facebook and Instagram (no poll
+    API) people answer by commenting a letter; on LinkedIn the native poll is used."""
+    W, H = 1080, 1350
+    t = si._theme(seed or spec.title, offset=1)
+    img = si._canvas(t, W, H)
+    d = ImageDraw.Draw(img)
+    pad = 80
+    accent = si._hex(t["accent"] if t["accent"] != "#111111" else t["fg"])
+
+    tf_tag = si._font("semi", 26)
+    tag = "QUICK POLL"
+    tw = int(d.textlength(tag, font=tf_tag))
+    d.rounded_rectangle([pad, pad, pad + tw + 44, pad + 50], radius=25, outline=accent, width=3)
+    d.text((pad + 22, pad + 11), tag, font=tf_tag, fill=accent)
+
+    qf, ql = si._fit(d, spec.title, "bold", W - 2 * pad, 360, 64, 40, max_lines=5, lh=1.15)
+    y = si._text_block(d, spec.title, qf, pad, pad + 100, W - 2 * pad, si._hex(t["fg"]), ql) + 50
+
+    opts = spec.rows[:4]
+    avail = H - y - 230
+    row_h = min(150, max(110, avail // max(1, len(opts))))
+    for i, opt in enumerate(opts):
+        top = y + i * row_h
+        d.rounded_rectangle([pad, top, W - pad, top + row_h - 24], radius=22, fill=si._hex(t["soft"]))
+        cx, cy = pad + 58, top + (row_h - 24) // 2
+        d.ellipse([cx - 32, cy - 32, cx + 32, cy + 32], fill=accent)
+        d.text((cx, cy), "ABCD"[i], font=si._font("bold", 32),
+               fill=si._hex("#FFFFFF" if t["accent"] != "#FFFFFF" else "#EA580C"), anchor="mm")
+        of, _ = si._fit(d, opt, "semi", W - 2 * pad - 150, row_h - 40, 38, 26, max_lines=1)
+        d.text((pad + 120, cy), opt, font=of, fill=si._hex(t["fg"]), anchor="lm")
+
+    d.text((pad, H - pad - 120), "Comment your letter below", font=si._font("semi", 34), fill=accent)
+    si._brand(img, t, pad, H - pad - 44, 44)
+    d = ImageDraw.Draw(img)
+    d.text((W - pad, H - pad - 22), si.BRAND_URL, font=si._font("semi", 26), fill=si._hex(t["muted"]), anchor="rm")
+    return si._jpeg(img)
+
+
 RENDERERS = {
     "stat_card": render_stat_card,
     "carousel": render_carousel,
@@ -127,6 +166,7 @@ RENDERERS = {
     "checklist": render_checklist,
     "comparison": render_comparison,
     "quote": render_quote,
+    "poll": render_poll,
 }
 
 MULTI_IMAGE = {"carousel"}

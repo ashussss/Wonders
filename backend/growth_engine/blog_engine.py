@@ -131,7 +131,7 @@ def _source_note(post: Dict[str, Any]) -> str:
         "\nOnly make claims that are actually supported by the article body above."
 
 
-async def build_blog_campaign(db, post: Dict[str, Any]) -> Optional[CampaignDraft]:
+async def build_blog_campaign(db, post: Dict[str, Any], **overrides: Any) -> Optional[CampaignDraft]:
     """Build one campaign from a published blog post. Does NOT persist it."""
     from .content_engine import build_campaign
 
@@ -158,6 +158,101 @@ async def build_blog_campaign(db, post: Dict[str, Any]) -> Optional[CampaignDraf
         fact_block=f"{_fact_block(post)}\n\n{_source_note(post)}",
         seed=f"blog:{slug}",
         angle_hint=angle,
+        **overrides,
+    )
+
+
+# ── evergreen + competitor picks ─────────────────────────────────────────────
+
+EVERGREEN_COOLDOWN_DAYS = 30
+
+# Slugs/titles that read as "us vs them". "-vs-" alone is not enough: plenty of
+# posts compare two approaches (live vs on-demand), so it must also name a tool.
+_ALT_WORDS = ("alternative", "alternatives")
+_TOOL_NAMES = ("zoom", "webex", "livestorm", "goto", "gotowebinar", "on24", "bigmarker", "demio",
+               "hubspot", "mailchimp", "streamyard", "airmeet", "hopin", "riverside", "teams",
+               "eventbrite", "luma", "restream", "vimeo", "contrast", "zuddl", "hubilo", "cvent")
+
+
+def is_competitor_post(post: Dict[str, Any]) -> bool:
+    text = f"{post.get('slug') or ''} {post.get('title') or ''}".lower()
+    if any(w in text for w in _ALT_WORDS):
+        return True
+    has_vs = "-vs-" in text or " vs " in text or " vs. " in text or "versus" in text
+    return has_vs and any(t in text for t in _TOOL_NAMES)
+
+
+async def _recently_used(db, kinds: List[str], days: int) -> set:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = await db[COLLECTIONS["campaigns"]].find(
+        {"kind": {"$in": kinds}, "created_at": {"$gte": cutoff}}, {"_id": 0, "source_slug": 1}
+    ).to_list(1000)
+    return {r["source_slug"] for r in rows if r.get("source_slug")}
+
+
+async def _all_published(db, limit: int = 500) -> List[Dict[str, Any]]:
+    return await db.blog_posts.find(
+        {"published": True},
+        {"_id": 0, "slug": 1, "title": 1, "excerpt": 1, "content": 1,
+         "keyword": 1, "published_at": 1, "sources": 1, "reading_time": 1},
+    ).sort("published_at", -1).to_list(limit)
+
+
+def _rotate(rows: List[Dict[str, Any]], seed: str) -> Optional[Dict[str, Any]]:
+    if not rows:
+        return None
+    return rows[sum(seed.encode()) % len(rows)]
+
+
+async def pick_blog_post(db, seed: str = "") -> Optional[Dict[str, Any]]:
+    """Today's fresh post if there is one, else an older post not promoted recently.
+
+    The weekly plan has blog days even when pSEO published nothing new, and the
+    library is worth resurfacing: a good article keeps earning clicks.
+    """
+    fresh = await pick_todays_posts(db, want=1)
+    if fresh:
+        return fresh[0]
+    used = await _recently_used(db, ["blog", "competitor"], EVERGREEN_COOLDOWN_DAYS)
+    # Comparison articles are saved for the competitor day.
+    rows = [r for r in await _all_published(db)
+            if r.get("slug") and r["slug"] not in used and not is_competitor_post(r)]
+    return _rotate(rows, seed)
+
+
+async def pick_competitor_post(db, seed: str = "") -> Optional[Dict[str, Any]]:
+    """A published alternative / vs article not used for a competitor post recently."""
+    used = await _recently_used(db, ["competitor"], EVERGREEN_COOLDOWN_DAYS)
+    rows = [r for r in await _all_published(db)
+            if r.get("slug") and r["slug"] not in used and is_competitor_post(r)]
+    return _rotate(rows, seed)
+
+
+async def build_competitor_campaign(db, post: Dict[str, Any], **overrides: Any) -> Optional[CampaignDraft]:
+    """Alternative / vs post built from one of our own comparison articles."""
+    from .content_engine import build_campaign
+
+    slug = post.get("slug") or ""
+    angle = (
+        "COMPETITOR / ALTERNATIVE post built from our own comparison article. Help someone who is "
+        "choosing a tool right now. Be fair and specific: say who the other option suits, then "
+        "where ShowUpAI is the better fit. Only state differences the article itself states. "
+        "Never mock or attack the other product. Never claim pricing, features or numbers about "
+        "another company that are not in the article."
+    )
+    return await build_campaign(
+        "competitor",
+        source_title=post.get("title") or "",
+        source_body=post.get("content") or "",
+        source_url=blog_url(slug),
+        source_slug=slug,
+        source_type="blog",
+        link_url=blog_url(slug),
+        link_title=post.get("title") or "",
+        fact_block=f"{_fact_block(post)}\n\n{_source_note(post)}",
+        seed=f"competitor:{slug}",
+        angle_hint=angle,
+        **overrides,
     )
 
 
@@ -166,6 +261,10 @@ __all__ = [
     "pick_todays_posts",
     "unprocessed_slugs",
     "build_blog_campaign",
+    "build_competitor_campaign",
+    "pick_blog_post",
+    "pick_competitor_post",
+    "is_competitor_post",
     "blog_url",
     "DEFAULT_WINDOW_HOURS",
     "CampaignKind",

@@ -1,7 +1,7 @@
 """Growth Engine API — mounted at /api/growth. Separate from the existing social API.
 
 Auth: like the other admin surfaces (routes_social / routes_blog), every endpoint
-except the asset image route requires X-API-KEY == SUPERADMIN_SECRET. The asset
+except the asset image route requires X-API-KEY == SUPERADMIN_SECRET or an admin JWT. The asset
 route is public-read because Meta must be able to fetch the image bytes.
 
 This router never writes to social_posts, webinars, touches, registrants or the
@@ -14,19 +14,15 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import Response
 
 from database import db
-from routes_blog import _require_key
+from config import SUPERADMIN_SECRET
 
 from . import (
     APPROVAL_MODE,
     COLLECTIONS,
     GROWTH_AUTO_PUBLISH,
-    GROWTH_BLOG_CAMPAIGNS,
-    GROWTH_CAMPAIGNS_PER_DAY,
-    GROWTH_ENGAGEMENT_CAMPAIGNS,
-    GROWTH_NEWS_CAMPAIGNS,
-    GROWTH_PAIN_CAMPAIGNS,
     GROWTH_PLATFORMS,
     GROWTH_SLOTS_IST,
+    GROWTH_WEEKLY_PLAN,
 )
 from . import analytics, blog_engine, news_engine, prospect_engine, queue, visual_engine
 from .integrations import router as integrations_router
@@ -34,6 +30,27 @@ from .integrations import router as integrations_router
 logger = logging.getLogger("showup.growth.api")
 
 router = APIRouter(prefix="/api/growth")
+
+
+async def _require_admin(request: Request) -> None:
+    """X-API-KEY == SUPERADMIN_SECRET (cron/scripts) OR a logged-in admin/superadmin.
+
+    The JWT path lets the /app/growth review page work for the admin without
+    pasting the superadmin secret into the browser.
+    """
+    if SUPERADMIN_SECRET and request.headers.get("X-API-KEY") == SUPERADMIN_SECRET:
+        return
+    auth = request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        from fastapi.security import HTTPAuthorizationCredentials
+        from auth_utils import get_user
+        try:
+            user = await get_user(HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth[7:].strip()))
+        except HTTPException:
+            user = None
+        if user and user.get("role") in ("admin", "superadmin"):
+            return
+    raise HTTPException(403, "Unauthorized")
 
 # LinkedIn OAuth + integration status live under the same /api/growth prefix.
 # Mounted here so server.py stays untouched.
@@ -44,7 +61,7 @@ router.include_router(integrations_router)
 
 @router.get("/status")
 async def growth_status(request: Request):
-    _require_key(request)
+    await _require_admin(request)
     counts = {}
     for key in ("campaigns", "prospects", "sources", "metrics"):
         counts[key] = await db[COLLECTIONS[key]].estimated_document_count()
@@ -54,9 +71,8 @@ async def growth_status(request: Request):
         "approval_mode": APPROVAL_MODE,
         "auto_publish": GROWTH_AUTO_PUBLISH,
         "publishing_blocked": APPROVAL_MODE or not GROWTH_AUTO_PUBLISH,
-        "targets_per_day": GROWTH_CAMPAIGNS_PER_DAY,
-        "mix": {"blog": GROWTH_BLOG_CAMPAIGNS, "news": GROWTH_NEWS_CAMPAIGNS,
-                "pain_point": GROWTH_PAIN_CAMPAIGNS, "engagement": GROWTH_ENGAGEMENT_CAMPAIGNS},
+        "weekly_plan": {d: queue.parse_weekly_plan(GROWTH_WEEKLY_PLAN).get(i, [])
+                        for i, d in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))},
         "platforms": GROWTH_PLATFORMS,
         "slots_ist": GROWTH_SLOTS_IST,
         "counts": counts,
@@ -68,7 +84,7 @@ async def growth_status(request: Request):
 @router.get("/config")
 async def growth_config(request: Request):
     """Everything an operator needs to reason about the engine's behaviour."""
-    _require_key(request)
+    await _require_admin(request)
     return {
         "approval_mode": APPROVAL_MODE,
         "auto_publish": GROWTH_AUTO_PUBLISH,
@@ -83,7 +99,7 @@ async def growth_config(request: Request):
 @router.get("/queue")
 async def growth_queue(request: Request, status: str = "", kind: str = "", day: str = ""):
     """List Growth Engine campaigns. Never touches social_posts."""
-    _require_key(request)
+    await _require_admin(request)
     q: dict = {}
     if status:
         q["status"] = status
@@ -96,7 +112,7 @@ async def growth_queue(request: Request, status: str = "", kind: str = "", day: 
 
 @router.get("/campaign/{cid}")
 async def growth_campaign(cid: str, request: Request):
-    _require_key(request)
+    await _require_admin(request)
     doc = await db[COLLECTIONS["campaigns"]].find_one({"id": cid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Campaign not found")
@@ -109,7 +125,7 @@ async def growth_generate(request: Request, payload: dict = Body(default={})):
 
     Body: {"day": "YYYY-MM-DD", "render": true, "force": false}
     """
-    _require_key(request)
+    await _require_admin(request)
     return await queue.generate_day(
         db,
         day=payload.get("day"),
@@ -121,7 +137,7 @@ async def growth_generate(request: Request, payload: dict = Body(default={})):
 @router.post("/approve")
 async def growth_approve(request: Request, payload: dict = Body(default={})):
     """Approve campaigns. Body: {"id": "..."} | {"ids": [...]} | {"all_pending": true}."""
-    _require_key(request)
+    await _require_admin(request)
     return await queue.approve(db, ids=payload.get("ids") or ([payload["id"]] if payload.get("id") else None),
                                all_pending=bool(payload.get("all_pending")),
                                notes=str(payload.get("notes") or ""))
@@ -129,7 +145,7 @@ async def growth_approve(request: Request, payload: dict = Body(default={})):
 
 @router.post("/reject")
 async def growth_reject(request: Request, payload: dict = Body(default={})):
-    _require_key(request)
+    await _require_admin(request)
     ids = payload.get("ids") or ([payload["id"]] if payload.get("id") else [])
     return await queue.reject(db, ids, notes=str(payload.get("notes") or ""))
 
@@ -137,7 +153,7 @@ async def growth_reject(request: Request, payload: dict = Body(default={})):
 @router.post("/edit/{cid}")
 async def growth_edit(cid: str, request: Request, payload: dict = Body(default={})):
     """Edit copy / visual / schedule before approval."""
-    _require_key(request)
+    await _require_admin(request)
     return await queue.edit(db, cid, payload)
 
 
@@ -149,7 +165,7 @@ async def growth_post_now(cid: str, request: Request):
     still-pending items are refused — otherwise a rejected campaign could be
     published by accident, which is exactly what the review step exists to stop.
     """
-    _require_key(request)
+    await _require_admin(request)
     doc = await db[COLLECTIONS["campaigns"]].find_one({"id": cid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Campaign not found")
@@ -165,7 +181,7 @@ async def growth_post_now(cid: str, request: Request):
 @router.post("/dispatch")
 async def growth_dispatch(request: Request, payload: dict = Body(default={})):
     """Run the dispatch job now. Honours approval mode unless force=true."""
-    _require_key(request)
+    await _require_admin(request)
     return await queue.dispatch_due(db, force=bool(payload.get("force")))
 
 
@@ -174,7 +190,7 @@ async def growth_dispatch(request: Request, payload: dict = Body(default={})):
 @router.get("/news/preview")
 async def growth_news_preview(request: Request, limit: int = 10):
     """Show what the news engine would consider right now (read-only)."""
-    _require_key(request)
+    await _require_admin(request)
     items = await news_engine.fetch_news()
     return {"ok": True, "count": len(items), "items": items[:limit]}
 
@@ -182,7 +198,7 @@ async def growth_news_preview(request: Request, limit: int = 10):
 @router.get("/blogs/detected")
 async def growth_blogs_detected(request: Request, window_hours: int = 30):
     """Which recent blog posts are eligible for a campaign (and which are done)."""
-    _require_key(request)
+    await _require_admin(request)
     posts = await blog_engine.fetch_recent_published(db, window_hours=window_hours, limit=50)
     done = await blog_engine.unprocessed_slugs(db, [p.get("slug") or "" for p in posts])
     return {
@@ -199,20 +215,20 @@ async def growth_blogs_detected(request: Request, window_hours: int = 30):
 @router.post("/metrics/{cid}")
 async def growth_record_metrics(cid: str, request: Request, payload: dict = Body(default={})):
     """Record performance for a campaign. Body: {"linkedin": {"impressions": 1200, ...}}."""
-    _require_key(request)
+    await _require_admin(request)
     return await analytics.record(db, cid, payload)
 
 
 @router.get("/analytics/learn")
 async def growth_learn(request: Request, metric: str = "engagements", days: int = 30):
     """What works: topic / hook / visual / CTA / platform rankings for `metric`."""
-    _require_key(request)
+    await _require_admin(request)
     return await analytics.learn(db, metric=metric, days=days)
 
 
 @router.get("/analytics/summary")
 async def growth_summary(request: Request, days: int = 7):
-    _require_key(request)
+    await _require_admin(request)
     return await analytics.summary(db, days=days)
 
 
@@ -231,14 +247,14 @@ async def growth_asset(aid: str):
 
 @router.get("/prospects")
 async def growth_prospects(request: Request, limit: int = 25, min_score: float = 0.0):
-    _require_key(request)
+    await _require_admin(request)
     return await prospect_engine.top_prospects(db, limit=limit, min_score=min_score)
 
 
 @router.post("/prospects/import")
 async def growth_prospect_import(request: Request, payload: dict = Body(default={})):
     """Import prospects. Body: {"csv": "..."} or {"json": [...]} (raw provider export)."""
-    _require_key(request)
+    await _require_admin(request)
     raw = payload.get("csv") or payload.get("json") or payload.get("data")
     if not raw:
         raise HTTPException(400, "Provide csv or json")
@@ -252,26 +268,26 @@ async def growth_prospect_import(request: Request, payload: dict = Body(default=
 @router.post("/prospects/{pid}/activity")
 async def growth_prospect_activity(pid: str, request: Request, payload: dict = Body(default={})):
     """Record operator-observed activity (Sales Navigator/Apollo/manual). No scraping."""
-    _require_key(request)
+    await _require_admin(request)
     return await prospect_engine.add_activity(db, pid, payload.get("activity") or [])
 
 
 @router.post("/prospects/{pid}/recommend")
 async def growth_prospect_recommend(pid: str, request: Request):
-    _require_key(request)
+    await _require_admin(request)
     return await prospect_engine.recommend_engagement(db, pid)
 
 
 @router.post("/prospects/{pid}/message")
 async def growth_prospect_message(pid: str, request: Request):
     """Draft a personalised connection note. Returns text — never sends."""
-    _require_key(request)
+    await _require_admin(request)
     return await prospect_engine.connection_message(db, pid)
 
 
 @router.post("/prospects/{pid}/log")
 async def growth_prospect_log(pid: str, request: Request, payload: dict = Body(default={})):
-    _require_key(request)
+    await _require_admin(request)
     return await prospect_engine.log_history(db, pid, str(payload.get("event") or "note"),
                                              str(payload.get("detail") or ""))
 

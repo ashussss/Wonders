@@ -85,6 +85,7 @@ def test_comparison_with_both_sides_is_renderable():
     assert is_renderable(spec)
 
 
-def test_all_six_formats_registered():
-    assert set(ve.RENDERERS) == {"carousel", "infographic", "stat_card",
-                                 "checklist", "comparison", "quote"}
+def test_all_formats_registered():
+    from growth_engine import VISUAL_FORMATS
+    assert set(ve.RENDERERS) == set(VISUAL_FORMATS) == {
+        "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll"}

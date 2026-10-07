@@ -270,7 +270,7 @@ async def pick_news(db, want: int = 2, exclude_ids: List[str] | None = None) -> 
     return await triage(fresh, want=want)
 
 
-async def build_news_campaign(item: Dict[str, Any]) -> Optional[CampaignDraft]:
+async def build_news_campaign(item: Dict[str, Any], **overrides: Any) -> Optional[CampaignDraft]:
     """Build a campaign that reacts to a real industry story.
 
     The link points at the ORIGINAL source, not our blog — commenting on someone
@@ -305,6 +305,7 @@ async def build_news_campaign(item: Dict[str, Any]) -> Optional[CampaignDraft]:
         fact_block=fact_block,
         seed=f"news:{item['id']}",
         angle_hint=angle,
+        **overrides,
     )
 
 

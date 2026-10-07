@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Check, Linkedin, Loader2, Plug, Unplug } from "@/components/Icons";
+import { Check, Facebook, Instagram, Linkedin, Loader2, Plug, Unplug } from "@/components/Icons";
 import { useSearchParams } from "react-router-dom";
 
 /**
@@ -46,6 +46,15 @@ export default function Integrations() {
     setParams(params, { replace: true });
   }, [params, setParams]);
 
+  useEffect(() => {
+    const status = params.get("meta_status");
+    if (!status) return;
+    if (status === "connected") setNotice("Facebook and Instagram connected.");
+    if (status === "error") setError(params.get("meta_error") || "Facebook connection failed.");
+    params.delete("meta_status"); params.delete("meta_error");
+    setParams(params, { replace: true });
+  }, [params, setParams]);
+
   const li = data?.linkedin;
   const configured = data?.configured;
 
@@ -71,6 +80,46 @@ export default function Integrations() {
       await load();
     } catch (e) {
       setError(e?.response?.data?.detail || "Could not disconnect LinkedIn.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mt = data?.meta;
+  const metaConfigured = data?.meta_configured;
+
+  const connectMeta = async () => {
+    setBusy(true);
+    try {
+      const { data: d } = await api.get("/growth/integrations/meta/connect");
+      window.location.href = d.authorization_url;
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not start the Facebook connection.");
+      setBusy(false);
+    }
+  };
+
+  const disconnectMeta = async () => {
+    setBusy(true);
+    try {
+      await api.delete("/growth/integrations/meta");
+      setNotice("Facebook and Instagram disconnected.");
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not disconnect Facebook.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectPage = async (pageId) => {
+    setBusy(true);
+    try {
+      await api.post("/growth/integrations/meta/page", { page_id: pageId });
+      setNotice("Page updated.");
+      await load();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Could not change the Page.");
     } finally {
       setBusy(false);
     }
@@ -162,6 +211,79 @@ export default function Integrations() {
               <div className="text-xs pt-1" style={{ color: "var(--text-muted)" }}>
                 Token valid until {new Date(li.expires_at).toLocaleDateString("en-GB")}
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-2xl p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+           data-testid="meta-card">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center gap-0.5"
+                 style={{ background: "rgba(24,119,242,0.12)" }}>
+              <Facebook size={18} className="text-[#1877F2]" />
+              <Instagram size={16} className="text-[#E1306C]" />
+            </div>
+            <div>
+              <div className="font-semibold" style={{ fontFamily: "Outfit", color: "var(--text-primary)" }}>
+                Facebook + Instagram
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Facebook Page and its linked Instagram Business account
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <Loader2 size={18} className="animate-spin" style={{ color: "var(--text-muted)" }} />
+          ) : mt?.connected ? (
+            <button data-testid="meta-disconnect" onClick={disconnectMeta} disabled={busy}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
+              style={{ background: "var(--bg-secondary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}>
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <Unplug size={15} />}
+              Disconnect
+            </button>
+          ) : (
+            <button data-testid="meta-connect" onClick={connectMeta} disabled={metaConfigured === false || busy}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: "#1877F2" }}>
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />}
+              {busy ? "Connecting…" : "Connect Facebook"}
+            </button>
+          )}
+        </div>
+
+        {metaConfigured === false && (
+          <div data-testid="meta-not-configured" className="mt-4 text-sm" style={{ color: "#b45309" }}>
+            Facebook isn’t configured on this server yet. An administrator needs to set the Meta app id,
+            secret and redirect URI.
+          </div>
+        )}
+
+        {mt?.connected && (
+          <div data-testid="meta-connected" className="mt-5 pt-5 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "#16a34a" }}>
+              <Check size={15} /> Connected{mt.name ? ` as ${mt.name}` : ""}
+            </div>
+            <div className="text-sm" style={{ color: "var(--text-primary)" }} data-testid="meta-page">
+              Facebook Page: {mt.page_name || "—"}
+            </div>
+            <div className="text-sm" style={{ color: mt.ig_username ? "var(--text-primary)" : "#b45309" }} data-testid="meta-ig">
+              Instagram: {mt.ig_username ? `@${mt.ig_username}` : "not linked to this Page (Instagram posts will be skipped)"}
+            </div>
+            {(mt.pages || []).length > 1 && (
+              <label className="block text-sm pt-1" style={{ color: "var(--text-muted)" }}>
+                Post to Page{" "}
+                <select data-testid="meta-page-select" value={mt.page_id} disabled={busy}
+                  onChange={(e) => selectPage(e.target.value)}
+                  className="ml-1 rounded-lg px-2 py-1 text-sm"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
+                  {mt.pages.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.ig_username ? ` (@${p.ig_username})` : ""}</option>
+                  ))}
+                </select>
+              </label>
             )}
           </div>
         )}

@@ -12,21 +12,22 @@ social_posts. Approval mode gates all dispatch.
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
 
 from . import (
     APPROVAL_MODE,
+    CAMPAIGN_KINDS,
     COLLECTIONS,
-    GROWTH_BLOG_CAMPAIGNS,
-    GROWTH_ENGAGEMENT_CAMPAIGNS,
-    GROWTH_NEWS_CAMPAIGNS,
-    GROWTH_PAIN_CAMPAIGNS,
+    DEFAULT_WEEKLY_PLAN,
     GROWTH_PLATFORMS,
     GROWTH_SLOTS_IST,
+    GROWTH_WEEKLY_PLAN,
     IST,
     SITE_URL,
+    VISUAL_FORMATS,
 )
 from .content_engine import build_campaign
 from .models import CampaignDraft, CampaignKind
@@ -127,6 +128,16 @@ ENGAGEMENT_ANGLES = [
 ]
 
 
+# Used when there is no published alternative/vs article to build from. These
+# compare APPROACHES, never named products, so nothing about a competitor is invented.
+COMPETITOR_ANGLES = [
+    "Your webinar platform's built-in reminder emails vs a multi-channel reminder sequence",
+    "Manual reminder emails from your marketing tool vs an automated pre-event sequence",
+    "Email-only reminders vs email plus LinkedIn, WhatsApp and calendar",
+    "Sending the replay to everyone vs a separate follow-up for attendees and no-shows",
+]
+
+
 def _pick_angle(pool: List[str], seed: str) -> str:
     """Rotate through ``pool`` across days and within a day.
 
@@ -142,26 +153,37 @@ def _pick_angle(pool: List[str], seed: str) -> str:
     return pool[idx % len(pool)]
 
 
-async def build_original_campaign(kind: CampaignKind, seed: str) -> Optional[CampaignDraft]:
+async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: Any) -> Optional[CampaignDraft]:
     """pain_point = webinar/event-marketing lead-gen. engagement = conversation.
+    competitor = approach-vs-approach comparison (no named products).
 
-    Both are ORIGINAL content (no blog, no news): the model picks the angle, so
+    All three are ORIGINAL content (no blog, no news): the model picks the angle, so
     we deliberately seed it with a rotating set of real, defensible pain points
     rather than asking it to invent a topic from nothing.
     """
     if kind == "pain_point":
         angle = _pick_angle(PAIN_ANGLES, seed)
         hint = (
-            "ORIGINAL lead-gen campaign. The pain point is fixed by the brief below — write to it directly. "
+            "ORIGINAL lead-gen campaign. The pain point is fixed by the brief below; write to it directly. "
             "The reader is an event host who is losing registrants. Make it practical and specific, "
-            "not inspirational. Aim to earn a click to the blog or a signup. "
+            "not inspirational. Give away the fix, then point to showupai.live as the way to run it "
+            "on autopilot. "
             f"Brief pain point: {angle}"
+        )
+    elif kind == "competitor":
+        angle = _pick_angle(COMPETITOR_ANGLES, seed)
+        hint = (
+            "ORIGINAL comparison campaign for someone choosing how to run webinar reminders. "
+            "Compare the two approaches in the brief honestly: where the usual way is fine, and "
+            "where it breaks. Do NOT name any company or product other than ShowUpAI. "
+            f"Brief: {angle}"
         )
     else:
         angle = _pick_angle(ENGAGEMENT_ANGLES, seed)
         hint = (
             "ORIGINAL engagement campaign designed to start a conversation, not to sell. "
-            "Ask a real question people will answer in the comments. No pitch in the caption. "
+            "Take a clear side, then ask a real question people will answer in the comments. "
+            "No pitch in the caption. "
             f"Brief: {angle}"
         )
 
@@ -180,87 +202,125 @@ async def build_original_campaign(kind: CampaignKind, seed: str) -> Optional[Cam
         ),
         seed=f"{kind}:{seed}",
         angle_hint=hint,
+        **overrides,
     )
 
 
 # ── daily plan ───────────────────────────────────────────────────────────────
 
-async def generate_day(db, day: Optional[str] = None, render: bool = True,
-                       force: bool = False) -> Dict[str, Any]:
-    """Build one day of campaigns (idempotent unless force=True)."""
+_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def parse_weekly_plan(spec: str) -> Dict[int, List[Dict[str, Any]]]:
+    """'mon=blog:carousel@linkedin+facebook,...' -> {0: [{kind, format, platforms}], ...}.
+
+    Unknown days, kinds or formats are skipped with a log line rather than failing
+    the whole day. An empty or fully invalid spec falls back to the default plan.
+    """
+    plan: Dict[int, List[Dict[str, Any]]] = {}
+    for entry in (spec or "").split(","):
+        entry = entry.strip()
+        if not entry or "=" not in entry:
+            continue
+        day, _, rest = entry.partition("=")
+        day = day.strip().lower()[:3]
+        rest, _, plats = rest.partition("@")
+        kind, _, fmt = rest.strip().partition(":")
+        kind, fmt = kind.strip().lower(), fmt.strip().lower()
+        platforms = [p.strip().lower() for p in plats.split("+") if p.strip()] if plats else []
+        platforms = [p for p in platforms if p in GROWTH_PLATFORMS]
+        if day not in _DAYS or kind not in CAMPAIGN_KINDS or (fmt and fmt not in VISUAL_FORMATS):
+            logger.warning(f"weekly plan: skipping invalid entry '{entry}'")
+            continue
+        if plats and not platforms:
+            logger.warning(f"weekly plan: '{entry}' names no enabled platform, skipping")
+            continue
+        plan.setdefault(_DAYS.index(day), []).append(
+            {"kind": kind, "format": fmt, "platforms": platforms})
+    if not plan and spec != DEFAULT_WEEKLY_PLAN:
+        logger.warning("weekly plan: nothing valid in GROWTH_WEEKLY_PLAN, using the default")
+        return parse_weekly_plan(DEFAULT_WEEKLY_PLAN)
+    return plan
+
+
+def plan_for(day: str) -> List[Dict[str, Any]]:
+    """The posts planned for one ISO date."""
+    weekday = datetime.fromisoformat(day).date().weekday()
+    return parse_weekly_plan(GROWTH_WEEKLY_PLAN).get(weekday, [])
+
+
+async def _build_planned(db, item: Dict[str, Any], day: str, n: int) -> Optional[CampaignDraft]:
+    """Build one planned post, falling back to the next-best source when the
+    planned one has nothing today (no fresh news, no comparison article)."""
     from . import blog_engine, news_engine
 
+    kind = item["kind"]
+    seed = f"{day}-{n}"
+    over: Dict[str, Any] = {"visual_format": item.get("format") or ""}
+    if item.get("platforms"):
+        over["platforms"] = item["platforms"]
+
+    if kind == "news":
+        news = await news_engine.pick_news(db, want=1)
+        if news:
+            return await news_engine.build_news_campaign(news[0], **over)
+        logger.info("generate_day: no fresh news, using a blog post instead")
+        kind = "blog"
+    if kind == "competitor":
+        post = await blog_engine.pick_competitor_post(db, seed=seed)
+        if post:
+            return await blog_engine.build_competitor_campaign(db, post, **over)
+        return await build_original_campaign("competitor", seed=seed, **over)
+    if kind == "blog":
+        post = await blog_engine.pick_blog_post(db, seed=seed)
+        if post:
+            return await blog_engine.build_blog_campaign(db, post, **over)
+        logger.info("generate_day: no blog post available, using a pain-point post instead")
+        kind = "pain_point"
+    return await build_original_campaign(cast(CampaignKind, kind), seed=seed, **over)
+
+
+async def generate_day(db, day: Optional[str] = None, render: bool = True,
+                       force: bool = False) -> Dict[str, Any]:
+    """Build the day's planned posts (idempotent unless force=True)."""
     day = day or plan_day()
     await ensure_indexes(db)
 
     if not force and await db[COLLECTIONS["campaigns"]].find_one({"plan_day": day}, {"_id": 1}):
         return {"ok": True, "note": "already generated for this day", "created": [], "day": day}
 
-    targets = [
-        ("blog", GROWTH_BLOG_CAMPAIGNS),
-        ("news", GROWTH_NEWS_CAMPAIGNS),
-        ("pain_point", GROWTH_PAIN_CAMPAIGNS),
-        ("engagement", GROWTH_ENGAGEMENT_CAMPAIGNS),
-    ]
-    # Spread the day out: allocate slots round-robin across kinds.
+    items = plan_for(day)
+    if not items:
+        return {"ok": True, "day": day, "note": "nothing planned for this weekday",
+                "created": [], "count": 0}
+
     slots = _slots(day)
     created: List[Dict[str, Any]] = []
-    slot_i = 0
-
-    for kind, count in targets:
-        if count <= 0:
-            continue
-        blog_sources: List[Any] = []
-        news_sources: List[Any] = []
-        # Select this kind's sources ONCE per run. Re-picking inside the loop
-        # would return the same top posts every iteration (they only become
-        # "used" once enqueued), so iterations 2+ would collide on one source.
+    for n, item in enumerate(items):
+        when = slots[n % len(slots)] if slots else datetime.now(timezone.utc)
+        kind = item["kind"]
         try:
-            if kind == "blog":
-                blog_sources = await blog_engine.pick_todays_posts(db, want=count)
-            elif kind == "news":
-                news_sources = await news_engine.pick_news(db, want=count)
-            else:
-                blog_sources = news_sources = []
-        except Exception as e:                                  # noqa: BLE001
-            logger.error(f"generate_day: could not select {kind} sources: {e}")
+            draft = await _build_planned(db, item, day, n)
+        except Exception as e:                                 # noqa: BLE001
+            logger.error(f"generate_day: {kind} #{n} failed: {e}")
             created.append({"kind": kind, "error": str(e)[:200]})
             continue
 
-        for n in range(count):
-            when = slots[slot_i % len(slots)] if slots else datetime.now(timezone.utc)
-            slot_i += 1
-            draft = None
-            try:
-                if kind == "blog":
-                    if n < len(blog_sources):
-                        draft = await blog_engine.build_blog_campaign(db, blog_sources[n])
-                elif kind == "news":
-                    if n < len(news_sources):
-                        draft = await news_engine.build_news_campaign(news_sources[n])
-                else:
-                    draft = await build_original_campaign(
-                        cast(CampaignKind, kind), seed=f"{day}-{n}")
-            except Exception as e:                             # noqa: BLE001
-                logger.error(f"generate_day: {kind} #{n} failed: {e}")
-                created.append({"kind": kind, "error": str(e)[:200]})
-                continue
-
-            if not draft:
-                created.append({"kind": kind, "note": "no draft produced"})
-                continue
-            if await already_queued(db, kind, draft.source_slug or "", day):
-                created.append({"kind": kind, "note": "already queued today"})
-                continue
-            stored = await enqueue(db, draft, when, day, render=render)
-            if not stored:
-                created.append({"kind": kind, "note": "enqueue failed"})
-                continue
-            created.append({
-                "id": stored["id"], "kind": kind, "status": stored["status"],
-                "scheduled_at": stored["scheduled_at"], "assets": len(stored["asset_ids"]),
-                "visual": draft.visual.format, "platforms": stored["platforms"],
-            })
+        if not draft:
+            created.append({"kind": kind, "note": "no draft produced"})
+            continue
+        if await already_queued(db, draft.kind, draft.source_slug or "", day):
+            created.append({"kind": draft.kind, "note": "already queued today"})
+            continue
+        stored = await enqueue(db, draft, when, day, render=render)
+        if not stored:
+            created.append({"kind": draft.kind, "note": "enqueue failed"})
+            continue
+        created.append({
+            "id": stored["id"], "kind": draft.kind, "status": stored["status"],
+            "scheduled_at": stored["scheduled_at"], "assets": len(stored["asset_ids"]),
+            "visual": draft.visual.format, "platforms": stored["platforms"],
+        })
 
     return {"ok": True, "day": day, "approval_mode": APPROVAL_MODE,
             "created": created, "count": len([c for c in created if c.get("id")])}
@@ -335,6 +395,62 @@ async def _with_linkedin_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
             "linkedin_org_urn": f"urn:li:person:{conn['platform_user_id']}"}
 
 
+async def _with_meta_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Prefer the brand account's Facebook/Instagram OAuth connection over the legacy Settings token."""
+    from social import SOCIAL_ACCOUNT_EMAIL
+    from . import meta
+
+    if not SOCIAL_ACCOUNT_EMAIL:
+        return settings
+    user = await db.users.find_one({"email": SOCIAL_ACCOUNT_EMAIL}, {"_id": 0, "id": 1})
+    if not user:
+        return settings
+    extra = await meta.publishing_settings(db, user["id"])
+    if not extra:
+        return settings
+    merged = {**settings, **extra}
+    if "instagram_business_id" not in extra:
+        # The selected Page has no Instagram account: don't pair its token with a legacy IG id.
+        merged.pop("instagram_business_id", None)
+    return merged
+
+
+LINKEDIN_API_VERSION = os.environ.get("LINKEDIN_API_VERSION", "202604").strip()
+
+
+async def post_linkedin_poll(settings: Dict[str, Any], text: str, question: str,
+                             options: List[str], duration: str = "THREE_DAYS") -> Dict[str, Any]:
+    """Native LinkedIn poll through the versioned Posts API (ugcPosts has no polls).
+
+    Facebook Pages and Instagram have no poll API, so those platforms post the poll
+    card image and ask people to comment their letter instead.
+    """
+    import httpx
+
+    token, author = settings.get("linkedin_marketing_token"), settings.get("linkedin_org_urn")
+    body = {
+        "author": author,
+        "commentary": text[:2900],
+        "visibility": "PUBLIC",
+        "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [],
+                         "thirdPartyDistributionChannels": []},
+        "content": {"poll": {
+            "question": question[:140],
+            "options": [{"text": o[:30]} for o in options[:4]],
+            "settings": {"duration": duration},
+        }},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+    headers = {"Authorization": f"Bearer {token}", "LinkedIn-Version": LINKEDIN_API_VERSION,
+               "X-Restli-Protocol-Version": "2.0.0", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post("https://api.linkedin.com/rest/posts", headers=headers, json=body)
+    if r.status_code >= 400:
+        return {"ok": False, "detail": f"poll:{r.status_code}: {r.text[:200]}"}
+    return {"ok": True, "id": r.headers.get("x-restli-id") or r.headers.get("x-linkedin-id")}
+
+
 async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
     """Publish ONE approved campaign to its platforms. Writes to growth_campaigns only.
 
@@ -344,6 +460,7 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
 
     settings = await social.account_settings()
     settings = await _with_linkedin_oauth(db, settings)
+    settings = await _with_meta_oauth(db, settings)
     conn = social.connected(settings)
     results = dict(doc.get("results") or {})
     copy = doc.get("platform_copy") or {}
@@ -363,13 +480,18 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
             continue
         try:
             if platform == "linkedin":
-                if imgs:
+                vis = doc.get("visual") or {}
+                if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
+                    res = await post_linkedin_poll(settings, text, vis.get("title") or "",
+                                                   vis.get("rows") or [])
+                elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:
                     res = await social.post_linkedin(settings, text, link=link or None,
                                                     link_title=doc.get("link_title", ""))
             elif platform == "facebook":
-                res = await social.post_facebook(settings, text, link=link or None, image_urls=imgs)
+                fb_link = None if (imgs and link and link.lower() in text.lower()) else (link or None)
+                res = await social.post_facebook(settings, text, link=fb_link, image_urls=imgs)
             elif platform == "instagram":
                 if not imgs:
                     res = {"ok": False, "detail": "instagram needs an image"}
