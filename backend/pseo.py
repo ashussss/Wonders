@@ -21,13 +21,13 @@ logger = logging.getLogger("showup.pseo")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
-PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
+PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
 # Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
 # Publishing cadence: a steady, human-looking rhythm instead of bursts at identical clock times.
-PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "1"))
+PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "4"))
 PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
 PSEO_SCHEDULE_HORIZON_DAYS = int(os.environ.get("PSEO_SCHEDULE_HORIZON_DAYS", "14"))
 # Topic dedup: skip queued keywords whose search intent an existing post already covers.
@@ -857,13 +857,15 @@ async def next_publish_slot() -> str | None:
     rows = await db.blog_posts.find(
         {"$or": [{"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"published": True}]},
         {"_id": 0, "publish_at": 1, "published_at": 1, "published": 1}).to_list(5000)
-    per_day = Counter()
+    per_day, used = Counter(), set()
     for r in rows:
         ts = r.get("published_at") if r.get("published") else r.get("publish_at")
         try:
-            per_day[datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ist).date()] += 1
+            t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ist)
         except Exception:
             continue
+        per_day[t.date()] += 1
+        used.add((t.date(), t.hour))
     now = datetime.now(ist)
     for day in range(PSEO_SCHEDULE_HORIZON_DAYS + 1):
         date = (now + timedelta(days=day)).date()
@@ -873,6 +875,8 @@ async def next_publish_slot() -> str | None:
         random.shuffle(bases)
         for t in bases:
             hh, mm = (int(x) for x in t.split(":"))
+            if (date, hh) in used or (date, hh + 1) in used:  # base time (plus jitter) already taken that day
+                continue
             slot = datetime(date.year, date.month, date.day, hh, mm, tzinfo=ist)
             slot += timedelta(minutes=random.randint(0, max(PSEO_PUBLISH_JITTER_MIN, 0)), seconds=random.randint(0, 59))
             if slot > now + timedelta(minutes=10):
@@ -970,23 +974,29 @@ async def run_pipeline(count: int | None = None) -> dict:
     return {"ok": True, "processed": len(results), "results": results}
 
 
-async def catch_up(max_tries: int = 3) -> dict:
-    """If nothing is published or scheduled for today (IST), e.g. the 09:00 IST run found an empty queue, its draft
-    failed the quality gate, or the server was asleep, draft up to `max_tries` keywords until one gets scheduled."""
+async def catch_up() -> dict:
+    """If today (IST) has fewer than PSEO_MAX_PUBLISH_PER_DAY posts published or scheduled, e.g. the 09:00 IST run
+    found an empty queue, a draft failed the quality gate, or the server was asleep, draft more until it does.
+    Gives up after two extra attempts per missing post so a run of failing drafts can't drain the queue."""
     ist = timezone(timedelta(hours=5, minutes=30))
     start = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0)
     lo, hi = start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
-    if await db.blog_posts.find_one({"$or": [
-            {"published": True, "published_at": {"$gte": lo, "$lt": hi}},
-            {"published": {"$ne": True}, "publish_at": {"$gte": lo, "$lt": hi}}]}, {"_id": 1}):
-        return {"ok": True, "skipped": "a post is already published or scheduled today"}
-    tries = []
-    for _ in range(max_tries):
+    have = await db.blog_posts.count_documents({"$or": [
+        {"published": True, "published_at": {"$gte": lo, "$lt": hi}},
+        {"published": {"$ne": True}, "publish_at": {"$gte": lo, "$lt": hi}}]})
+    missing = PSEO_MAX_PUBLISH_PER_DAY - have
+    if missing <= 0:
+        return {"ok": True, "skipped": f"{have} posts already published or scheduled today"}
+    tries, scheduled = [], 0
+    for _ in range(missing * 3):
         res = await run_pipeline(1)
         tries.append(res)
-        if not res.get("results") or any(r.get("status") == "scheduled" for r in res["results"]):
+        if not res.get("results"):
             break
-    logger.info(f"pSEO catch-up: {tries}")
+        scheduled += sum(r.get("status") == "scheduled" for r in res["results"])
+        if scheduled >= missing:
+            break
+    logger.info(f"pSEO catch-up ({have} today, {missing} missing): {tries}")
     return {"ok": True, "tries": tries}
 
 
