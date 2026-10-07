@@ -29,6 +29,7 @@ PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_
 # Publishing cadence: a steady, human-looking rhythm instead of bursts at identical clock times.
 PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "4"))
 PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
+PSEO_MIN_WORDS = int(os.environ.get("PSEO_MIN_WORDS", "1000"))  # quality gate floor for auto-scheduling
 PSEO_SCHEDULE_HORIZON_DAYS = int(os.environ.get("PSEO_SCHEDULE_HORIZON_DAYS", "14"))
 # Topic dedup: skip queued keywords whose search intent an existing post already covers.
 PSEO_DEDUP = os.environ.get("PSEO_DEDUP", "true").lower() == "true"
@@ -887,7 +888,7 @@ async def next_publish_slot() -> str | None:
 def passes_quality_gate(post: dict) -> tuple:
     if not post.get("fact_check_ok"):
         return False, "fact-check did not run"
-    if (post.get("word_count") or 0) < 1200:
+    if (post.get("word_count") or 0) < PSEO_MIN_WORDS:
         return False, f"too short ({post.get('word_count')} words)"
     if banned_phrases_in(post.get("content")):
         return False, f"banned phrases: {', '.join(banned_phrases_in(post.get('content')))}"
@@ -908,16 +909,112 @@ def passes_quality_gate(post: dict) -> tuple:
     return True, ""
 
 
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def drop_failing_sentences(content: str) -> str:
+    """Remove the sentences (or table rows / bullets) the quality gate objects to: unsourced percentages and wrong
+    sums. Dropping an unsupported claim is safer than holding the whole post back."""
+    loose, wrong = set(unsourced_numbers(content)), bad_math(content)
+    out = []
+    for line in (content or "").split("\n"):
+        t = line.strip()
+        if t[:160] in loose or any(w in line for w in wrong):
+            if t.startswith("|") or t.startswith("#"):
+                continue  # a table row or heading can't be trimmed sentence by sentence
+            lead = line[: len(line) - len(line.lstrip())]
+            m = re.match(r"^([-*+]|\d+\.)\s+", t)
+            marker, body = (m.group(0), t[m.end():]) if m else ("", t)
+            urls = [f["url"] for f in FACTS]
+            keep = [x for x in _SENTENCE.split(body)
+                    if not (("%" in x and not any(u in x for u in urls) and not _EXAMPLE_WORDS.search(x))
+                            or any(w in x for w in wrong))]
+            if not keep:
+                continue
+            line = lead + marker + " ".join(keep)
+        out.append(line)
+    content = "\n".join(out)
+    if empty_tables(content):  # drop hollow tables entirely
+        lines, res, block = content.split("\n") + [""], [], []
+        for ln in lines:
+            if ln.strip().startswith("|"):
+                block.append(ln)
+                continue
+            if block and not empty_tables("\n".join(block)):
+                res.extend(block)
+            block = []
+            res.append(ln)
+        content = "\n".join(res[:-1])
+    return re.sub(r"\n{3,}", "\n\n", trim_brand_mentions(content))
+
+
+def trim_brand_mentions(content: str, keep: int = 2) -> str:
+    """Keep the first `keep` plain-text brand mentions; later ones become "the tool" (links and URLs untouched)."""
+    pat = re.compile(r"(?<![\w/.\[])" + re.escape(BRAND) + r"(?!\w|\.\w|\])", re.I)
+
+    def sub(m):
+        if brand_mentions(content[:m.start()] + m.group(0)) <= keep:
+            return m.group(0)
+        before = content[:m.start()].rstrip()
+        return "The tool" if not before or before[-1] in ".!?:#\n" or content[m.start() - 1] == "\n" else "the tool"
+    if brand_mentions(content) <= keep:
+        return content
+    return pat.sub(sub, content)
+
+
+async def repair_draft(post: dict) -> dict:
+    """Fix what the quality gate rejects instead of leaving the draft unscheduled: re-run a fact-check that didn't
+    run, rewrite banned phrases, and drop unsourced numbers, wrong sums and hollow tables. Saves the result."""
+    content = post.get("content") or ""
+    upd = {}
+    if not post.get("fact_check_ok"):
+        content, fixes = await fact_check(content)
+        if fixes is not None:
+            upd.update(fact_check_ok=True, fact_check_edits=fixes)
+    content = await style_fix(content)
+    content = drop_failing_sentences(content)
+    words = len(content.split())
+    upd.update(content=content, word_count=words, reading_time=max(1, round(words / 200)), updated_at=now_iso())
+    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": upd})
+    return {**post, **upd}
+
+
 async def auto_schedule(post: dict) -> dict:
-    """If auto-scheduling is on and the draft passes the gate, give it the next free slot."""
+    """If auto-scheduling is on and the draft passes the gate (after one repair pass if needed), give it the next
+    free slot. A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
     if not PSEO_AUTO_SCHEDULE or post.get("published"):
         return {}
     ok, why = passes_quality_gate(post)
+    if not ok:
+        try:
+            post = await repair_draft(post)
+            ok, why = passes_quality_gate(post)
+        except Exception as e:
+            logger.warning(f"pSEO repair failed for {post.get('slug')}: {e}")
     slot = await next_publish_slot() if ok else None
     if slot:
-        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"}})
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"},
+                                                                "$unset": {"held_reason": ""}})
         return {"status": "scheduled", "publish_at_utc": slot}
-    return {"held": why or "no free slot"}
+    why = why or "no free slot"
+    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"held_reason": why}})
+    logger.warning(f"pSEO held {post.get('slug')}: {why}")
+    return {"held": why}
+
+
+async def schedule_held_drafts(limit: int) -> int:
+    """Give recent pipeline drafts that were held back another repair pass and schedule the ones that now pass."""
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    rows = await db.blog_posts.find(
+        {"source": "pseo", "published": {"$ne": True}, "publish_at": None, "created_at": {"$gte": since}},
+        {"_id": 0}).sort("created_at", 1).to_list(50)
+    n = 0
+    for post in rows:
+        if n >= limit:
+            break
+        if (await auto_schedule(post)).get("status") == "scheduled":
+            n += 1
+    return n
 
 
 async def run_pipeline(count: int | None = None) -> dict:
@@ -987,8 +1084,12 @@ async def catch_up() -> dict:
     missing = PSEO_MAX_PUBLISH_PER_DAY - have
     if missing <= 0:
         return {"ok": True, "skipped": f"{have} posts already published or scheduled today"}
-    tries, scheduled = [], 0
-    for _ in range(missing * 3):
+    scheduled = await schedule_held_drafts(missing)  # reuse drafts that were held back before writing new ones
+    tries = []
+    if scheduled >= missing:
+        logger.info(f"pSEO catch-up: scheduled {scheduled} held drafts")
+        return {"ok": True, "rescheduled": scheduled}
+    for _ in range((missing - scheduled) * 3):
         res = await run_pipeline(1)
         tries.append(res)
         if not res.get("results"):
