@@ -133,3 +133,57 @@ def test_bad_math_flags_wrong_sums_only():
     assert pseo.bad_math("45 + 36 = 61") == ["45 + 36 = 61"]
     base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m"}
     assert not pseo.passes_quality_gate({**base, "content": "Example: 300 x 40% = 150 attendees."})[0]
+
+
+def test_next_publish_slot_four_a_day_uses_different_times(monkeypatch):
+    monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
+    rows, slots = [], []
+    for _ in range(12):
+        _with_posts(rows)
+        slot = asyncio.run(pseo.next_publish_slot())
+        assert slot
+        slots.append(datetime.fromisoformat(slot).astimezone(IST))
+        rows.append({"published": False, "publish_at": slot})
+    days = Counter(s.date() for s in slots)
+    assert max(days.values()) <= 4
+    for d in days:
+        hours = sorted(s.hour for s in slots if s.date() == d)
+        assert all(b - a >= 2 for a, b in zip(hours, hours[1:]))
+
+
+class _CountColl:
+    def __init__(self, n):
+        self.n = n
+
+    async def count_documents(self, q):
+        return self.n
+
+
+def _catch_up(monkeypatch, have, runs):
+    monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
+    pseo.db = types.SimpleNamespace(blog_posts=_CountColl(have))
+    calls = []
+
+    async def fake_run(n):
+        calls.append(n)
+        return {"results": runs.pop(0) if runs else []}
+    monkeypatch.setattr(pseo, "run_pipeline", fake_run)
+    return asyncio.run(pseo.catch_up()), calls
+
+
+def test_catch_up_skips_when_day_is_full(monkeypatch):
+    res, calls = _catch_up(monkeypatch, 4, [])
+    assert "skipped" in res and calls == []
+
+
+def test_catch_up_fills_missing_posts_and_retries_failed_drafts(monkeypatch):
+    sched, draft = [{"status": "scheduled"}], [{"status": "draft"}]
+    _, calls = _catch_up(monkeypatch, 2, [draft, sched, draft, sched, sched])
+    assert len(calls) == 4  # 2 missing: one failed draft, one scheduled, one failed, one scheduled
+
+
+def test_catch_up_gives_up_and_stops_on_empty_queue(monkeypatch):
+    _, calls = _catch_up(monkeypatch, 3, [[{"status": "draft"}]] * 10)
+    assert len(calls) == 3  # 1 missing -> at most 3 attempts
+    _, calls = _catch_up(monkeypatch, 0, [])
+    assert len(calls) == 1  # empty queue ends it at once
