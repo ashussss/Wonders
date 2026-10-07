@@ -1,6 +1,7 @@
 """Webinars, touches, registrants, and lead magnets endpoints."""
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
@@ -252,11 +253,38 @@ async def list_touches(wid: str, user=Depends(get_user)):
     return await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
 
 
+async def _schedule_update(tid: str, owner_id: str, upd: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a new send time / auto-post switch and re-arm the touch for the scheduler.
+
+    A touch the scheduler already passed over (queued, or failed after retries) goes
+    back to planned when its send time is in the future, so it fires at the new time.
+    """
+    t = await db.touches.find_one({"id": tid, "owner_id": owner_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404)
+    extra: Dict[str, Any] = {}
+    if "scheduled_at" in upd:
+        try:
+            when = datetime.fromisoformat(upd["scheduled_at"].replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "scheduled_at must be an ISO date-time") from None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        extra["scheduled_at"] = when.astimezone(timezone.utc).isoformat()
+    when_iso = extra.get("scheduled_at") or t.get("scheduled_at")
+    if (t.get("sent_status") in ("queued", "failed") and when_iso
+            and when_iso > datetime.now(timezone.utc).isoformat()):
+        extra.update(sent_status="planned", sent_at=None, send_attempts=0, retry_at=None)
+    return extra
+
+
 @router.patch("/touches/{tid}")
 async def patch_touch(tid: str, data: TouchPatch, user=Depends(get_user)):
     upd = {k: v for k, v in data.model_dump().items() if v is not None}
     if "approval_status" in upd and upd["approval_status"] == "approved":
         upd["approved_at"] = now_iso()
+    if "scheduled_at" in upd or "auto_send" in upd:
+        upd.update(await _schedule_update(tid, user["id"], upd))
     await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": upd})
     if "channels" in upd:
         t = await db.touches.find_one({"id": tid, "owner_id": user["id"]}, {"_id": 0})

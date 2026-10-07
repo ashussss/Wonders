@@ -377,22 +377,11 @@ async def _with_linkedin_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:
     user = await db.users.find_one({"email": SOCIAL_ACCOUNT_EMAIL}, {"_id": 0, "id": 1})
     if not user:
         return settings
-    conn = await li.get_connection(db, user["id"], li.PLATFORM)
-    if not conn or conn.get("status") != "connected" or not conn.get("platform_user_id"):
+    member = await li.member_publishing_settings(db, user["id"])
+    if not member:
         return settings
-    expires = conn.get("expires_at")
-    if expires:
-        try:
-            if datetime.fromisoformat(expires) <= datetime.now(timezone.utc):
-                logger.warning("linkedin oauth token expired, reconnect on /app/integrations")
-                return settings
-        except ValueError:
-            pass
-    token = await li.get_access_token(db, user["id"], li.PLATFORM)
-    if not token or token.startswith("enc::"):          # missing, or could not decrypt
-        return settings
-    return {**settings, "linkedin_marketing_token": token,
-            "linkedin_org_urn": f"urn:li:person:{conn['platform_user_id']}"}
+    return {**settings, "linkedin_marketing_token": member["linkedin_member_token"],
+            "linkedin_org_urn": member["linkedin_member_urn"]}
 
 
 async def _with_meta_oauth(db, settings: Dict[str, Any]) -> Dict[str, Any]:

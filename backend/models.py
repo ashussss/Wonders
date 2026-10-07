@@ -57,6 +57,7 @@ class TouchPatch(BaseModel):
     copy_overrides: Optional[Dict[str, str]] = None
     approval_status: Optional[str] = None  # pending/approved/rejected
     ai_copy: Optional[Dict] = None         # direct ai_copy override (for delete content)
+    auto_send: Optional[bool] = None       # post automatically at scheduled_at (overrides Settings default)
 
 
 class LeadMagnetPatch(BaseModel):

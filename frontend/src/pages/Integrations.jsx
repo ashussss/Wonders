@@ -4,10 +4,10 @@ import { Check, Facebook, Instagram, Linkedin, Loader2, Plug, Unplug } from "@/c
 import { useSearchParams } from "react-router-dom";
 
 /**
- * Growth Engine — Integrations.
+ * Integrations — each user's own social OAuth connections.
  *
- * Isolated page for the new Growth Engine OAuth connections. It does NOT touch
- * the existing social/channel settings UI, which remains untouched.
+ * Webinar touches (routes_delivery) publish with these connections; the manual
+ * token fields in Settings stay as a fallback.
  *
  * The callback is a server redirect, so it lands back here with ?li_status=...
  * and we re-fetch status on mount.
@@ -131,10 +131,10 @@ export default function Integrations() {
     <div className="p-6 md:p-8 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ fontFamily: "Outfit", color: "var(--text-primary)" }}>
-          Growth Integrations
+          Social accounts
         </h1>
         <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-          Connect the accounts the Growth Engine will publish and report from. Each ShowUp account keeps its own connections.
+          Connect your accounts once. Your webinar touches post to them automatically at their scheduled time.
         </p>
       </div>
 
@@ -208,8 +208,11 @@ export default function Integrations() {
               {li.email || "—"}
             </div>
             {li.expires_at && (
-              <div className="text-xs pt-1" style={{ color: "var(--text-muted)" }}>
-                Token valid until {new Date(li.expires_at).toLocaleDateString("en-GB")}
+              <div className="text-xs pt-1" data-testid="linkedin-expiry"
+                   style={{ color: expiresSoon(li.expires_at) ? "#b45309" : "var(--text-muted)" }}>
+                {expiresSoon(li.expires_at)
+                  ? `LinkedIn access ends on ${new Date(li.expires_at).toLocaleDateString("en-GB")}. Reconnect to keep posting.`
+                  : `Token valid until ${new Date(li.expires_at).toLocaleDateString("en-GB")}`}
               </div>
             )}
           </div>
@@ -312,4 +315,9 @@ export default function Integrations() {
       )}
     </div>
   );
+}
+
+// LinkedIn gives no refresh token, so warn a week before the connection lapses.
+function expiresSoon(iso) {
+  return new Date(iso).getTime() - Date.now() < 7 * 24 * 3600 * 1000;
 }
