@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, CalendarDays, Check, Clock, Copy, FileDown, L
 import { useParams, useNavigate } from "react-router-dom";
 import { api, fmtDate, CHANNEL_META, API_BASE } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
+import TouchVisual from "@/components/TouchVisual";
 import { motion, AnimatePresence } from "framer-motion";
 import AdHocPostDialog from "@/components/AdHocPostDialog";
 import { toast } from "sonner";
@@ -601,6 +602,8 @@ function TouchCard({ touch, onChange }) {
           )}
         </div>
       </div>
+
+      {touch.has_visual && !generating && <TouchVisual touch={touch} />}
 
       {/* Copy Content */}
       {generating ? (

@@ -94,7 +94,7 @@ async def test_user_oauth_overrides_pasted_meta_tokens(db):
 async def test_dispatch_routes_linkedin_and_aliases(monkeypatch):
     calls = []
 
-    async def fake_company(settings, message):
+    async def fake_company(settings, message, **kw):
         calls.append(settings["linkedin_org_urn"])
         return senders.DeliveryResult(True, "linkedin")
 

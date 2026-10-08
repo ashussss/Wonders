@@ -18,6 +18,7 @@ from image_gen import generate_webinar_social_image
 from showup_score import render_showup_score
 from crypto_utils import decrypt_settings
 from touch_render import PERSONAL_CHANNELS, render
+import touch_visuals
 
 logger = logging.getLogger("showup.delivery")
 
@@ -420,8 +421,16 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
     regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
 
-    ig_image_url = None
-    if "instagram" in (t.get("channels") or []):
+    # The touch's card (tips, case study, poll, checklist...) goes with every channel.
+    card_url = None
+    if public_backend_url and touch_visuals.has_visual(t["touch_num"]):
+        try:
+            card_url = touch_visuals.visual_url(
+                public_backend_url, await touch_visuals.ensure_visual(db, social_images_fs, t, w))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"touch card for {t['id']} unavailable: {e}")
+    ig_image_url = card_url
+    if not ig_image_url and "instagram" in (t.get("channels") or []):
         img = await db.social_images.find_one({"webinar_id": t["webinar_id"]}, {"_id": 0})
         if img and public_backend_url:
             ig_image_url = f"{public_backend_url}/api/webinars/{t['webinar_id']}/social-image.png"
@@ -448,16 +457,27 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
                 res = await send_dispatch(ch, settings,
                                            to_email=r.get("email"), to_phone=r.get("phone"),
                                            subject=render(subject, w, ch, r), body=render(body, w, ch, r),
-                                           ics_bytes=ics_bytes if ch == "email" else None)
+                                           ics_bytes=ics_bytes if ch == "email" else None, image_url=card_url)
                 delivery_log.append({"channel": ch, "recipient": r.get("email") or r.get("phone"),
                                       "ok": res.get("ok"), "detail": res.get("detail")})
         else:
             res = await send_dispatch(ch, settings, to_email=None, to_phone=None,
                                        subject=render(subject, w, ch), body=render(body, w, ch),
-                                       image_url=ig_image_url if ch == "instagram" else None)
+                                       image_url=ig_image_url if ch == "instagram" else card_url)
             delivery_log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
     ok_any = any(d.get("ok") for d in delivery_log)
     return {"ok": ok_any, "log": delivery_log}
+
+
+@router.get("/touches/{tid}/visual.jpg")
+async def touch_visual(tid: str):
+    """The touch's card. Public: Instagram, Facebook and email clients fetch it by URL."""
+    t = await db.touches.find_one({"id": tid}, {"_id": 0})
+    w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": t.get("owner_id", "")}, {"_id": 0}) if t else None
+    row = await touch_visuals.ensure_visual(db, social_images_fs, t, w) if w else None
+    if not row:
+        raise HTTPException(404, "This touch has no card")
+    return await _stream_gridfs(social_images_fs, row["file_id"], "image/jpeg")
 
 
 # The confirmation every registrant gets the moment they sign up, unless the host has
@@ -822,12 +842,17 @@ async def post_webinar_sequence(wid: str, payload: dict = Body(default={}), user
     no_shows = [r for r in registrants if not r.get("attended")]
     rec_line = ("Here's the recording if you want to rewatch any part: {{recording_link}}" if recording
                 else "I'll send the recording as soon as it's ready.")
+    from ai import load_kit
+    takeaways = (await load_kit(wid)).get("takeaways") or []
     topics = [x.strip() for x in re.split(r"[,\n;]", w.get("key_topics") or "") if x.strip()][:3]
-    covered = ("We covered:\n" + "\n".join(f"- {x}" for x in topics) + "\n\n") if topics else ""
+    todo = ("Three things worth doing this week:\n" + "\n".join(f"- {x}" for x in takeaways[:3]) + "\n\n"
+            ) if takeaways else ""
+    covered = todo.replace("Three things worth doing this week", "The short version, so you can use it today") or (
+        ("We covered:\n" + "\n".join(f"- {x}" for x in topics) + "\n\n") if topics else "")
 
     sent_att = await _send_each(
         settings, w, attendees, "Thanks for coming: {{webinar_title}}",
-        "Hi {{first_name}},\n\nThanks for spending the time with us today.\n\n" + rec_line +
+        "Hi {{first_name}},\n\nThanks for spending the time with us today.\n\n" + todo + rec_line +
         "\n\nWhat was the one thing you're going to try first? Hit reply, I read every answer.\n\n{{speaker}}")
     sent_ns = await _send_each(
         settings, w, no_shows, "Sorry we missed you: {{webinar_title}}",

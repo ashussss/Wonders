@@ -5,7 +5,7 @@ import os
 import json
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("showup.ai")
 
@@ -134,24 +134,29 @@ async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
 TOUCH_CONTEXT = {
     1: "Registration confirmation, sent the second they sign up. Confirm the date and time, give the join link, "
        "ask them to add it to their calendar now, and ask them to hit reply with the one question they want answered.",
-    2: "About 3 weeks out. Name the specific problem this session solves, in the words the audience uses. "
-       "One concrete example of the problem. Say what they will be able to do after the session.",
-    3: "About 19 days out. Share one genuinely useful tip or insight on the topic they can use today, "
-       "then say the session goes deeper on it.",
-    4: "About 2 weeks out. Ask the audience one direct question about how they handle this problem today, "
-       "with 2 or 3 short options. Ask them to answer in the comments or by reply. Say you'll cover the results live.",
-    5: "About 10 days out. Tell one short, realistic scenario of the problem playing out and what it costs. "
-       "No invented names, companies or numbers. Then what the session will show them.",
-    6: "About 8 days out. Tease the 3 things the session covers as a short plain list. Make each one specific.",
-    7: "About 5 days out. Practical reminder: the date, the time, and the one outcome they get. "
-       "Ask them to block the time in their calendar now.",
-    8: "Day before, sent at the same time of day as the session. 'This time tomorrow'. Restate the one outcome, "
-       "the time, and the join link. Mention they can send a question in advance by replying.",
-    9: "1 hour before. Very short. 'We start in an hour.' The join link on its own line. Nothing else.",
-    10: "Day after, to people who attended. Thank them in one line, give the one key takeaway to act on today, "
-        "the recording link, and ask what they'll try first.",
-    11: "Two days after, to people who registered but didn't come. No guilt. Say what was covered in one line, "
-        "give the recording link, and offer to answer their question by reply.",
+    2: "About 3 weeks out. Open with the problem below, in the words the audience uses, and the concrete example. "
+       "Then one line on what they will be able to do after the session, then the link.",
+    3: "About 19 days out. Teach the tips below so a reader can use them today without attending. "
+       "Then one line saying the session goes further, with the date, then the link.",
+    4: "About 2 weeks out. Ask the poll question below with its options, each on its own line. Ask them to answer "
+       "in the comments or by reply. Say you'll share the results live on the date, then the link.",
+    5: "About 10 days out. Tell the case study below as a short story: where things stood, what changed, the result, "
+       "and the lesson. No invented names, companies or numbers beyond what is given. Then: the session shows how, "
+       "with the date, then the link.",
+    6: "About 8 days out. Share the agenda below as a short numbered list, each item specific. "
+       "Then the date and time, then the link.",
+    7: "About 5 days out. Lead with the common belief below and why it's wrong, in 2 or 3 lines. Then the practical "
+       "part: the date, the time, and ask them to block it in their calendar now with {{calendar_link}} (email) "
+       "or the link (social).",
+    8: "Day before, sent at the same time of day as the session. 'This time tomorrow'. Share the short prep checklist "
+       "below so they arrive ready and get more out of it. Then the time and the join link. Mention they can send "
+       "a question in advance by replying.",
+    9: "1 hour before. Very short. 'We start in an hour.' One line on the one thing to have ready (from below). "
+       "The join link on its own line. Nothing else.",
+    10: "Day after, to people who attended. Thank them in one line, then the key takeaways below as a short list "
+        "they can act on today, the recording link, and ask what they'll try first.",
+    11: "Two days after, to people who registered but didn't come. No guilt. Give the key takeaways below as a short "
+        "list so they get value even without watching, then the recording link, and offer to answer their question by reply.",
     12: "The moment the session starts, to everyone registered. 'We're live now.' The join link. One line saying "
         "they haven't missed anything important yet.",
 }
@@ -177,7 +182,8 @@ VOICE (every channel):
 EMAIL_RULES = """
 EMAIL RULES:
 - Subject: 3 to 7 words, lowercase except names, like a person typed it. No clickbait, no ALL CAPS, no emojis.
-- Body: 40 to 110 words. Start with "Hi {{first_name}}," on its own line. Short paragraphs, one idea each.
+- Body: 40 to 110 words, or up to 170 when the message teaches something (tips, a case study, a checklist,
+  takeaways). Start with "Hi {{first_name}}," on its own line. Short paragraphs, one idea each. Lists are fine.
 - Exactly one call to action. For pre-event emails that is the join link: {{join_link}}.
 - Placeholders you may use: {{first_name}}, {{webinar_title}}, {{webinar_date}}, {{webinar_time}},
   {{join_link}}, {{calendar_link}}, {{recording_link}}, {{speaker}}. Never write a real link or date yourself.
@@ -188,7 +194,8 @@ SOCIAL_RULES = """
 SOCIAL POST RULES:
 - First line is the hook, under 12 words, alone on its line. It must make someone stop scrolling:
   a specific problem, a surprising claim you can back up, or a direct question.
-- Then 2 to 5 short lines. One idea per line. A blank line between ideas.
+- Then the substance in 2 to 8 short lines. One idea per line. A blank line between ideas.
+  When this message shares tips, a checklist or takeaways, a short numbered list is fine.
 - Include the registration link exactly once, as {{join_link}}, on its own line near the end.
 - End with one specific question about this topic that a reader can answer from experience,
   and ask them to answer in the comments. Never just "Thoughts?".
@@ -278,7 +285,8 @@ def _usable(copy: Any, is_email: bool) -> bool:
     return True
 
 
-async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder", custom_instructions: str = "") -> tuple:
+async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder",
+                                   custom_instructions: str = "", content: str = "") -> tuple:
     """Generate copy for a single channel — runs in parallel."""
     is_email = channel == "email"
     rules = EMAIL_RULES if is_email else ("" if channel == "whatsapp" else SOCIAL_RULES)
@@ -295,6 +303,9 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
         f"BRAND RULES: {custom_instructions}" if custom_instructions else "",
     ] if line)
 
+    share = (f"CONTENT TO SHARE IN THIS MESSAGE (this is the point of the message, so a reader gets real value "
+             f"even if they never attend; put it in your own words for this channel; the reminder comes after it):\n"
+             f"{content}\n\n") if content else ""
     prompt = f"""You write the messages that get people who registered for a webinar to actually show up.
 
 {facts}
@@ -302,7 +313,7 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
 THIS MESSAGE: touch #{touch_num} ({touch_type})
 JOB: {context}
 
-CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
+{share}CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
 {VOICE_RULES}
 {rules}
 Write 2 variants of the same message:
@@ -335,9 +346,13 @@ Return ONLY valid JSON: {{"safe": {schema}, "casual": {schema}}}"""
     return channel, copy
 
 
-async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, custom_instructions: str = "") -> dict:
+async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, custom_instructions: str = "",
+                             kit: Optional[dict] = None) -> dict:
     """Generate copy for ALL channels in parallel — much faster."""
     context = TOUCH_CONTEXT.get(touch_num, f"Touch {touch_num}")
+    if kit is None and touch_num in TOUCH_ASSET:
+        kit = await load_kit(webinar.get("id", ""))
+    content = kit_brief(kit, touch_num)
 
     touch_type = TOUCH_TYPE.get(touch_num, "reminder")
     
@@ -349,7 +364,7 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
             await asyncio.sleep(0.3)  # small stagger
             for attempt in range(3):
                 try:
-                    r = await _generate_single_channel(webinar, touch_num, ch, context, touch_type, custom_instructions)
+                    r = await _generate_single_channel(webinar, touch_num, ch, context, touch_type, custom_instructions, content)
                     return r
                 except Exception as e:
                     if "429" in str(e) and attempt < 2:
@@ -373,32 +388,152 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
         "angle": context,
         "touch_type": touch_type,
         "channels": channel_copy,
+        "content": content,
         "reasoning": f"Touch {touch_num} ({touch_type}) — {context}"
     }
 
 
+# ── Content kit ────────────────────────────────────────────────────────────────
+# Each pre- and post-event touch carries one piece of real value (a tip, a case study,
+# a poll, a checklist) and the reminder rides along with it. The pieces are written once
+# per webinar so touches don't repeat each other, then each touch gets its own piece.
+# Stored in lead_magnets.ai_content; case_study / snippets / one_pager are the original
+# lead-magnet fields and stay for the Lead Magnets tab.
+
+TOUCH_ASSET = {2: "problem", 3: "insights", 4: "poll", 5: "story", 6: "agenda", 7: "myth",
+               8: "checklist", 9: "checklist", 10: "takeaways", 11: "takeaways"}
+
+
 async def generate_lead_magnets(webinar: dict) -> dict:
     prompt = f"""Webinar: {webinar.get('title', '')}
-Description: {webinar.get('description', '')}
+Host: {webinar.get('speakers') or webinar.get('speaker') or ''}
+Description: {(webinar.get('description') or '')[:1200]}
 Audience: {webinar.get('target_audience', '')}
+Key topics: {webinar.get('key_topics', '')}
+Host's notes: {webinar.get('custom_context', '')}
 
-Write supporting content. No fabricated company names or fake statistics.
+You are preparing the content the host will share with registrants in the weeks before the
+session, so every reminder teaches something real. Be specific to this topic and audience.
+Never invent statistics, studies, company names, people or quotes. Plain words, no em dashes,
+none of: unlock, elevate, leverage, game-changer, deep dive, seamless, robust, landscape.
 
 Return ONLY valid JSON:
 {{
-  "case_study": "150 word illustrative scenario showing value of this topic",
+  "problem": {{"hook": "the core problem in the audience's words, max 90 chars",
+               "example": "one concrete everyday example of it, max 160 chars"}},
+  "insights": [{{"heading": "tip, max 45 chars", "detail": "how to apply it today, max 120 chars"}},
+               {{"heading": "...", "detail": "..."}}, {{"heading": "...", "detail": "..."}}],
+  "poll": {{"question": "a question the audience can answer from experience, max 90 chars",
+            "options": ["max 40 chars", "max 40 chars", "max 40 chars"]}},
+  "story": {{"before": "where a typical person in this audience starts, max 140 chars",
+             "change": "the one thing they did differently, max 140 chars",
+             "after": "what was different afterwards, described not quantified unless given, max 140 chars",
+             "lesson": "the lesson in one line, max 90 chars"}},
+  "agenda": ["what the session covers, specific, max 70 chars", "...", "..."],
+  "myth": {{"myth": "a common belief about this topic that is wrong, max 90 chars",
+            "truth": "what's actually true, max 140 chars"}},
+  "checklist": ["one thing to have ready or think about before the session, max 70 chars", "...", "..."],
+  "takeaways": ["an action someone can take after the session, max 80 chars", "...", "..."],
+  "case_study": "the story above written as a 150 word illustrative scenario",
   "snippets": ["sharp insight 1", "sharp insight 2", "sharp insight 3", "sharp insight 4"],
-  "one_pager": {{
-    "title": "...",
-    "outline": ["section 1", "section 2", "section 3", "section 4", "section 5"]
-  }}
+  "one_pager": {{"title": "...", "outline": ["section 1", "section 2", "section 3", "section 4", "section 5"]}}
 }}"""
 
     try:
-        raw = await _call_llm(prompt, max_tokens=1000)
-        return json.loads(raw)
+        raw = await _call_llm(prompt, max_tokens=2400)
+        return normalize_kit(json.loads(raw))
     except Exception:
-        return {"case_study": "", "snippets": [], "one_pager": {"title": "", "outline": []}}
+        return normalize_kit({})
+
+
+def _s(v: Any, limit: int = 200) -> str:
+    from touch_render import clean
+    return clean(str(v or ""), "email")[:limit].strip() if isinstance(v, (str, int, float)) else ""
+
+
+def _strs(v: Any, n: int, limit: int) -> List[str]:
+    return [x for x in (_s(i, limit) for i in (v if isinstance(v, list) else [])) if x][:n]
+
+
+def normalize_kit(raw: Any) -> dict:
+    """Coerce whatever the model returned into the kit shape; drop pieces that are empty."""
+    k = raw if isinstance(raw, dict) else {}
+    get = lambda key: k.get(key) if isinstance(k.get(key), dict) else {}
+    out: Dict[str, Any] = {
+        "case_study": _s(k.get("case_study"), 1500),
+        "snippets": _strs(k.get("snippets"), 6, 240),
+        "one_pager": k.get("one_pager") if isinstance(k.get("one_pager"), dict) else {"title": "", "outline": []},
+    }
+    p = get("problem")
+    if _s(p.get("hook")):
+        out["problem"] = {"hook": _s(p.get("hook"), 120), "example": _s(p.get("example"), 220)}
+    ins = [{"heading": _s(i.get("heading"), 60), "detail": _s(i.get("detail"), 160)}
+           for i in (k.get("insights") or []) if isinstance(i, dict) and _s(i.get("heading"))][:5]
+    if not ins and out["snippets"]:
+        ins = [{"heading": s, "detail": ""} for s in out["snippets"][:3]]
+    if ins:
+        out["insights"] = ins
+    poll = get("poll")
+    opts = _strs(poll.get("options"), 4, 60)
+    if _s(poll.get("question")) and len(opts) >= 2:
+        out["poll"] = {"question": _s(poll.get("question"), 120), "options": opts}
+    st = get("story")
+    if all(_s(st.get(f)) for f in ("before", "change", "after")):
+        out["story"] = {f: _s(st.get(f), 200) for f in ("before", "change", "after", "lesson")}
+    m = get("myth")
+    if _s(m.get("myth")) and _s(m.get("truth")):
+        out["myth"] = {"myth": _s(m.get("myth"), 120), "truth": _s(m.get("truth"), 200)}
+    for key, lim in (("agenda", 90), ("checklist", 90), ("takeaways", 110)):
+        items = _strs(k.get(key), 5, lim)
+        if items:
+            out[key] = items
+    return out
+
+
+def kit_from_lead_magnets(lm: Optional[dict]) -> dict:
+    """The host's edits on the Lead Magnets tab win over the AI draft."""
+    lm = lm or {}
+    kit = normalize_kit(lm.get("ai_content") or {})
+    edited = lm.get("edited_content") or {}
+    if isinstance(edited.get("case_study"), str) and edited["case_study"].strip():
+        kit["case_study"] = edited["case_study"].strip()
+    return kit
+
+
+def kit_brief(kit: Optional[dict], touch_num: int) -> str:
+    """The piece of content this touch shares, as plain text for the copy prompt."""
+    kit = kit or {}
+    name = TOUCH_ASSET.get(touch_num)
+    piece = kit.get(name) if name else None
+    if not piece:
+        if name == "story" and kit.get("case_study"):
+            return f"Case study:\n{kit['case_study']}"
+        return ""
+    if name == "problem":
+        return f"Problem: {piece['hook']}\nExample: {piece.get('example', '')}"
+    if name == "insights":
+        return "Tips:\n" + "\n".join(f"- {i['heading']}: {i['detail']}".rstrip(": ") for i in piece[:3])
+    if name == "poll":
+        return f"Poll question: {piece['question']}\nOptions:\n" + "\n".join(
+            f"{'ABCD'[i]}) {o}" for i, o in enumerate(piece['options'][:4]))
+    if name == "story":
+        return (f"Case study:\nBefore: {piece['before']}\nWhat changed: {piece['change']}\n"
+                f"After: {piece['after']}\nLesson: {piece.get('lesson', '')}")
+    if name == "myth":
+        return f"Common belief: {piece['myth']}\nWhat's actually true: {piece['truth']}"
+    if name == "checklist" and touch_num == 9:
+        return f"The one thing to have ready: {piece[0]}"
+    labels = {"agenda": "What the session covers", "checklist": "Prep checklist", "takeaways": "Key takeaways"}
+    return f"{labels[name]}:\n" + "\n".join(f"- {x}" for x in piece)
+
+
+async def load_kit(webinar_id: str) -> dict:
+    try:
+        from database import db
+        return kit_from_lead_magnets(await db.lead_magnets.find_one({"webinar_id": webinar_id}, {"_id": 0}))
+    except Exception as e:
+        logger.warning(f"load_kit {webinar_id}: {e}")
+        return {}
 
 
 async def generate_adhoc_post(webinar: dict, channel: str = "linkedin", prompt: str = "",

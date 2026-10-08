@@ -12,7 +12,9 @@ from database import db
 from auth_utils import get_user, now_iso
 from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnetPatch
 from config import TOUCH_DEFS
-from ai import generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule, touch_reasoning
+import touch_visuals
+from ai import (generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule,
+                touch_reasoning, kit_from_lead_magnets)
 
 router = APIRouter(prefix="/api")
 limiter = Limiter(key_func=get_remote_address)
@@ -77,7 +79,7 @@ async def _bg_generate_all(webinar_id: str):
         async def _gen_one(t):
             try:
                 copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]),
-                                                  custom_instructions=global_instructions)
+                                                  custom_instructions=global_instructions, kit=lm_data)
                 reasoning = await touch_reasoning(t["touch_num"], t["channels"])
                 await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]},
                                              {"$set": {"ai_copy": copy, "ai_reasoning": reasoning}})
@@ -281,10 +283,31 @@ async def _backfill_touches(wid: str, owner_id: str) -> None:
         await db.touches.update_one({"id": t["id"], "owner_id": owner_id}, {"$set": {"ai_copy": copy}})
 
 
+async def _ensure_kit(w: Dict[str, Any]) -> Dict[str, Any]:
+    """The webinar's content kit. Webinars created before the kit had tips, polls and
+    checklists get a fresh one, so their regenerated touches carry real content too."""
+    lm = await db.lead_magnets.find_one({"webinar_id": w["id"]}, {"_id": 0})
+    kit = kit_from_lead_magnets(lm)
+    if kit.get("insights") and kit.get("checklist"):
+        return kit
+    fresh = await generate_lead_magnets(w)
+    if not (fresh.get("insights") or fresh.get("checklist")):
+        return kit
+    # Keep the lead magnets the host may already have reviewed.
+    old = (lm or {}).get("ai_content") or {}
+    merged = {**fresh, **{k: old[k] for k in ("case_study", "snippets", "one_pager") if old.get(k)}}
+    await db.lead_magnets.update_one({"webinar_id": w["id"], "owner_id": w["owner_id"]},
+                                     {"$set": {"ai_content": merged, "generated_at": now_iso()}}, upsert=True)
+    return kit_from_lead_magnets(await db.lead_magnets.find_one({"webinar_id": w["id"]}, {"_id": 0}))
+
+
 @router.get("/webinars/{wid}/touches")
 async def list_touches(wid: str, user=Depends(get_user)):
     asyncio.create_task(_backfill_touches(wid, user["id"]))
-    return await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+    rows = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+    for r in rows:
+        r["has_visual"] = touch_visuals.has_visual(r["touch_num"])
+    return rows
 
 
 async def _schedule_update(tid: str, owner_id: str, upd: Dict[str, Any]) -> Dict[str, Any]:
@@ -335,8 +358,10 @@ async def regen_touch(tid: str, user=Depends(get_user)):
     t = await db.touches.find_one({"id": tid, "owner_id": user["id"]}, {"_id": 0})
     if not t:
         raise HTTPException(404)
-    w = await db.webinars.find_one({"id": t["webinar_id"]}, {"_id": 0})
-    copy = await generate_touch_copy(w, t["touch_num"], t["channels"])
+    w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    copy = await generate_touch_copy(w, t["touch_num"], t["channels"], kit=await _ensure_kit(w))
     await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": {"ai_copy": copy, "approval_status": "pending"}})
     return {"ok": True, "copy": copy}
 
@@ -389,6 +414,7 @@ async def approval_queue(user=Depends(get_user), webinar_id: str = None):
         w = webinar_map.get(r["webinar_id"], {})
         r["webinar_title"] = w.get("title", "?")
         r["webinar_starts_at"] = w.get("starts_at")
+        r["has_visual"] = touch_visuals.has_visual(r["touch_num"])
     rows.sort(key=lambda x: (x.get("webinar_starts_at") or "9999", x.get("scheduled_at") or "9999", x["touch_num"]))
 
     # Return active webinars list for dropdown
@@ -409,12 +435,13 @@ async def regen_all_touches(wid: str, user=Depends(get_user)):
     touches = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(20)
     if not touches:
         raise HTTPException(404, "No touches found for this webinar")
+    kit = await _ensure_kit(w)
 
     async def regen_one(t):
         try:
-            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]))
+            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]), kit=kit)
             await db.touches.update_one(
-                {"id": t["id"]},
+                {"id": t["id"], "owner_id": user["id"]},
                 {"$set": {"ai_copy": copy, "approval_status": "pending"}}
             )
             return True
