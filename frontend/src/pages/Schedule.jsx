@@ -40,7 +40,7 @@ export default function Schedule() {
     return map;
   }, [touches]);
 
-  const unscheduled = useMemo(() => touches.filter(t => !t.scheduled_at), [touches]);
+  const unscheduled = useMemo(() => touches.filter(t => !t.scheduled_at && t.touch_num === 1), [touches]);
 
   const { year, month } = cursor;
   const firstDay = new Date(year, month, 1).getDay();

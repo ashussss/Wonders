@@ -1,7 +1,9 @@
 """Outbound delivery functions for ShowUpAI. Reads per-user settings from MongoDB."""
 from __future__ import annotations
 import base64
+import html
 import logging
+import re
 from typing import Optional, Dict, Any
 
 import httpx
@@ -19,51 +21,60 @@ class DeliveryResult(dict):
 
 def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI",
                      unsubscribe_url: str = "") -> str:
-    """Wrap plain text body in a clean branded HTML email template."""
-    # Convert newlines to <br> and handle placeholders
+    """Wrap the body in a plain, letter-style email.
+
+    Deliberately no banner, logo or coloured header: a reminder that looks like a
+    note from the host lands in the main inbox and gets opened; one that looks like
+    a newsletter goes to Promotions and doesn't.
+    """
     html_body = body.replace("\n", "<br>")
-    
     unsub_html = ""
     if unsubscribe_url:
-        unsub_html = f'''<tr><td style="padding:16px 32px;text-align:center;border-top:1px solid #f0f0f0;">
-          <p style="color:#9ca3af;font-size:11px;margin:0;">
-            You're receiving this because you registered for a webinar.<br>
-            <a href="{unsubscribe_url}" style="color:#9ca3af;">Unsubscribe</a>
-          </p>
-        </td></tr>'''
-    
+        unsub_html = (f'<p style="color:#9ca3af;font-size:12px;margin:32px 0 0;">'
+                      f"You're getting this because you registered for this session. "
+                      f'<a href="{unsubscribe_url}" style="color:#9ca3af;">Unsubscribe</a></p>')
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{subject}</title>
+<title>{html.escape(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-        <!-- Header -->
-        <tr><td style="background:#EA580C;padding:20px 32px;">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.5px;">
-                ⚡ {sender_name}
-              </td>
-            </tr>
-          </table>
-        </td></tr>
-        <!-- Body -->
-        <tr><td style="padding:32px 32px 24px;color:#111827;font-size:16px;line-height:1.7;">
-          {html_body}
-        </td></tr>
-        <!-- Footer -->
-        {unsub_html}
-      </table>
-    </td></tr>
-  </table>
+<body style="margin:0;padding:0;background:#ffffff;">
+  <div style="max-width:560px;padding:24px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827;">
+    {html_body}
+    {unsub_html}
+  </div>
 </body>
 </html>"""
+
+
+_URL = re.compile(r"https?://[^\s<>\"]+[^\s<>\".,;:!?)]")
+
+
+def text_to_email_html(text: str, image_url: Optional[str] = None) -> str:
+    """Escape plain text and make its links clickable. A long calendar link reads as a label.
+
+    An image (the touch's card) goes in just before the sign-off paragraph, where it
+    reads as part of the note rather than a newsletter banner.
+    """
+    def _link(m: "re.Match[str]") -> str:
+        url = m.group(0)
+        label = "Add it to your calendar" if "calendar.google.com" in url else url
+        return f'<a href="{url}" style="color:#2563eb;">{label}</a>'
+
+    def _html(t: str) -> str:
+        return _URL.sub(_link, html.escape(t, quote=False)).replace("\n", "<br>")
+
+    if not image_url:
+        return _html(text)
+    img = (f'<img src="{html.escape(image_url)}" alt="" width="480" '
+           f'style="display:block;width:100%;max-width:480px;height:auto;border-radius:8px;margin:4px 0;">')
+    paras = text.rstrip().split("\n\n")
+    if len(paras) >= 3:
+        return _html("\n\n".join(paras[:-1])) + "<br><br>" + img + "<br>" + _html(paras[-1])
+    return _html(text) + "<br><br>" + img
+
 
 # ---------------- Brevo email ----------------
 async def send_brevo_email(settings: Dict[str, Any], to_email: str, subject: str, html: str,
@@ -211,14 +222,20 @@ async def post_facebook_page(settings: Dict[str, Any], message: str,
                 payload["published"] = "true"
 
             if image_url:
-                # Post with image link
-                payload["link"] = image_url
-
-            r = await client.post(f"{META_GRAPH_URL}/{page_id}/feed", data=payload)
+                # A photo post: the image shows in the feed with the message as its caption.
+                payload = {**payload, "url": image_url, "caption": payload.pop("message")}
+                r = await client.post(f"{META_GRAPH_URL}/{page_id}/photos", data=payload)
+                if r.status_code >= 400:   # image unreachable etc.: still post the text
+                    logger.warning(f"facebook photo post failed, posting text only: {r.text[:200]}")
+                    payload = {k: v for k, v in payload.items() if k not in ("url", "caption")}
+                    payload["message"] = message
+                    image_url = None
+            if not image_url:
+                r = await client.post(f"{META_GRAPH_URL}/{page_id}/feed", data=payload)
 
         if r.status_code >= 400:
             return DeliveryResult(False, "facebook", f"{r.status_code}: {r.text[:200]}")
-        post_id = r.json().get("id")
+        post_id = r.json().get("post_id") or r.json().get("id")
         status = "scheduled" if scheduled_time else "published"
         return DeliveryResult(True, "facebook", detail=status, external_id=post_id)
     except Exception as e:
@@ -251,7 +268,8 @@ async def post_instagram(settings: Dict[str, Any], caption: str, image_url: Opti
 
 
 # ---------------- Twilio WhatsApp / SMS ----------------
-async def send_twilio(settings: Dict[str, Any], to_e164: str, body: str, prefer_whatsapp: bool = True) -> DeliveryResult:
+async def send_twilio(settings: Dict[str, Any], to_e164: str, body: str, prefer_whatsapp: bool = True,
+                      media_url: Optional[str] = None) -> DeliveryResult:
     sid = settings.get("twilio_sid")
     token = settings.get("twilio_token")
     frm = settings.get("twilio_from")
@@ -265,6 +283,8 @@ async def send_twilio(settings: Dict[str, Any], to_e164: str, body: str, prefer_
         from_addr = frm.replace("whatsapp:", "")
         to_addr = to_e164.replace("whatsapp:", "")
     data = {"From": from_addr, "To": to_addr, "Body": body}
+    if media_url and prefer_whatsapp:
+        data["MediaUrl"] = media_url
     try:
         async with httpx.AsyncClient(timeout=30, auth=(sid, token)) as client:
             r = await client.post(url, data=data)
@@ -412,27 +432,58 @@ async def send_buzzai_email(settings: Dict[str, Any], to_email: str, subject: st
             "content_b64": base64.b64encode(ics_bytes).decode("ascii"),
         }]
     return await send_buzzai(settings, "email", body_payload)
-async def post_linkedin_company(settings: Dict[str, Any], message: str) -> DeliveryResult:
+async def _linkedin_image_asset(client: httpx.AsyncClient, headers: Dict[str, str], owner: str,
+                                image_url: str) -> Optional[str]:
+    """Upload an image for a feed post and return its asset URN, or None if any step fails."""
+    try:
+        img = await client.get(image_url, follow_redirects=True)
+        if img.status_code >= 400 or not img.content:
+            return None
+        reg = await client.post("https://api.linkedin.com/v2/assets?action=registerUpload", headers=headers, json={
+            "registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"], "owner": owner,
+                "serviceRelationships": [{"relationshipType": "OWNER", "identifier": "urn:li:userGeneratedContent"}],
+            }})
+        if reg.status_code >= 400:
+            logger.warning(f"linkedin registerUpload {reg.status_code}: {reg.text[:200]}")
+            return None
+        val = reg.json()["value"]
+        upload = val["uploadMechanism"]["com.linkedin.digitalmedia.uploadMechanism.MediaUploadHttpRequest"]["uploadUrl"]
+        put = await client.put(upload, content=img.content,
+                               headers={"Authorization": headers["Authorization"],
+                                        "Content-Type": img.headers.get("content-type", "image/jpeg")})
+        if put.status_code >= 400:
+            logger.warning(f"linkedin image upload {put.status_code}: {put.text[:200]}")
+            return None
+        return val["asset"]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"linkedin image upload failed: {e}")
+        return None
+
+
+async def post_linkedin_company(settings: Dict[str, Any], message: str,
+                                image_url: Optional[str] = None) -> DeliveryResult:
     token = settings.get("linkedin_marketing_token")
     org_urn = settings.get("linkedin_org_urn")
     if not token or not org_urn:
         return DeliveryResult(False, "linkedin", "Missing linkedin_marketing_token or linkedin_org_urn")
+    share: Dict[str, Any] = {"shareCommentary": {"text": message}, "shareMediaCategory": "NONE"}
     payload = {
         "author": org_urn,
         "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": message},
-                "shareMediaCategory": "NONE",
-            }
-        },
+        "specificContent": {"com.linkedin.ugc.ShareContent": share},
         "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
     }
     headers = {"Authorization": f"Bearer {token}",
                "X-Restli-Protocol-Version": "2.0.0",
                "Content-Type": "application/json"}
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=45) as client:
+            # With an image the post shows the card; if the upload fails it still goes out as text.
+            asset = await _linkedin_image_asset(client, headers, org_urn, image_url) if image_url else None
+            if asset:
+                share["shareMediaCategory"] = "IMAGE"
+                share["media"] = [{"status": "READY", "media": asset}]
             r = await client.post("https://api.linkedin.com/v2/ugcPosts", json=payload, headers=headers)
         if r.status_code >= 400:
             return DeliveryResult(False, "linkedin", f"{r.status_code}: {r.text[:200]}")
@@ -441,13 +492,15 @@ async def post_linkedin_company(settings: Dict[str, Any], message: str) -> Deliv
         return DeliveryResult(False, "linkedin", str(e))
 
 
-async def post_linkedin_member(settings: Dict[str, Any], message: str) -> DeliveryResult:
+async def post_linkedin_member(settings: Dict[str, Any], message: str,
+                               image_url: Optional[str] = None) -> DeliveryResult:
     """Post to the user's own LinkedIn profile via their OAuth connection (Integrations page)."""
     token = settings.get("linkedin_member_token")
     urn = settings.get("linkedin_member_urn")
     if not token or not urn:
         return DeliveryResult(False, "linkedin", "LinkedIn not connected — connect it on the Integrations page")
-    return await post_linkedin_company({"linkedin_marketing_token": token, "linkedin_org_urn": urn}, message)
+    return await post_linkedin_company({"linkedin_marketing_token": token, "linkedin_org_urn": urn}, message,
+                                       image_url=image_url)
 
 
 # The 11-touch defaults (config.TOUCH_DEFS) and the AI copy use these names.
@@ -462,9 +515,9 @@ async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[st
     if channel == "email":
         if not to_email:
             return DeliveryResult(False, "email", "No recipient email")
-        return await send_email(settings, to_email, subject, body.replace("\n", "<br/>"), ics_bytes=ics_bytes)
+        return await send_email(settings, to_email, subject, text_to_email_html(body, image_url), ics_bytes=ics_bytes)
     if channel == "facebook":
-        return await post_facebook_page(settings, body)
+        return await post_facebook_page(settings, body, image_url=image_url)
     if channel == "instagram":
         return await post_instagram(settings, body, image_url=image_url)
     if channel == "linkedin":
@@ -473,18 +526,18 @@ async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[st
         if provider == "buzzai":
             return await send_buzzai(settings, "linkedin", {"text": body, "subject": subject})
         if settings.get("linkedin_marketing_token") and settings.get("linkedin_org_urn"):
-            return await post_linkedin_company(settings, body)
+            return await post_linkedin_company(settings, body, image_url=image_url)
         # No company Page token: post as the connected member instead.
-        return await post_linkedin_member(settings, body)
+        return await post_linkedin_member(settings, body, image_url=image_url)
     if channel == "linkedin_personal":
         if settings.get("linkedin_member_token"):
-            return await post_linkedin_member(settings, body)
+            return await post_linkedin_member(settings, body, image_url=image_url)
         return DeliveryResult(False, "linkedin_personal",
                               "Connect LinkedIn on the Integrations page to auto-post, or copy-paste it manually")
     if channel == "whatsapp":
         if not to_phone:
             return DeliveryResult(False, "whatsapp", "No recipient phone")
-        return await send_twilio(settings, to_phone, body, prefer_whatsapp=True)
+        return await send_twilio(settings, to_phone, body, prefer_whatsapp=True, media_url=image_url)
     if channel == "circle":
         return await post_circle_space(settings, subject, body)
     return DeliveryResult(False, channel, "Unknown channel")

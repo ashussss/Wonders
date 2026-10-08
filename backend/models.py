@@ -38,6 +38,7 @@ class WebinarPatch(BaseModel):
     timezone: Optional[str] = None
     join_link: Optional[str] = None
     registration_link: Optional[str] = None
+    recording_url: Optional[str] = None
     status: Optional[str] = None
     custom_context: Optional[str] = None
     key_topics: Optional[str] = None

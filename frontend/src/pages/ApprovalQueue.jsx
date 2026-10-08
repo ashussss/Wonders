@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { useTheme } from "@/lib/theme";
+import TouchVisual from "@/components/TouchVisual";
 
 export default function ApprovalQueue() {
   const { isDark } = useTheme();
@@ -221,6 +222,8 @@ function QueueCard({ t, onApprove, onReject }) {
           ))}
         </div>
       </div>
+
+      {t.has_visual && <TouchVisual touch={t} />}
 
       {/* Content */}
       <div className="grid lg:grid-cols-2" style={{ borderTop: "1px solid var(--border)" }}>

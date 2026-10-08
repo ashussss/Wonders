@@ -5,15 +5,20 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme";
 
+// Mirrors backend config.TOUCH_DEFS.
 const TOUCHES = [
   { num: 1, name: "Registration confirmation" },
-  { num: 2, name: "7-day announcement" },
-  { num: 3, name: "3-day fresh angle" },
-  { num: 4, name: "1-day urgency" },
-  { num: 5, name: "3 hours before" },
-  { num: 6, name: "15 minutes before" },
-  { num: 7, name: "Post-event thank-you (attendees)" },
-  { num: 8, name: "Post-event re-engagement (no-shows)" },
+  { num: 2, name: "3 weeks before: the problem" },
+  { num: 3, name: "19 days before: a useful tip" },
+  { num: 4, name: "2 weeks before: poll" },
+  { num: 5, name: "10 days before: scenario" },
+  { num: 6, name: "8 days before: what we'll cover" },
+  { num: 7, name: "5 days before: block your calendar" },
+  { num: 8, name: "24 hours before" },
+  { num: 9, name: "1 hour before" },
+  { num: 12, name: "Live now (at start time)" },
+  { num: 10, name: "Day after: attendees" },
+  { num: 11, name: "2 days after: no-shows" },
 ];
 
 const ALL_CHANNELS = [

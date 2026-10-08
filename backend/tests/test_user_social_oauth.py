@@ -1,6 +1,7 @@
 """Offline tests: webinar touches post with the user's own OAuth connections, and
 the per-touch auto-post / reschedule rules. No mongod needed (tiny in-memory db)."""
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8,6 +9,9 @@ import pytest
 import _growth_helpers  # noqa: F401  (puts backend/ on sys.path)
 
 os.environ.setdefault("JWT_SECRET", "test")
+# Other suites stub `database` with a bare namespace at import time; these tests need the real module.
+if not hasattr(sys.modules.get("database"), "social_images_fs"):
+    sys.modules.pop("database", None)
 
 import routes_delivery  # noqa: E402
 import routes_webinars  # noqa: E402
@@ -90,7 +94,7 @@ async def test_user_oauth_overrides_pasted_meta_tokens(db):
 async def test_dispatch_routes_linkedin_and_aliases(monkeypatch):
     calls = []
 
-    async def fake_company(settings, message):
+    async def fake_company(settings, message, **kw):
         calls.append(settings["linkedin_org_urn"])
         return senders.DeliveryResult(True, "linkedin")
 
