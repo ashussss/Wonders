@@ -501,6 +501,9 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
                 res = {"ok": False, "detail": "unsupported platform"}
         except Exception as e:                                  # noqa: BLE001
             res = {"ok": False, "detail": str(e)[:200]}
+        if platform in ("facebook", "instagram") and not res.get("ok") and "must be granted" in str(res.get("detail")):
+            res["detail"] = ("Facebook permissions are missing. On Integrations, disconnect Facebook, connect "
+                             "again and keep every permission on. " + str(res.get("detail"))[:120])
         res["at"] = now_iso()
         results[platform] = res
 
