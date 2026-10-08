@@ -272,6 +272,11 @@ export default function Integrations() {
             <div className="text-sm" style={{ color: mt.ig_username ? "var(--text-primary)" : "#b45309" }} data-testid="meta-ig">
               Instagram: {mt.ig_username ? `@${mt.ig_username}` : "not linked to this Page (Instagram posts will be skipped)"}
             </div>
+            {mt.missing_permissions?.length > 0 && (
+              <div className="text-sm" style={{ color: "#b45309" }} data-testid="meta-missing-perms">
+                Missing Facebook permissions: {mt.missing_permissions.join(", ")}. Disconnect, connect again and keep every permission on.
+              </div>
+            )}
             {(mt.pages || []).length > 1 && (
               <label className="block text-sm pt-1" style={{ color: "var(--text-muted)" }}>
                 Post to Page{" "}
