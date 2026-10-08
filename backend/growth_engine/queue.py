@@ -482,8 +482,8 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
             if platform == "linkedin":
                 vis = doc.get("visual") or {}
                 if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
-                    res = await post_linkedin_poll(settings, text, vis.get("title") or "",
-                                                   vis.get("rows") or [])
+                    res = await post_linkedin_poll(settings, text, (vis.get("title") or "").replace("*", ""),
+                                                   [str(r).replace("*", "") for r in vis.get("rows") or []])
                 elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:
