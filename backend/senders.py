@@ -441,10 +441,24 @@ async def post_linkedin_company(settings: Dict[str, Any], message: str) -> Deliv
         return DeliveryResult(False, "linkedin", str(e))
 
 
+async def post_linkedin_member(settings: Dict[str, Any], message: str) -> DeliveryResult:
+    """Post to the user's own LinkedIn profile via their OAuth connection (Integrations page)."""
+    token = settings.get("linkedin_member_token")
+    urn = settings.get("linkedin_member_urn")
+    if not token or not urn:
+        return DeliveryResult(False, "linkedin", "LinkedIn not connected — connect it on the Integrations page")
+    return await post_linkedin_company({"linkedin_marketing_token": token, "linkedin_org_urn": urn}, message)
+
+
+# The 11-touch defaults (config.TOUCH_DEFS) and the AI copy use these names.
+CHANNEL_ALIASES = {"linkedin_page": "linkedin", "facebook_page": "facebook"}
+
+
 # Dispatcher: takes channel name + the body/subject and routes to the right provider.
 async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[str], to_phone: Optional[str],
                    subject: str, body: str, ics_bytes: Optional[bytes] = None,
                    image_url: Optional[str] = None) -> DeliveryResult:
+    channel = CHANNEL_ALIASES.get(channel, channel)
     if channel == "email":
         if not to_email:
             return DeliveryResult(False, "email", "No recipient email")
@@ -458,9 +472,15 @@ async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[st
         provider = (settings.get("linkedin_provider") or "marketing_api").strip().lower()
         if provider == "buzzai":
             return await send_buzzai(settings, "linkedin", {"text": body, "subject": subject})
-        return await post_linkedin_company(settings, body)
+        if settings.get("linkedin_marketing_token") and settings.get("linkedin_org_urn"):
+            return await post_linkedin_company(settings, body)
+        # No company Page token: post as the connected member instead.
+        return await post_linkedin_member(settings, body)
     if channel == "linkedin_personal":
-        return DeliveryResult(False, "linkedin_personal", "Manual copy-paste only — no auto-post allowed")
+        if settings.get("linkedin_member_token"):
+            return await post_linkedin_member(settings, body)
+        return DeliveryResult(False, "linkedin_personal",
+                              "Connect LinkedIn on the Integrations page to auto-post, or copy-paste it manually")
     if channel == "whatsapp":
         if not to_phone:
             return DeliveryResult(False, "whatsapp", "No recipient phone")
