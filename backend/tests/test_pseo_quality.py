@@ -49,7 +49,7 @@ def test_quality_gate_holds_banned_phrases_and_brand_spam():
     assert pseo.passes_quality_gate({**base, "content": "Plain, specific copy."})[0]
     assert not pseo.passes_quality_gate({**base, "content": "This is a game-changer."})[0]
     assert not pseo.passes_quality_gate({**base, "content": "ShowUpAI. ShowUpAI. ShowUpAI."})[0]
-    assert not pseo.passes_quality_gate({**base, "word_count": 1000, "content": "ok"})[0]
+    assert not pseo.passes_quality_gate({**base, "word_count": 900, "content": "ok"})[0]
 
 
 def test_topic_similarity_flags_live_duplicates_but_not_distinct_topics():
@@ -158,6 +158,9 @@ class _CountColl:
     async def count_documents(self, q):
         return self.n
 
+    def find(self, *a, **k):
+        return types.SimpleNamespace(sort=lambda *a, **k: _Cursor([]))
+
 
 def _catch_up(monkeypatch, have, runs):
     monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
@@ -187,3 +190,94 @@ def test_catch_up_gives_up_and_stops_on_empty_queue(monkeypatch):
     assert len(calls) == 3  # 1 missing -> at most 3 attempts
     _, calls = _catch_up(monkeypatch, 0, [])
     assert len(calls) == 1  # empty queue ends it at once
+
+
+def test_drop_failing_sentences_keeps_sourced_and_example_numbers():
+    url = pseo.FACTS[0]["url"]
+    content = "\n".join([
+        "## Why it matters",
+        "Most teams see 73% no-shows. That hurts.",
+        f"ON24 reports a figure [here]({url}) of 60%.",
+        "- Around 40% of people forget. Send a reminder.",
+        "For example, 20% of 100 is 20.",
+        "| Channel | Lift |", "|---|---|", "| SMS | 30% |",
+        "Doubling 50 x 2 = 120 is wrong.",
+        "Keep this line.",
+    ])
+    out = pseo.drop_failing_sentences(content)
+    assert "73%" not in out and "That hurts." in out and url in out
+    assert "40%" not in out and "- Send a reminder." in out
+    assert "For example, 20% of 100 is 20." in out
+    assert "| SMS | 30% |" not in out and "| Channel | Lift |" in out
+    assert "50 x 2 = 120" not in out and "Keep this line." in out
+    assert not pseo.unsourced_numbers(out) and not pseo.bad_math(out)
+
+
+def test_trim_brand_mentions_to_gate_limit():
+    b = pseo.BRAND
+    out = pseo.trim_brand_mentions(f"{b} helps. Use {b} now. {b} also does X.")
+    assert pseo.brand_mentions(out) == 2 and out.endswith("The tool also does X.")
+
+
+class _UpdColl:
+    def __init__(self):
+        self.updates = []
+
+    async def update_one(self, q, u):
+        self.updates.append((q, u))
+
+
+def test_auto_schedule_repairs_held_draft_then_schedules(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_style(c):
+        return c
+
+    async def slot():
+        return "2026-10-08T05:00:00+00:00"
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "next_publish_slot", slot)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    body = " ".join(["Plain specific advice about reminders."] * 250)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "fact_check_ok": True,
+            "content": body + "\nTeams lose 73% of signups.", "word_count": 1300}
+    assert not pseo.passes_quality_gate(post)[0]
+    res = asyncio.run(pseo.auto_schedule(post))
+    assert res["status"] == "scheduled"
+    saved = [u["$set"] for _, u in coll.updates if "content" in u.get("$set", {})][0]
+    assert "73%" not in saved["content"]
+
+
+def test_auto_schedule_records_held_reason(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_style(c):
+        return c
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "fact_check_ok": True, "content": "short", "word_count": 1}
+    res = asyncio.run(pseo.auto_schedule(post))
+    assert res["held"].startswith("too short")
+    assert any(u.get("$set", {}).get("held_reason", "").startswith("too short") for _, u in coll.updates)
+
+
+def test_catch_up_schedules_held_drafts_before_writing_new(monkeypatch):
+    held = [{"slug": "a"}, {"slug": "b"}]
+    coll = _CountColl(2)
+    coll.find = lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor(held))
+    monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def sched(post):
+        return {"status": "scheduled"}
+    calls = []
+
+    async def fake_run(n):
+        calls.append(n)
+        return {"results": []}
+    monkeypatch.setattr(pseo, "auto_schedule", sched)
+    monkeypatch.setattr(pseo, "run_pipeline", fake_run)
+    assert asyncio.run(pseo.catch_up()) == {"ok": True, "rescheduled": 2}
+    assert calls == []
