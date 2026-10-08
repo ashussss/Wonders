@@ -1,7 +1,9 @@
 """Outbound delivery functions for ShowUpAI. Reads per-user settings from MongoDB."""
 from __future__ import annotations
 import base64
+import html
 import logging
+import re
 from typing import Optional, Dict, Any
 
 import httpx
@@ -19,51 +21,45 @@ class DeliveryResult(dict):
 
 def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI",
                      unsubscribe_url: str = "") -> str:
-    """Wrap plain text body in a clean branded HTML email template."""
-    # Convert newlines to <br> and handle placeholders
+    """Wrap the body in a plain, letter-style email.
+
+    Deliberately no banner, logo or coloured header: a reminder that looks like a
+    note from the host lands in the main inbox and gets opened; one that looks like
+    a newsletter goes to Promotions and doesn't.
+    """
     html_body = body.replace("\n", "<br>")
-    
     unsub_html = ""
     if unsubscribe_url:
-        unsub_html = f'''<tr><td style="padding:16px 32px;text-align:center;border-top:1px solid #f0f0f0;">
-          <p style="color:#9ca3af;font-size:11px;margin:0;">
-            You're receiving this because you registered for a webinar.<br>
-            <a href="{unsubscribe_url}" style="color:#9ca3af;">Unsubscribe</a>
-          </p>
-        </td></tr>'''
-    
+        unsub_html = (f'<p style="color:#9ca3af;font-size:12px;margin:32px 0 0;">'
+                      f"You're getting this because you registered for this session. "
+                      f'<a href="{unsubscribe_url}" style="color:#9ca3af;">Unsubscribe</a></p>')
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{subject}</title>
+<title>{html.escape(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-        <!-- Header -->
-        <tr><td style="background:#EA580C;padding:20px 32px;">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.5px;">
-                ⚡ {sender_name}
-              </td>
-            </tr>
-          </table>
-        </td></tr>
-        <!-- Body -->
-        <tr><td style="padding:32px 32px 24px;color:#111827;font-size:16px;line-height:1.7;">
-          {html_body}
-        </td></tr>
-        <!-- Footer -->
-        {unsub_html}
-      </table>
-    </td></tr>
-  </table>
+<body style="margin:0;padding:0;background:#ffffff;">
+  <div style="max-width:560px;padding:24px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827;">
+    {html_body}
+    {unsub_html}
+  </div>
 </body>
 </html>"""
+
+
+_URL = re.compile(r"https?://[^\s<>\"]+[^\s<>\".,;:!?)]")
+
+
+def text_to_email_html(text: str) -> str:
+    """Escape plain text and make its links clickable. A long calendar link reads as a label."""
+    def _link(m: "re.Match[str]") -> str:
+        url = m.group(0)
+        label = "Add it to your calendar" if "calendar.google.com" in url else url
+        return f'<a href="{url}" style="color:#2563eb;">{label}</a>'
+    return _URL.sub(_link, html.escape(text, quote=False)).replace("\n", "<br>")
+
 
 # ---------------- Brevo email ----------------
 async def send_brevo_email(settings: Dict[str, Any], to_email: str, subject: str, html: str,
@@ -462,7 +458,7 @@ async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[st
     if channel == "email":
         if not to_email:
             return DeliveryResult(False, "email", "No recipient email")
-        return await send_email(settings, to_email, subject, body.replace("\n", "<br/>"), ics_bytes=ics_bytes)
+        return await send_email(settings, to_email, subject, text_to_email_html(body), ics_bytes=ics_bytes)
     if channel == "facebook":
         return await post_facebook_page(settings, body)
     if channel == "instagram":

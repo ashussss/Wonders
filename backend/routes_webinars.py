@@ -25,7 +25,10 @@ def _webinar_doc(uid: str, data: WebinarIn) -> dict:
         "title": data.title,
         "description": data.description,
         "speaker": data.speaker,
+        "speakers": data.speakers or "",
         "target_audience": data.target_audience,
+        "custom_context": data.custom_context or "",
+        "key_topics": data.key_topics or "",
         "starts_at": data.starts_at,
         "timezone": data.timezone,
         "join_link": data.join_link,
@@ -42,7 +45,7 @@ logger = logging.getLogger("showup.webinars")
 
 async def _bg_generate_all(webinar_id: str):
     """Background task fired after webinar creation — generates AI copy for
-    lead magnets and all 8 touches in parallel. Errors are logged, not swallowed,
+    lead magnets and every touch in parallel. Errors are logged, not swallowed,
     so failures are visible instead of silently doing nothing."""
     try:
         w = await db.webinars.find_one({"id": webinar_id}, {"_id": 0})
@@ -76,7 +79,7 @@ async def _bg_generate_all(webinar_id: str):
                 copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]),
                                                   custom_instructions=global_instructions)
                 reasoning = await touch_reasoning(t["touch_num"], t["channels"])
-                await db.touches.update_one({"id": t["id"], "owner_id": user["id"]},
+                await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]},
                                              {"$set": {"ai_copy": copy, "ai_reasoning": reasoning}})
             except Exception as e:
                 logger.error(f"_bg_generate_all: touch {t.get('touch_num')} for {webinar_id} failed: {e}")
@@ -107,7 +110,7 @@ async def create_webinar(data: WebinarIn, user=Depends(get_user)):
     for tdef in TOUCH_DEFS:
         tnum = tdef["num"]
         channels = default_channels.get(str(tnum), tdef["default_channels"])
-        sched = await compute_dynamic_schedule(data.starts_at, tnum) if tnum != 1 else None
+        sched = await compute_dynamic_schedule(data.starts_at, tnum, tz=data.timezone) if tnum != 1 else None
         touches.append({
             "id": str(uuid.uuid4()), "webinar_id": doc["id"], "owner_id": user["id"],
             "touch_num": tnum, "name": tdef["name"], "trigger": tdef["trigger"],
@@ -143,11 +146,12 @@ async def patch_webinar(wid: str, data: WebinarPatch, user=Depends(get_user)):
     if not upd:
         return {"ok": True}
     await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$set": upd})
-    if "starts_at" in upd:
+    if "starts_at" in upd or "timezone" in upd:
+        w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0}) or {}
         for tdef in TOUCH_DEFS:
             if tdef["num"] == 1:
                 continue
-            sched = await compute_dynamic_schedule(upd["starts_at"], tdef["num"])
+            sched = await compute_dynamic_schedule(w.get("starts_at"), tdef["num"], tz=w.get("timezone"))
             await db.touches.update_one({"webinar_id": wid, "touch_num": tdef["num"]},
                                          {"$set": {"scheduled_at": sched}})
     return {"ok": True}
@@ -168,12 +172,12 @@ async def list_registrants(wid: str, user=Depends(get_user)):
     return await db.registrants.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(2000)
 
 
-async def _trigger_touch1(wid: str):
-    t1 = await db.touches.find_one({"webinar_id": wid, "touch_num": 1}, {"_id": 0})
-    if t1 and not t1.get("ai_copy"):
-        w = await db.webinars.find_one({"id": wid}, {"_id": 0})
-        copy = await generate_touch_copy(w, 1, t1["channels"])
-        await db.touches.update_one({"id": t1["id"], "owner_id": user["id"]}, {"$set": {"ai_copy": copy}})
+async def _confirm_registrant(wid: str, reg_id: str):
+    from routes_delivery import send_confirmation
+    try:
+        await send_confirmation(wid, reg_id)
+    except Exception as e:                                  # noqa: BLE001
+        logger.error(f"confirmation failed for webinar={wid} registrant={reg_id}: {e}")
 
 
 @router.post("/webinars/{wid}/register")
@@ -189,7 +193,7 @@ async def public_register(wid: str, data: RegistrantIn, request: Request):
            "name": data.name, "email": data.email.lower(), "phone": data.phone,
            "source": data.source, "attended": False, "registered_at": now_iso()}
     await db.registrants.insert_one(reg)
-    asyncio.create_task(_trigger_touch1(wid))
+    asyncio.create_task(_confirm_registrant(wid, reg["id"]))
     return {"ok": True, "id": reg["id"]}
 
 
@@ -219,7 +223,7 @@ async def circle_webhook(wid: str, payload: Dict[str, Any], request: Request):
     name = member.get("name") or member.get("full_name") or (email.split("@")[0] if email else "")
     if not email:
         raise HTTPException(400, "email required")
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
     if not w:
         raise HTTPException(404)
     existing = await db.registrants.find_one({"webinar_id": wid, "email": email})
@@ -248,8 +252,38 @@ async def mark_attendance(wid: str, payload: Dict[str, Any], user=Depends(get_us
 
 
 # --------- Touches ---------
+async def _backfill_touches(wid: str, owner_id: str) -> None:
+    """Webinars created before a touch was added to TOUCH_DEFS get it, if it's still ahead."""
+    w = await db.webinars.find_one({"id": wid, "owner_id": owner_id}, {"_id": 0})
+    if not w:
+        return
+    have = {t["touch_num"] for t in await db.touches.find({"webinar_id": wid}, {"_id": 0, "touch_num": 1}).to_list(50)}
+    settings = await db.settings.find_one({"owner_id": owner_id}, {"_id": 0}) or {}
+    for tdef in TOUCH_DEFS:
+        if tdef["num"] in have or tdef["num"] == 1:
+            continue
+        sched = await compute_dynamic_schedule(w.get("starts_at"), tdef["num"], tz=w.get("timezone"))
+        if not sched:
+            continue
+        channels = (settings.get("default_channels") or {}).get(str(tdef["num"]), tdef["default_channels"])
+        t = {"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": owner_id,
+             "touch_num": tdef["num"], "name": tdef["name"], "trigger": tdef["trigger"],
+             "channels": channels, "scheduled_at": sched, "ai_reasoning": "", "ai_copy": {},
+             "selected_variant": 0, "copy_overrides": {},
+             "approval_status": "pending", "sent_status": "planned",
+             "sent_at": None, "created_at": now_iso()}
+        # Upsert so two page loads at once can't both add it.
+        r = await db.touches.update_one({"webinar_id": wid, "touch_num": tdef["num"]},
+                                        {"$setOnInsert": t}, upsert=True)
+        if not r.upserted_id:
+            continue
+        copy = await generate_touch_copy(w, tdef["num"], channels)
+        await db.touches.update_one({"id": t["id"], "owner_id": owner_id}, {"$set": {"ai_copy": copy}})
+
+
 @router.get("/webinars/{wid}/touches")
 async def list_touches(wid: str, user=Depends(get_user)):
+    asyncio.create_task(_backfill_touches(wid, user["id"]))
     return await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
 
 

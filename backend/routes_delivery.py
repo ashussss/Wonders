@@ -1,5 +1,6 @@
 """Delivery, file downloads, third-party integrations, social image generation."""
 import os
+import re
 from typing import Dict, Any, List
 from datetime import datetime, timedelta, timezone
 import logging
@@ -16,6 +17,7 @@ from integrations import circle_sync_members, circle_diagnose, linkedin_list_eve
 from image_gen import generate_webinar_social_image
 from showup_score import render_showup_score
 from crypto_utils import decrypt_settings
+from touch_render import PERSONAL_CHANNELS, render
 
 logger = logging.getLogger("showup.delivery")
 
@@ -53,7 +55,7 @@ async def _with_user_oauth(user_id: str, settings: Dict[str, Any]) -> Dict[str, 
 # ---------- File downloads (public) ----------
 @router.get("/webinars/{wid}/calendar.ics")
 async def get_ics(wid: str):
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
     if not w:
         raise HTTPException(404)
     data = build_ics(w)
@@ -63,7 +65,7 @@ async def get_ics(wid: str):
 
 @router.get("/webinars/{wid}/one-pager.pdf")
 async def get_pdf(wid: str):
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
     if not w:
         raise HTTPException(404)
     lm = await db.lead_magnets.find_one({"webinar_id": wid}, {"_id": 0}) or {}
@@ -176,7 +178,8 @@ async def generate_adhoc(wid: str, payload: Dict[str, Any], user=Depends(get_use
     text_data = await _gen_adhoc(w, channel=audience, with_poll=with_poll, custom_brief=custom_brief)
 
     # Normalise: backend returns "content", frontend expects "post_text"
-    post_text = text_data.get("content") or text_data.get("post_text") or ""
+    # It's copied and pasted by hand, so fill the placeholders now.
+    post_text = render(text_data.get("content") or text_data.get("post_text") or "", w, audience)
     hashtags  = text_data.get("hashtags", [])
     poll_q    = text_data.get("poll_question", "")
 
@@ -276,7 +279,7 @@ async def generate_score(wid: str, user=Depends(get_user)):
 async def get_score_image(wid: str):
     meta = await db.showup_scores.find_one({"webinar_id": wid}, {"_id": 0})
     if not meta or not meta.get("file_id"):
-        w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+        w = await db.webinars.find_one({"id": wid}, {"_id": 0})
         if not w:
             raise HTTPException(404)
         await _render_and_store_score(wid, w["owner_id"], w)
@@ -289,7 +292,7 @@ async def get_score_meta(wid: str):
     meta = await db.showup_scores.find_one({"webinar_id": wid}, {"_id": 0, "file_id": 0})
     if meta:
         return meta
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
     if not w:
         raise HTTPException(404)
     regs = await db.registrants.count_documents({"webinar_id": wid})
@@ -389,6 +392,24 @@ async def test_send(channel: str, payload: Dict[str, Any], user=Depends(get_user
 
 
 # ---------- Manual Send-Now (touch) ----------
+# Post-event touches go to one side of the room only (config.TOUCH_DEFS 10 and 11).
+POST_EVENT_AUDIENCE = {10: True, 11: False}
+
+
+def _touch_audience(t: Dict[str, Any]) -> Dict[str, Any]:
+    q: Dict[str, Any] = {"webinar_id": t["webinar_id"]}
+    attended = POST_EVENT_AUDIENCE.get(t["touch_num"])
+    if t.get("trigger") == "after_event_attendees":
+        attended = True
+    elif t.get("trigger") == "after_event_noshows":
+        attended = False
+    if attended is True:
+        q["attended"] = True
+    elif attended is False:
+        q["attended"] = {"$ne": True}
+    return q
+
+
 async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_backend_url: str = "") -> Dict[str, Any]:
     w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": t.get("owner_id", "")}, {"_id": 0})
     if not w:
@@ -397,13 +418,7 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     variant_key = "casual" if t.get("selected_variant") == 1 else "safe"
     delivery_log: List[Dict[str, Any]] = []
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
-
-    audience_filter: Dict[str, Any] = {"webinar_id": t["webinar_id"]}
-    if t["trigger"] == "after_event_attendees":
-        audience_filter["attended"] = True
-    elif t["trigger"] == "after_event_noshows":
-        audience_filter["attended"] = {"$ne": True}
-    regs = await db.registrants.find(audience_filter, {"_id": 0}).to_list(5000)
+    regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
 
     ig_image_url = None
     if "instagram" in (t.get("channels") or []):
@@ -415,29 +430,95 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
         c = ai_ch.get(ch, {}).get(variant_key) or {}
         subject = c.get("subject") or w["title"]
         body = c.get("body") or ""
-        # Touch #7 (post-event attendees) gets a ShowUp Score share link appended
-        if t["touch_num"] == 7 and ch == "email" and public_backend_url:
+        if not body:
+            delivery_log.append({"channel": ch, "ok": False, "detail": "No copy for this channel yet"})
+            continue
+        # Post-event attendees get a ShowUp Score share link appended
+        if t["touch_num"] == 10 and ch == "email" and public_backend_url:
             score_url = f"{public_backend_url}/api/webinars/{t['webinar_id']}/showup-score.png"
-            body = body + f"\n\n📊 Share the energy from this session — your ShowUp Score: {score_url}"
-        if ch in ("email", "whatsapp"):
+            body = body + f"\n\nYour ShowUp Score from the session, if you want to share it: {score_url}"
+        if ch in PERSONAL_CHANNELS:
             if not regs:
                 delivery_log.append({"channel": ch, "ok": False,
                                       "detail": "No recipients in audience — share the registration link first"})
                 continue
             for r in regs:
+                if ch == "email" and not r.get("email") or ch == "whatsapp" and not r.get("phone"):
+                    continue
                 res = await send_dispatch(ch, settings,
                                            to_email=r.get("email"), to_phone=r.get("phone"),
-                                           subject=subject, body=body,
+                                           subject=render(subject, w, ch, r), body=render(body, w, ch, r),
                                            ics_bytes=ics_bytes if ch == "email" else None)
                 delivery_log.append({"channel": ch, "recipient": r.get("email") or r.get("phone"),
                                       "ok": res.get("ok"), "detail": res.get("detail")})
         else:
             res = await send_dispatch(ch, settings, to_email=None, to_phone=None,
-                                       subject=subject, body=body,
+                                       subject=render(subject, w, ch), body=render(body, w, ch),
                                        image_url=ig_image_url if ch == "instagram" else None)
             delivery_log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
     ok_any = any(d.get("ok") for d in delivery_log)
     return {"ok": ok_any, "log": delivery_log}
+
+
+# The confirmation every registrant gets the moment they sign up, unless the host has
+# approved their own Touch 1 copy. Written as the host, with the calendar step and a
+# reply ask: people who save the date and write back are the ones who turn up.
+DEFAULT_CONFIRMATION = {
+    "email": {
+        "subject": "You're in: {{webinar_title}}",
+        "body": ("Hi {{first_name}},\n\n"
+                 "You're registered for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}.\n\n"
+                 "Your link to join: {{join_link}}\n\n"
+                 "Put it in your calendar now so it doesn't get buried: {{calendar_link}}\n\n"
+                 "One favour: hit reply and tell me the one question you want answered. "
+                 "I'll do my best to cover it live.\n\n"
+                 "See you there,\n{{speaker}}"),
+    },
+    "whatsapp": {
+        "body": ("Hi {{first_name}}, you're in for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}. "
+                 "Save this message, the link to join is {{join_link}}"),
+    },
+}
+
+
+async def send_confirmation(wid: str, reg_id: str) -> Dict[str, Any]:
+    """Confirm one new registrant right away by email (+ calendar invite) and WhatsApp."""
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    reg = await db.registrants.find_one({"id": reg_id, "webinar_id": wid}, {"_id": 0})
+    if not w or not reg or reg.get("confirmation_sent_at"):
+        return {"ok": False, "detail": "nothing to confirm"}
+    if (w.get("enabled_touches") or {}).get("1") is False:
+        return {"ok": False, "detail": "confirmation turned off for this webinar"}
+    t1 = await db.touches.find_one({"webinar_id": wid, "touch_num": 1}, {"_id": 0}) or {}
+    if t1 and not (t1.get("ai_copy") or {}).get("channels"):
+        from ai import generate_touch_copy
+        copy = await generate_touch_copy(w, 1, t1.get("channels") or ["email"])
+        await db.touches.update_one({"id": t1["id"], "webinar_id": wid}, {"$set": {"ai_copy": copy}})
+        t1["ai_copy"] = copy
+    approved = t1.get("approval_status") == "approved"
+    ai_ch = (t1.get("ai_copy") or {}).get("channels") or {}
+    variant = "casual" if t1.get("selected_variant") == 1 else "safe"
+    settings = await _user_settings_decrypted(w["owner_id"])
+
+    log: List[Dict[str, Any]] = []
+    for ch in t1.get("channels") or ["email"]:
+        if ch == "email" and not reg.get("email") or ch == "whatsapp" and not reg.get("phone"):
+            continue
+        if ch not in PERSONAL_CHANNELS:
+            continue
+        c = (ai_ch.get(ch) or {}).get(variant) if approved else None
+        c = c if c and c.get("body") else DEFAULT_CONFIRMATION.get(ch)
+        if not c:
+            continue
+        res = await send_dispatch(ch, settings, to_email=reg.get("email"), to_phone=reg.get("phone"),
+                                  subject=render(c.get("subject") or "You're in: {{webinar_title}}", w, ch, reg),
+                                  body=render(c["body"], w, ch, reg),
+                                  ics_bytes=build_ics(w) if ch == "email" else None)
+        log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
+    ok = any(x["ok"] for x in log)
+    await db.registrants.update_one({"id": reg_id}, {"$set": {
+        "confirmation_sent_at": now_iso() if ok else None, "confirmation_log": log}})
+    return {"ok": ok, "log": log}
 
 
 @router.post("/touches/{tid}/send-now")
@@ -677,39 +758,45 @@ async def email_analytics(user=Depends(get_user)):
 # ══════════════════════════════════════════════
 # WE'RE LIVE — instant broadcast to all registrants
 # ══════════════════════════════════════════════
+async def _send_each(settings: Dict[str, Any], w: Dict[str, Any], regs: List[Dict[str, Any]],
+                     subject: str, body: str, whatsapp: str = "") -> int:
+    """Personalised email (and WhatsApp when a template is given) to each registrant."""
+    sent = 0
+    for reg in regs:
+        if reg.get("email"):
+            res = await send_dispatch("email", settings, to_email=reg["email"], to_phone=None,
+                                      subject=render(subject, w, "email", reg), body=render(body, w, "email", reg))
+            sent += bool(res.get("ok"))
+        if whatsapp and reg.get("phone"):
+            await send_dispatch("whatsapp", settings, to_email=None, to_phone=reg["phone"],
+                                subject="", body=render(whatsapp, w, "whatsapp", reg))
+    return sent
+
+
 @router.post("/webinars/{wid}/go-live")
 async def go_live(wid: str, user=Depends(get_user)):
-    """Send instant 'We are live!' message to all registrants."""
+    """Send instant 'We are live!' message to all registrants who haven't joined."""
     w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
     if not w:
         raise HTTPException(404)
-    registrants = await db.registrants.find({"webinar_id": wid}, {"_id": 0}).to_list(5000)
+    registrants = await db.registrants.find({"webinar_id": wid, "attended": {"$ne": True}},
+                                            {"_id": 0}).to_list(5000)
     if not registrants:
         return {"ok": True, "sent": 0, "message": "No registrants to notify"}
 
     settings = await _user_settings_decrypted(user["id"])
-    join_link = w.get("join_link") or w.get("registration_link") or ""
-
-    subject = f"We're live now — {w['title']}"
-    body = f"""We are live right now!
-
-{w['title']}
-
-Join here: {join_link}
-
-See you inside!
-"""
-    sent = 0
-    for reg in registrants:
-        if reg.get("email"):
-            try:
-                result = await send_email(settings, reg["email"], subject, body)
-                if result.ok:
-                    sent += 1
-            except:
-                pass
+    sent = await _send_each(
+        settings, w, registrants,
+        "We're live now: {{webinar_title}}",
+        "Hi {{first_name}},\n\nWe've just started. Jump in here: {{join_link}}\n\n"
+        "You haven't missed anything that matters yet.\n\n{{speaker}}",
+        whatsapp="{{first_name}}, we're live now. Join here: {{join_link}}")
 
     await db.webinars.update_one({"id": wid}, {"$set": {"went_live_at": now_iso()}})
+    # The scheduled "live now" touch would say the same thing again.
+    await db.touches.update_many({"webinar_id": wid, "touch_num": 12, "sent_status": {"$in": ["planned", "queued"]}},
+                                 {"$set": {"sent_status": "sent", "sent_at": now_iso(),
+                                           "delivery_log": [{"channel": "email", "ok": True, "detail": "Sent by Go live"}]}})
     return {"ok": True, "sent": sent, "total": len(registrants)}
 
 
@@ -723,55 +810,31 @@ async def post_webinar_sequence(wid: str, payload: dict = Body(default={}), user
     if not w:
         raise HTTPException(404)
 
+    recording = (payload.get("recording_url") or "").strip()
+    if recording:
+        # Stored so touches 10/11 can use {{recording_link}} too.
+        await db.webinars.update_one({"id": wid}, {"$set": {"recording_url": recording}})
+        w["recording_url"] = recording
+
     settings = await _user_settings_decrypted(user["id"])
     registrants = await db.registrants.find({"webinar_id": wid}, {"_id": 0}).to_list(5000)
+    attendees = [r for r in registrants if r.get("attended")]
+    no_shows = [r for r in registrants if not r.get("attended")]
+    rec_line = ("Here's the recording if you want to rewatch any part: {{recording_link}}" if recording
+                else "I'll send the recording as soon as it's ready.")
+    topics = [x.strip() for x in re.split(r"[,\n;]", w.get("key_topics") or "") if x.strip()][:3]
+    covered = ("We covered:\n" + "\n".join(f"- {x}" for x in topics) + "\n\n") if topics else ""
 
-    attendees  = [r for r in registrants if r.get("attended")]
-    no_shows   = [r for r in registrants if not r.get("attended")]
-    recording  = payload.get("recording_url", "")
-
-    sent_att, sent_ns = 0, 0
-
-    # Attendee email — thank you + recording
-    att_subject = f"Thank you for joining — {w['title']}"
-    att_body = f"""Thank you for joining us today!
-
-{w['title']}
-
-{"Here is the recording: " + recording if recording else "The recording will be shared shortly."}
-
-We hope it was valuable. See you at the next one!
-"""
-    for reg in attendees:
-        if reg.get("email"):
-            try:
-                result = await send_email(settings, reg["email"], att_subject, att_body)
-                if result.ok:
-                    sent_att += 1
-            except:
-                pass
-
-    # No-show FOMO email
-    ns_subject = f"You missed it — here's what happened at {w['title']}"
-    ns_body = f"""We missed you today at {w['title']}.
-
-Here's what the attendees learned:
-• How to significantly improve webinar attendance rates
-• Practical strategies that work for your audience
-• Real examples and case studies
-
-{"Watch the recording here: " + recording if recording else "We'll share the recording soon — watch out for it."}
-
-Don't miss the next one — we run these regularly.
-"""
-    for reg in no_shows:
-        if reg.get("email"):
-            try:
-                result = await send_email(settings, reg["email"], ns_subject, ns_body)
-                if result.ok:
-                    sent_ns += 1
-            except:
-                pass
+    sent_att = await _send_each(
+        settings, w, attendees, "Thanks for coming: {{webinar_title}}",
+        "Hi {{first_name}},\n\nThanks for spending the time with us today.\n\n" + rec_line +
+        "\n\nWhat was the one thing you're going to try first? Hit reply, I read every answer.\n\n{{speaker}}")
+    sent_ns = await _send_each(
+        settings, w, no_shows, "Sorry we missed you: {{webinar_title}}",
+        "Hi {{first_name}},\n\nWe missed you today. No stress, it happens.\n\n" + covered +
+        ("Watch the recording here: {{recording_link}}" if recording
+         else "I'll send you the recording as soon as it's ready.") +
+        "\n\n{{speaker}}")
 
     return {
         "ok": True,
