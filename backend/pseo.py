@@ -979,7 +979,7 @@ async def repair_draft(post: dict) -> dict:
     return {**post, **upd}
 
 
-async def auto_schedule(post: dict) -> dict:
+async def auto_schedule(post: dict, when: str | None = None) -> dict:
     """If auto-scheduling is on and the draft passes the gate (after one repair pass if needed), give it the next
     free slot. A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
     if not PSEO_AUTO_SCHEDULE or post.get("published"):
@@ -991,7 +991,7 @@ async def auto_schedule(post: dict) -> dict:
             ok, why = passes_quality_gate(post)
         except Exception as e:
             logger.warning(f"pSEO repair failed for {post.get('slug')}: {e}")
-    slot = await next_publish_slot() if ok else None
+    slot = (when or await next_publish_slot()) if ok else None
     if slot:
         await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"},
                                                                 "$unset": {"held_reason": ""}})
@@ -1005,6 +1005,8 @@ async def auto_schedule(post: dict) -> dict:
 async def schedule_held_drafts(limit: int) -> int:
     """Give recent pipeline drafts that were held back another repair pass and schedule the ones that now pass."""
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     rows = await db.blog_posts.find(
         {"source": "pseo", "published": {"$ne": True}, "publish_at": None, "created_at": {"$gte": since}},
         {"_id": 0}).sort("created_at", 1).to_list(50)
@@ -1012,7 +1014,9 @@ async def schedule_held_drafts(limit: int) -> int:
     for post in rows:
         if n >= limit:
             break
-        if (await auto_schedule(post)).get("status") == "scheduled":
+        # a draft from an earlier day missed its day: publish it on the next 10-minute publish run
+        when = now_iso() if (post.get("created_at") or "") < today else None
+        if (await auto_schedule(post, when)).get("status") == "scheduled":
             n += 1
     return n
 

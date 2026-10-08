@@ -270,7 +270,7 @@ def test_catch_up_schedules_held_drafts_before_writing_new(monkeypatch):
     monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
     pseo.db = types.SimpleNamespace(blog_posts=coll)
 
-    async def sched(post):
+    async def sched(post, when=None):
         return {"status": "scheduled"}
     calls = []
 
@@ -281,3 +281,19 @@ def test_catch_up_schedules_held_drafts_before_writing_new(monkeypatch):
     monkeypatch.setattr(pseo, "run_pipeline", fake_run)
     assert asyncio.run(pseo.catch_up()) == {"ok": True, "rescheduled": 2}
     assert calls == []
+
+
+def test_held_draft_from_earlier_day_publishes_now(monkeypatch):
+    old = {"slug": "old", "created_at": "2026-01-01T03:30:00+00:00"}
+    new = {"slug": "new", "created_at": "2999-01-01T03:30:00+00:00"}
+    coll = _CountColl(0)
+    coll.find = lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor([old, new]))
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+    seen = {}
+
+    async def sched(post, when=None):
+        seen[post["slug"]] = when
+        return {"status": "scheduled"}
+    monkeypatch.setattr(pseo, "auto_schedule", sched)
+    assert asyncio.run(pseo.schedule_held_drafts(5)) == 2
+    assert seen["old"] and seen["new"] is None
