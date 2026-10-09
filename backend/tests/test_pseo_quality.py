@@ -270,7 +270,7 @@ def test_catch_up_schedules_held_drafts_before_writing_new(monkeypatch):
     monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
     pseo.db = types.SimpleNamespace(blog_posts=coll)
 
-    async def sched(post, when=None):
+    async def sched(post, when=None, **kw):
         return {"status": "scheduled"}
     calls = []
 
@@ -291,9 +291,56 @@ def test_held_draft_from_earlier_day_publishes_now(monkeypatch):
     pseo.db = types.SimpleNamespace(blog_posts=coll)
     seen = {}
 
-    async def sched(post, when=None):
+    async def sched(post, when=None, **kw):
         seen[post["slug"]] = when
         return {"status": "scheduled"}
     monkeypatch.setattr(pseo, "auto_schedule", sched)
     assert asyncio.run(pseo.schedule_held_drafts(5)) == 2
     assert seen["old"] and seen["new"] is None
+
+
+def test_last_resort_publishes_when_fact_check_cannot_run(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_ai(c):
+        return c, None  # Groq down: fact-check never runs
+
+    async def no_style(c):
+        return c
+
+    async def slot():
+        return "2026-10-09T05:00:00+00:00"
+    monkeypatch.setattr(pseo, "fact_check", no_ai)
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "next_publish_slot", slot)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    body = " ".join(["Plain specific advice about reminders."] * 200)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "word_count": 1000,
+            "content": body + "\nThis is a game-changer for teams.\nTeams lose 73% of signups."}
+    assert asyncio.run(pseo.auto_schedule(dict(post)))["held"] == "fact-check did not run"
+    res = asyncio.run(pseo.auto_schedule(dict(post), last_resort=True))
+    assert res["status"] == "scheduled"
+    saved = [u["$set"] for _, u in coll.updates if u.get("$set", {}).get("last_resort_fix")][0]
+    assert "73%" not in saved["content"] and "game-changer" not in saved["content"]
+
+
+def test_last_resort_still_holds_thin_drafts(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_ai(c):
+        return c, None
+
+    async def no_style(c):
+        return c
+    monkeypatch.setattr(pseo, "fact_check", no_ai)
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "content": "short", "word_count": 1}
+    assert asyncio.run(pseo.auto_schedule(post, last_resort=True))["held"].startswith("too short")
+
+
+def test_drop_banned_sentences():
+    out = pseo.drop_banned_sentences("## Unlock growth\nKeep me. Let's dive in now.\n- A game changer. Real tip.\nFine.")
+    assert out == "Keep me.\n- Real tip.\nFine."
