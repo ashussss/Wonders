@@ -679,13 +679,18 @@ async def circle_upcoming_events(user=Depends(get_user)):
                     r = await client.get(f"{base}/api/admin/v2/posts", headers=headers, params=params)
                     if r.status_code == 200:
                         posts = r.json().get("records", [])
-                        for p in posts:
+                        # Only event posts belong in the picker; fall back to all posts
+                        # if this Circle API version doesn't tag them.
+                        events = [p for p in posts if p.get("event_setting") or p.get("post_type") == "event"]
+                        for p in (events or posts):
                             if p.get("name"):
+                                ev = p.get("event_setting") or {}
                                 results.append({
                                     "id": p.get("id"),
                                     "name": p.get("name"),
                                     "slug": p.get("slug"),
                                     "published_at": p.get("published_at"),
+                                    "starts_at": ev.get("starts_at") or ev.get("start_at") or "",
                                     "cover_image_url": p.get("cover_image_url"),
                                     "url": p.get("url"),
                                 })
