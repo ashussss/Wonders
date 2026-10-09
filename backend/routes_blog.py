@@ -278,6 +278,12 @@ async def seo_keywords_skip(request: Request, payload: dict = Body(default={})):
     return {"ok": True, "skipped": len(hits), "not_found": sorted(wanted - {pseo.normalize_text(h).lower() for h in hits})}
 
 
+@router.get("/seo/pipeline-status")
+async def seo_pipeline_status():
+    """Public, content-free: why today's posts are or aren't going out (slugs, schedule, held reasons)."""
+    return await pseo.pipeline_status()
+
+
 @router.get("/seo/drafts")
 async def seo_drafts(request: Request):
     """List unpublished drafts for review (full content included)."""
