@@ -137,3 +137,10 @@ def test_ensure_link_adds_blog_url_above_hashtags():
     assert is_blog_link(url)
     assert not is_blog_link("https://showupai.live/blog")
     assert not is_blog_link("https://marketingdive.com/news/x")
+
+
+def test_meta_missing_permissions():
+    from growth_engine import meta
+    granted = ["pages_show_list", "pages_read_engagement", "instagram_basic"]
+    assert meta.missing_permissions(granted, meta.REQUIRED_PAGE_PERMS) == ["pages_manage_posts"]
+    assert meta.missing_permissions(granted) == ["pages_manage_posts", "instagram_content_publish"]
