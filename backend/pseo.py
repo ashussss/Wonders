@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from database import db
 
@@ -21,14 +21,15 @@ logger = logging.getLogger("showup.pseo")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
-PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
+PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
 # Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
 # Publishing cadence: a steady, human-looking rhythm instead of bursts at identical clock times.
-PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "1"))
+PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "4"))
 PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
+PSEO_MIN_WORDS = int(os.environ.get("PSEO_MIN_WORDS", "1000"))  # quality gate floor for auto-scheduling
 PSEO_SCHEDULE_HORIZON_DAYS = int(os.environ.get("PSEO_SCHEDULE_HORIZON_DAYS", "14"))
 # Topic dedup: skip queued keywords whose search intent an existing post already covers.
 PSEO_DEDUP = os.environ.get("PSEO_DEDUP", "true").lower() == "true"
@@ -857,13 +858,15 @@ async def next_publish_slot() -> str | None:
     rows = await db.blog_posts.find(
         {"$or": [{"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"published": True}]},
         {"_id": 0, "publish_at": 1, "published_at": 1, "published": 1}).to_list(5000)
-    per_day = Counter()
+    per_day, used = Counter(), set()
     for r in rows:
         ts = r.get("published_at") if r.get("published") else r.get("publish_at")
         try:
-            per_day[datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ist).date()] += 1
+            t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ist)
         except Exception:
             continue
+        per_day[t.date()] += 1
+        used.add((t.date(), t.hour))
     now = datetime.now(ist)
     for day in range(PSEO_SCHEDULE_HORIZON_DAYS + 1):
         date = (now + timedelta(days=day)).date()
@@ -873,6 +876,8 @@ async def next_publish_slot() -> str | None:
         random.shuffle(bases)
         for t in bases:
             hh, mm = (int(x) for x in t.split(":"))
+            if (date, hh) in used or (date, hh + 1) in used:  # base time (plus jitter) already taken that day
+                continue
             slot = datetime(date.year, date.month, date.day, hh, mm, tzinfo=ist)
             slot += timedelta(minutes=random.randint(0, max(PSEO_PUBLISH_JITTER_MIN, 0)), seconds=random.randint(0, 59))
             if slot > now + timedelta(minutes=10):
@@ -883,7 +888,7 @@ async def next_publish_slot() -> str | None:
 def passes_quality_gate(post: dict) -> tuple:
     if not post.get("fact_check_ok"):
         return False, "fact-check did not run"
-    if (post.get("word_count") or 0) < 1200:
+    if (post.get("word_count") or 0) < PSEO_MIN_WORDS:
         return False, f"too short ({post.get('word_count')} words)"
     if banned_phrases_in(post.get("content")):
         return False, f"banned phrases: {', '.join(banned_phrases_in(post.get('content')))}"
@@ -904,16 +909,116 @@ def passes_quality_gate(post: dict) -> tuple:
     return True, ""
 
 
-async def auto_schedule(post: dict) -> dict:
-    """If auto-scheduling is on and the draft passes the gate, give it the next free slot."""
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def drop_failing_sentences(content: str) -> str:
+    """Remove the sentences (or table rows / bullets) the quality gate objects to: unsourced percentages and wrong
+    sums. Dropping an unsupported claim is safer than holding the whole post back."""
+    loose, wrong = set(unsourced_numbers(content)), bad_math(content)
+    out = []
+    for line in (content or "").split("\n"):
+        t = line.strip()
+        if t[:160] in loose or any(w in line for w in wrong):
+            if t.startswith("|") or t.startswith("#"):
+                continue  # a table row or heading can't be trimmed sentence by sentence
+            lead = line[: len(line) - len(line.lstrip())]
+            m = re.match(r"^([-*+]|\d+\.)\s+", t)
+            marker, body = (m.group(0), t[m.end():]) if m else ("", t)
+            urls = [f["url"] for f in FACTS]
+            keep = [x for x in _SENTENCE.split(body)
+                    if not (("%" in x and not any(u in x for u in urls) and not _EXAMPLE_WORDS.search(x))
+                            or any(w in x for w in wrong))]
+            if not keep:
+                continue
+            line = lead + marker + " ".join(keep)
+        out.append(line)
+    content = "\n".join(out)
+    if empty_tables(content):  # drop hollow tables entirely
+        lines, res, block = content.split("\n") + [""], [], []
+        for ln in lines:
+            if ln.strip().startswith("|"):
+                block.append(ln)
+                continue
+            if block and not empty_tables("\n".join(block)):
+                res.extend(block)
+            block = []
+            res.append(ln)
+        content = "\n".join(res[:-1])
+    return re.sub(r"\n{3,}", "\n\n", trim_brand_mentions(content))
+
+
+def trim_brand_mentions(content: str, keep: int = 2) -> str:
+    """Keep the first `keep` plain-text brand mentions; later ones become "the tool" (links and URLs untouched)."""
+    pat = re.compile(r"(?<![\w/.\[])" + re.escape(BRAND) + r"(?!\w|\.\w|\])", re.I)
+
+    def sub(m):
+        if brand_mentions(content[:m.start()] + m.group(0)) <= keep:
+            return m.group(0)
+        before = content[:m.start()].rstrip()
+        return "The tool" if not before or before[-1] in ".!?:#\n" or content[m.start() - 1] == "\n" else "the tool"
+    if brand_mentions(content) <= keep:
+        return content
+    return pat.sub(sub, content)
+
+
+async def repair_draft(post: dict) -> dict:
+    """Fix what the quality gate rejects instead of leaving the draft unscheduled: re-run a fact-check that didn't
+    run, rewrite banned phrases, and drop unsourced numbers, wrong sums and hollow tables. Saves the result."""
+    content = post.get("content") or ""
+    upd = {}
+    if not post.get("fact_check_ok"):
+        content, fixes = await fact_check(content)
+        if fixes is not None:
+            upd.update(fact_check_ok=True, fact_check_edits=fixes)
+    content = await style_fix(content)
+    content = drop_failing_sentences(content)
+    words = len(content.split())
+    upd.update(content=content, word_count=words, reading_time=max(1, round(words / 200)), updated_at=now_iso())
+    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": upd})
+    return {**post, **upd}
+
+
+async def auto_schedule(post: dict, when: str | None = None) -> dict:
+    """If auto-scheduling is on and the draft passes the gate (after one repair pass if needed), give it the next
+    free slot. A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
     if not PSEO_AUTO_SCHEDULE or post.get("published"):
         return {}
     ok, why = passes_quality_gate(post)
-    slot = await next_publish_slot() if ok else None
+    if not ok:
+        try:
+            post = await repair_draft(post)
+            ok, why = passes_quality_gate(post)
+        except Exception as e:
+            logger.warning(f"pSEO repair failed for {post.get('slug')}: {e}")
+    slot = (when or await next_publish_slot()) if ok else None
     if slot:
-        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"}})
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"},
+                                                                "$unset": {"held_reason": ""}})
         return {"status": "scheduled", "publish_at_utc": slot}
-    return {"held": why or "no free slot"}
+    why = why or "no free slot"
+    await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"held_reason": why}})
+    logger.warning(f"pSEO held {post.get('slug')}: {why}")
+    return {"held": why}
+
+
+async def schedule_held_drafts(limit: int) -> int:
+    """Give recent pipeline drafts that were held back another repair pass and schedule the ones that now pass."""
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+    rows = await db.blog_posts.find(
+        {"source": "pseo", "published": {"$ne": True}, "publish_at": None, "created_at": {"$gte": since}},
+        {"_id": 0}).sort("created_at", 1).to_list(50)
+    n = 0
+    for post in rows:
+        if n >= limit:
+            break
+        # a draft from an earlier day missed its day: publish it on the next 10-minute publish run
+        when = now_iso() if (post.get("created_at") or "") < today else None
+        if (await auto_schedule(post, when)).get("status") == "scheduled":
+            n += 1
+    return n
 
 
 async def run_pipeline(count: int | None = None) -> dict:
@@ -971,12 +1076,33 @@ async def run_pipeline(count: int | None = None) -> dict:
 
 
 async def catch_up() -> dict:
-    """On startup: if no pipeline post was drafted today (UTC), e.g. the 03:30 run found an empty queue or the
-    server was asleep, draft one now so the day still gets a post."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if await db.blog_posts.find_one({"keyword": {"$exists": True}, "created_at": {"$gte": today}}, {"_id": 1}):
-        return {"ok": True, "skipped": "already drafted today"}
-    return await run_pipeline(1)
+    """If today (IST) has fewer than PSEO_MAX_PUBLISH_PER_DAY posts published or scheduled, e.g. the 09:00 IST run
+    found an empty queue, a draft failed the quality gate, or the server was asleep, draft more until it does.
+    Gives up after two extra attempts per missing post so a run of failing drafts can't drain the queue."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    start = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0)
+    lo, hi = start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
+    have = await db.blog_posts.count_documents({"$or": [
+        {"published": True, "published_at": {"$gte": lo, "$lt": hi}},
+        {"published": {"$ne": True}, "publish_at": {"$gte": lo, "$lt": hi}}]})
+    missing = PSEO_MAX_PUBLISH_PER_DAY - have
+    if missing <= 0:
+        return {"ok": True, "skipped": f"{have} posts already published or scheduled today"}
+    scheduled = await schedule_held_drafts(missing)  # reuse drafts that were held back before writing new ones
+    tries = []
+    if scheduled >= missing:
+        logger.info(f"pSEO catch-up: scheduled {scheduled} held drafts")
+        return {"ok": True, "rescheduled": scheduled}
+    for _ in range((missing - scheduled) * 3):
+        res = await run_pipeline(1)
+        tries.append(res)
+        if not res.get("results"):
+            break
+        scheduled += sum(r.get("status") == "scheduled" for r in res["results"])
+        if scheduled >= missing:
+            break
+    logger.info(f"pSEO catch-up ({have} today, {missing} missing): {tries}")
+    return {"ok": True, "tries": tries}
 
 
 async def retry_failed() -> int:
