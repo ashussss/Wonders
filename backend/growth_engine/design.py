@@ -15,6 +15,8 @@ carousel returns a list of them. Portrait 1080x1350 everywhere: it takes the mos
 feed space on LinkedIn and Instagram.
 """
 
+import contextlib
+import contextvars
 import hashlib
 import io
 import os
@@ -69,7 +71,24 @@ THEMES = [
 _BY_NAME = {t["name"]: t for t in THEMES}
 
 
+_forced: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("growth_theme", default=None)
+
+
+@contextlib.contextmanager
+def use_theme(index: Optional[int]):
+    """Draw everything inside the block in THEMES[index]. The queue rotates the index
+    per post so two posts in a row never share a colour scheme."""
+    tok = _forced.set(index)
+    try:
+        yield
+    finally:
+        _forced.reset(tok)
+
+
 def theme(seed: str, offset: int = 0) -> dict:
+    forced = _forced.get()
+    if forced is not None:
+        return THEMES[forced % len(THEMES)]
     h = int(hashlib.md5((seed or "x").encode()).hexdigest(), 16)
     return THEMES[(h + offset) % len(THEMES)]
 
@@ -499,5 +518,103 @@ def poll(question: str, options: Sequence[str], seed: str = "") -> bytes:
     return jpeg(img)
 
 
+def myth_fact(title: str, pairs: Sequence[dict], seed: str = "") -> bytes:
+    """Myth vs fact: 2-3 pairs, each a struck-through myth card over a fact card."""
+    t = theme(seed or title, 1)
+    img = canvas(t)
+    d = ImageDraw.Draw(img)
+    pill(d, PAD, PAD, "MYTH VS FACT", t, solid=True)
+    tf, tl, tlines = fit(d, title, "black", W - 2 * PAD, 230, 78, 46, max_lines=3, lh=1.06)
+    y = draw_rich(img, tlines, tf, PAD, PAD + 110, tl, t) + 40
+    pairs = [p for p in pairs if p.get("label") and p.get("value")][:3]
+    gap = 30
+    avail = H - y - PAD - 110
+    block = (avail - gap * (len(pairs) - 1)) // max(1, len(pairs))
+    myth_h = int(block * 0.38)
+    for i, p in enumerate(pairs):
+        top = y + i * (block + gap)
+        # myth: muted, struck through
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([PAD, top, W - PAD, top + myth_h], radius=22, outline=rgb(t["line"]), width=3)
+        d.text((PAD + 28, top + myth_h / 2), "MYTH", font=font("black", 30), fill=rgb(t["muted"]), anchor="lm")
+        mf, ml, mlines = fit(d, plain(p["label"]), "med", W - 2 * PAD - 190, myth_h - 24, 40, 26,
+                             max_lines=2, lh=1.18, auto=False)
+        my = top + (myth_h - ml * len(mlines)) // 2 - 2
+        draw_rich(img, mlines, mf, PAD + 150, my, ml, t, fill=t["muted"])
+        d = ImageDraw.Draw(img)
+        for k in range(len(mlines)):
+            ly = my + k * ml + mf.size * 0.62
+            lw = d.textlength(" ".join(w for w, _ in mlines[k]), font=mf)
+            d.line([(PAD + 146, ly), (PAD + 154 + lw, ly)], fill=rgb(t["muted"]), width=3)
+        # fact: accent card
+        ft = top + myth_h + 12
+        fh = block - myth_h - 12
+        card(img, [PAD, ft, W - PAD, ft + fh], t, fill=t["accent"], radius=22)
+        d = ImageDraw.Draw(img)
+        d.text((PAD + 28, ft + fh / 2), "FACT", font=font("black", 30), fill=rgb(t["on_accent"]), anchor="lm")
+        st = dict(t, fg=t["on_accent"], em="color", em_text=t["on_accent"])
+        ff, fl, flines = fit(d, p["value"], "bold", W - 2 * PAD - 190, fh - 30, 52, 30,
+                             max_lines=3, lh=1.18, auto=False)
+        draw_rich(img, flines, ff, PAD + 150, ft + (fh - fl * len(flines)) // 2 - 2, fl, st)
+    footer(img, t)
+    return jpeg(img)
+
+
+def timeline(title: str, steps: Sequence[dict], seed: str = "") -> bytes:
+    """Vertical timeline: a time label per step on a rail (e.g. 7 days before -> 15 min before)."""
+    t = theme(seed or title, 2)
+    img = canvas(t)
+    accent_ring(img, t, W + 30, -40, 180, 28)
+    d = ImageDraw.Draw(img)
+    pill(d, PAD, PAD, "THE TIMELINE", t)
+    tf, tl, tlines = fit(d, title, "black", W - 2 * PAD, 250, 80, 46, max_lines=3, lh=1.06)
+    y = draw_rich(img, tlines, tf, PAD, PAD + 100, tl, t) + 50
+    steps = [s for s in steps if s.get("label") or s.get("value")][:6]
+    bottom = H - PAD - 120
+    row_h = (bottom - y) // max(1, len(steps))
+    rail_x = PAD + 26
+    d = ImageDraw.Draw(img)
+    d.line([(rail_x, y + 20), (rail_x, y + row_h * (len(steps) - 1) + 20)], fill=rgb(t["line"]), width=6)
+    for i, s in enumerate(steps):
+        top = y + i * row_h
+        d = ImageDraw.Draw(img)
+        d.ellipse([rail_x - 20, top, rail_x + 20, top + 40], fill=rgb(t["accent"]))
+        d.ellipse([rail_x - 8, top + 12, rail_x + 8, top + 28], fill=rgb(t["bg"]))
+        d.text((PAD + 80, top + 20), plain(s.get("label", "")).upper(), font=font("black", 36),
+               fill=rgb(t["accent"] if t["name"] != "orange" else t["fg"]), anchor="lm")
+        vf, vl, vlines = fit(d, s.get("value", ""), "semi", W - 2 * PAD - 80, row_h - 80, 54, 28,
+                             max_lines=2, lh=1.2, auto=False)
+        draw_rich(img, vlines, vf, PAD + 80, top + 60, vl, t)
+    footer(img, t)
+    return jpeg(img)
+
+
+def hot_take(statement: str, reason: str = "", seed: str = "") -> bytes:
+    """Giant typographic statement on a solid colour, for opinion posts."""
+    t = theme(seed or statement, 3)
+    img = canvas(t)
+    dots(img, W - PAD - 4 * 32, PAD + 12, 5, 3, 32, 5, t["muted"], 110)
+    d = ImageDraw.Draw(img)
+    pill(d, PAD, PAD, "UNPOPULAR OPINION", t, solid=True)
+    inner = W - 2 * PAD
+    sub_h = 170 if reason else 0
+    top, limit = PAD + 150, H - PAD - 380
+    sf, sl, slines = fit(d, statement, "black", inner, limit - top - sub_h, 150, 64, max_lines=6, lh=1.0)
+    block = sl * len(slines) + (sub_h + 30 if reason else 0)
+    y = top + max(0, (limit - top - block) // 2)
+    y = draw_rich(img, slines, sf, PAD, y, sl, t)
+    if reason:
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([PAD, y + 34, PAD + 96, y + 44], radius=5,
+                            fill=rgb(t["accent"] if t["name"] != "orange" else t["fg"]))
+        rf, rl, rlines = fit(d, reason, "med", inner, sub_h - 40, 40, 28, max_lines=3, lh=1.3, auto=False)
+        draw_rich(img, rlines, rf, PAD, y + 74, rl, t, fill=t["muted"])
+    d = ImageDraw.Draw(img)
+    pill(d, PAD, H - PAD - 190, "Agree or disagree? Comment below", t, size=30)
+    footer(img, t)
+    return jpeg(img)
+
+
 __all__ = ["carousel", "infographic", "checklist", "stat_card", "quote", "comparison", "poll",
+           "myth_fact", "timeline", "hot_take", "use_theme",
            "tokens", "plain", "THEMES", "theme", "font"]

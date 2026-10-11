@@ -1,4 +1,4 @@
-"""Growth Engine — visual rendering tests (all six formats).
+"""Growth Engine — visual rendering tests (every format).
 
 Pure-render tests: no MongoDB, no AI. Each renderer must produce real JPEG bytes
 at the brand's expected dimensions.
@@ -41,6 +41,18 @@ def _specs():
         "quote": VisualSpec(
             format="quote", quote="Attendance is earned. Nobody shows up for a broadcast.",
             attribution="ShowUpAI"),
+        "myth_fact": VisualSpec(
+            format="myth_fact", title="Webinar reminder *myths*",
+            items=[{"label": "One reminder email is enough", "value": "People need 3-5 nudges across channels"},
+                   {"label": "No-shows weren't interested", "value": "Most no-shows simply *forgot*"}]),
+        "timeline": VisualSpec(
+            format="timeline", title="The reminder *timeline*",
+            items=[{"label": "7 days before", "value": "Announce the agenda"},
+                   {"label": "1 day before", "value": "Send the calendar invite again"},
+                   {"label": "15 min before", "value": "Join link on WhatsApp"}]),
+        "hot_take": VisualSpec(
+            format="hot_take", title="Your registration page is not the *problem*",
+            subtitle="The week before the event is where attendance is lost."),
     }
 
 
@@ -88,7 +100,20 @@ def test_comparison_with_both_sides_is_renderable():
 def test_all_formats_registered():
     from growth_engine import VISUAL_FORMATS
     assert set(ve.RENDERERS) == set(VISUAL_FORMATS) == {
-        "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll"}
+        "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll",
+        "myth_fact", "timeline", "hot_take"}
+
+
+def test_forced_theme_changes_the_look():
+    from growth_engine import design
+    spec = _specs()["hot_take"]
+    with design.use_theme(0):
+        a = ve.render_hot_take(spec, seed="same")
+    with design.use_theme(1):
+        b = ve.render_hot_take(spec, seed="same")
+    corner = lambda raw: Image.open(io.BytesIO(raw)).convert("RGB").getpixel((5, 5))  # noqa: E731
+    assert corner(a) != corner(b)
+    assert design.theme("x") in design.THEMES          # back to seeded themes outside the block
 
 def test_design_highlight_tokens():
     from growth_engine import design

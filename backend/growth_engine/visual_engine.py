@@ -7,6 +7,7 @@ API only accepts JPEG.
 
 import logging
 import uuid
+from typing import Optional
 
 from bson import Binary
 from . import ASSET_BUCKET, BRAND_NAME, COLLECTIONS, design
@@ -53,6 +54,18 @@ def render_poll(spec: VisualSpec, seed: str = "") -> bytes:
     return design.poll(spec.title, spec.rows[:4], seed=seed or spec.title)
 
 
+def render_myth_fact(spec: VisualSpec, seed: str = "") -> bytes:
+    return design.myth_fact(spec.title or "Myth vs fact", spec.items, seed=seed or spec.title)
+
+
+def render_timeline(spec: VisualSpec, seed: str = "") -> bytes:
+    return design.timeline(spec.title or "The timeline", spec.items, seed=seed or spec.title)
+
+
+def render_hot_take(spec: VisualSpec, seed: str = "") -> bytes:
+    return design.hot_take(spec.title or spec.quote, spec.subtitle, seed=seed or spec.title)
+
+
 RENDERERS = {
     "stat_card": render_stat_card,
     "carousel": render_carousel,
@@ -61,6 +74,9 @@ RENDERERS = {
     "comparison": render_comparison,
     "quote": render_quote,
     "poll": render_poll,
+    "myth_fact": render_myth_fact,
+    "timeline": render_timeline,
+    "hot_take": render_hot_take,
 }
 
 MULTI_IMAGE = {"carousel"}
@@ -73,7 +89,7 @@ def asset_url(asset_id: str) -> str:
     return f"{PUBLIC_BACKEND_URL.rstrip('/')}/api/growth/asset/{asset_id}.jpg"
 
 
-async def store_assets(db, spec: VisualSpec, seed: str = "") -> dict:
+async def store_assets(db, spec: VisualSpec, seed: str = "", theme_index: Optional[int] = None) -> dict:
     """Render + persist a spec into growth_assets / growth_assets_fs.
 
     Returns {"asset_ids": [...], "asset_urls": [...]}. Never raises on a single
@@ -89,7 +105,8 @@ async def store_assets(db, spec: VisualSpec, seed: str = "") -> dict:
 
     fn = RENDERERS[spec.format]
     try:
-        out = fn(spec, seed)
+        with design.use_theme(theme_index):
+            out = fn(spec, seed)
     except Exception as e:                                       # noqa: BLE001
         logger.error(f"visual_engine: render failed for {spec.format}: {e}")
         return {"asset_ids": [], "asset_urls": [], "error": str(e)[:200]}

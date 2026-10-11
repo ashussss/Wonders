@@ -107,6 +107,11 @@ function Campaign({ c, onChanged, setError, setNotice }) {
           ))}
         </div>
       )}
+      {c.review?.hold_reason && (
+        <p data-testid={`growth-hold-${c.id}`} className="text-xs mb-3" style={{ color: "#b45309" }}>
+          Held for your review instead of auto-posting: {c.review.hold_reason}.
+        </p>
+      )}
       {c.review?.visual_error && (
         <p className="text-xs mb-3" style={{ color: "#b45309" }}>Visual failed to render: {c.review.visual_error}</p>
       )}
@@ -254,7 +259,7 @@ export default function GrowthReview() {
                : { background: "rgba(34,197,94,0.12)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.3)" }}>
           {info.publishing_blocked
             ? "Auto-publish is off. Approved posts only go out when you press Post now."
-            : "Auto-publish is on. Approved posts go out automatically at their scheduled time."}
+            : "Auto-publish is on. New posts are approved automatically and go out at their scheduled time; failed posts are retried."}
           {" "}{info.pending_review} waiting for review.
         </div>
       )}

@@ -107,6 +107,9 @@ fields that format uses:
                  A real choice people disagree on, every option a fair answer. On LinkedIn it becomes a native
                  poll; on Facebook and Instagram the image shows options A-D, so those captions must ask
                  readers to comment their letter (A, B, C or D) and why.
+- myth_fact:     {"format":"myth_fact","title":"<=8 words","items":[{"myth":"<=12 words, a belief hosts really hold","fact":"<=16 words, what actually works"}]}   (2-3 pairs)
+- timeline:      {"format":"timeline","title":"<=9 words","items":[{"time":"<=4 words, e.g. 7 days before","what":"<=12 words, what to send or do"}]}   (4-6 steps, in time order)
+- hot_take:      {"format":"hot_take","title":"the opinion itself, <=12 words, a clear side","subtitle":"one line on why, <=20 words"}
 Carousels are the best-performing format on LinkedIn and Instagram: prefer them for how-to.
 stat_card only when you were given a citable number.
 """
@@ -135,7 +138,7 @@ FORMAT_PREFERENCE = {
     "blog": ["carousel", "infographic", "checklist", "stat_card"],
     "news": ["stat_card", "quote", "comparison", "carousel"],
     "pain_point": ["checklist", "comparison", "carousel", "infographic"],
-    "engagement": ["quote", "poll", "carousel"],
+    "engagement": ["quote", "poll", "hot_take", "carousel"],
     "competitor": ["comparison", "carousel", "infographic"],
 }
 
@@ -251,7 +254,10 @@ def _visual(d: Dict[str, Any], kind: str, seed: str, preferred: str = "") -> Vis
 
     for it in (raw.get("items") or [])[:8]:
         if isinstance(it, dict):
-            spec.items.append({"label": str(it.get("label") or "")[:60], "value": str(it.get("value") or "")[:120]})
+            label = it.get("label") or it.get("myth") or it.get("time") or ""
+            value = it.get("value") or it.get("fact") or it.get("what") or ""
+            if str(label).strip() and str(value).strip():
+                spec.items.append({"label": str(label).strip()[:90], "value": str(value).strip()[:160]})
 
     spec.number = str(raw.get("number") or "").strip()[:20]
     spec.label = str(raw.get("label") or "").strip()[:300]
@@ -309,6 +315,12 @@ def is_renderable(spec: VisualSpec) -> bool:
         return bool(spec.quote)
     if f == "poll":
         return bool(spec.title) and 2 <= len(spec.rows) <= 4
+    if f == "myth_fact":
+        return len(spec.items) >= 2
+    if f == "timeline":
+        return len(spec.items) >= 3
+    if f == "hot_take":
+        return bool(spec.title)
     return False
 
 
@@ -324,7 +336,9 @@ def _synthesize_spec(spec: VisualSpec, original_fmt: str) -> VisualSpec:
             rows.append(s["title"] if not s.get("body") else f"{s['title']} — {s['body']}"[:120])
     for side in ("left", "right"):
         rows.extend(getattr(spec, side, {}).get("rows") or [])
-    rows = [r[:120] for r in rows][:6]
+    for it in spec.items:
+        rows.append(f"{it.get('label', '')}: {it.get('value', '')}".strip(": "))
+    rows = [r[:120] for r in rows if r][:6]
 
     if spec.number and spec.label:
         spec.format = "stat_card"
@@ -494,7 +508,7 @@ Return ONLY a JSON object with exactly this shape:
     "instagram": {{"caption": "...", "hashtags": ["..."], "cta": "..."}}
   }},
   (only include the platforms in this list: {", ".join(platforms)})
-  "visual": {{...one of the six formats above...}}
+  "visual": {{...one of the formats above...}}
 }}"""
 
     raw: Dict[str, Any] = {}
