@@ -23,6 +23,8 @@ PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
 PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
+# when fewer keywords than this are pending, top the queue up from the "related topics" earlier posts suggested
+PSEO_QUEUE_MIN = int(os.environ.get("PSEO_QUEUE_MIN", "12"))
 # Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
@@ -169,6 +171,68 @@ SEED_KEYWORDS = [
     ("masterclass attendance for coaches", "informational"),
     ("webinar confirmation page ideas", "informational"),
     ("webinar reminder automation for small teams", "commercial"),
+
+    # batch 4 (2026-10-11): refill so the 4-a-day cadence doesn't run dry
+    ("virtual event attendance rate", "informational"),
+    ("how to promote a webinar on linkedin", "informational"),
+    ("webinar promotion email sequence", "informational"),
+    ("webinar reminder email subject lines", "informational"),
+    ("how to get more webinar registrations", "informational"),
+    ("webinar registration page examples", "informational"),
+    ("webinar day of reminder email", "informational"),
+    ("webinar starting now email", "informational"),
+    ("webinar reminder text message template", "informational"),
+    ("whatsapp webinar invitation message", "informational"),
+    ("webinar no show email template", "informational"),
+    ("how to follow up after a webinar", "informational"),
+    ("webinar engagement ideas", "informational"),
+    ("interactive webinar formats", "informational"),
+    ("webinar audience retention tips", "informational"),
+    ("how to host a webinar that people attend", "informational"),
+    ("webinar marketing for startups", "informational"),
+    ("webinar marketing for coaches", "informational"),
+    ("webinar marketing for consultants", "informational"),
+    ("webinar marketing for agencies", "informational"),
+    ("webinar strategy for edtech", "informational"),
+    ("webinar series vs single webinar", "informational"),
+    ("evergreen webinar vs live webinar", "informational"),
+    ("hybrid event attendance tips", "informational"),
+    ("community event no shows", "informational"),
+    ("how to reduce meeting no shows", "informational"),
+    ("demo no show follow up email", "informational"),
+    ("free event no show rate", "informational"),
+    ("paid vs free webinar attendance", "informational"),
+    ("webinar attendance certificate ideas", "informational"),
+    ("webinar giveaway ideas to boost attendance", "informational"),
+    ("webinar reminder schedule template", "informational"),
+    ("best webinar reminder tools", "commercial"),
+    ("webinar email automation tools", "commercial"),
+    ("webinar sms reminder software", "commercial"),
+    ("whatsapp reminder tool for events", "commercial"),
+    ("circle community events best practices", "informational"),
+    ("linkedin live vs webinar", "informational"),
+    ("how to measure webinar engagement", "informational"),
+    ("webinar attendee survey questions", "informational"),
+    ("webinar feedback email template", "informational"),
+    ("webinar recording email to registrants", "informational"),
+    ("on demand webinar promotion", "informational"),
+    ("webinar calendar invite best practices", "informational"),
+    ("add to calendar link for webinar emails", "informational"),
+    ("webinar reminder for different time zones", "informational"),
+    ("webinar presenter tips for engagement", "informational"),
+    ("webinar cta examples", "informational"),
+    ("webinar slide design tips", "informational"),
+    ("how to write a webinar description", "informational"),
+    ("webinar invite linkedin message template", "informational"),
+    ("webinar promotion on instagram", "informational"),
+    ("webinar promotion on facebook", "informational"),
+    ("partner webinar promotion email", "informational"),
+    ("internal webinar attendance for employees", "informational"),
+    ("training webinar attendance tips", "informational"),
+    ("customer webinar program for saas", "informational"),
+    ("webinar funnel strategy", "informational"),
+    ("webinar lead scoring", "informational"),
+    ("webinar attendance report template", "informational"),
 ]
 
 
@@ -455,6 +519,31 @@ async def seed_keywords() -> int:
     added = 0
     for kw, intent in SEED_KEYWORDS:
         added += await add_keyword(kw, intent)
+    return added
+
+
+async def refill_keywords() -> int:
+    """Keep the queue from running dry (an empty queue silently stops posting): if fewer than PSEO_QUEUE_MIN keywords
+    are pending, add the related topics that published posts suggested, newest posts first."""
+    pending = await db.seo_candidates.count_documents({"status": "pending"})
+    if pending >= PSEO_QUEUE_MIN:
+        return 0
+    rows = await db.blog_posts.find(
+        {"related_topics": {"$exists": True, "$ne": []}}, {"_id": 0, "related_topics": 1}
+    ).sort("created_at", -1).to_list(200)
+    added = 0
+    for r in rows:
+        for t in r.get("related_topics") or []:
+            if isinstance(t, str) and 3 <= len(t) <= 90:
+                added += await add_keyword(t, "informational", notes="auto: related topic")
+            if pending + added >= PSEO_QUEUE_MIN * 2:
+                break
+        if pending + added >= PSEO_QUEUE_MIN * 2:
+            break
+    if added:
+        logger.info(f"pSEO keyword queue refilled with {added} related topics ({pending} were pending)")
+    else:
+        logger.warning(f"pSEO keyword queue is low ({pending} pending) and no related topics to refill from")
     return added
 
 
@@ -1063,6 +1152,7 @@ async def run_pipeline(count: int | None = None) -> dict:
     count = count or PSEO_POSTS_PER_DAY
     await ensure_indexes()
     await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
+    await refill_keywords()
 
     backlog = await db.blog_posts.count_documents({"published": {"$ne": True}, "publish_at": {"$ne": None}})
     if PSEO_AUTO_SCHEDULE and backlog >= PSEO_SCHEDULE_HORIZON_DAYS * PSEO_MAX_PUBLISH_PER_DAY:

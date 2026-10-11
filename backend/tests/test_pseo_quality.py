@@ -344,3 +344,36 @@ def test_last_resort_still_holds_thin_drafts(monkeypatch):
 def test_drop_banned_sentences():
     out = pseo.drop_banned_sentences("## Unlock growth\nKeep me. Let's dive in now.\n- A game changer. Real tip.\nFine.")
     assert out == "Keep me.\n- Real tip.\nFine."
+
+
+def test_refill_keywords_adds_related_topics_when_queue_low(monkeypatch):
+    added = []
+
+    class Cand:
+        async def count_documents(self, q):
+            return 2
+
+    rows = [{"related_topics": ["webinar poll examples", "x", "how to run a webinar q&a"]}]
+    posts = types.SimpleNamespace(find=lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor(rows)))
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand(), blog_posts=posts)
+
+    async def add(kw, intent="informational", notes=""):
+        added.append(kw)
+        return 1
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    monkeypatch.setattr(pseo, "PSEO_QUEUE_MIN", 12)
+    assert asyncio.run(pseo.refill_keywords()) == 2
+    assert added == ["webinar poll examples", "how to run a webinar q&a"]
+
+
+def test_refill_keywords_skips_when_queue_full(monkeypatch):
+    class Cand:
+        async def count_documents(self, q):
+            return 50
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand())
+    assert asyncio.run(pseo.refill_keywords()) == 0
+
+
+def test_seed_keywords_are_unique():
+    kws = [k for k, _ in pseo.SEED_KEYWORDS]
+    assert len(kws) == len(set(kws)) and len(kws) >= 130
