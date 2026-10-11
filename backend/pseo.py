@@ -515,10 +515,48 @@ async def ensure_indexes():
     await db.seo_candidates.create_index("keyword", unique=True)
 
 
+
+# Competitor names: an "alternatives" or "vs" post about one competitor never duplicates a post about another.
+COMPETITORS = ["demio", "livestorm", "webinarjam", "everwebinar", "zoom", "gotowebinar", "on24", "ewebinar",
+               "easywebinar", "airmeet", "webinarninja", "bigmarker", "clickmeeting", "crowdcast", "streamyard",
+               "riverside", "restream", "hopin", "goldcast", "hubspot"]
+
+# Competitor "alternatives" and comparison keywords go to the front of the queue (high buying intent).
+COMPETITOR_KEYWORDS = [
+    ("demio alternatives", "commercial"), ("livestorm alternatives", "commercial"),
+    ("webinarjam alternatives", "commercial"), ("zoom webinar alternatives", "commercial"),
+    ("gotowebinar alternatives", "commercial"), ("on24 alternatives", "commercial"),
+    ("ewebinar alternatives", "commercial"), ("easywebinar alternatives", "commercial"),
+    ("airmeet alternatives", "commercial"), ("webinarninja alternatives", "commercial"),
+    ("bigmarker alternatives", "commercial"), ("clickmeeting alternatives", "commercial"),
+    ("everwebinar alternatives", "commercial"), ("crowdcast alternatives", "commercial"),
+    ("demio vs livestorm", "commercial"), ("zoom webinar vs gotowebinar", "commercial"),
+    ("webinarjam vs everwebinar", "commercial"), ("on24 vs bigmarker", "commercial"),
+    ("livestorm vs zoom webinar", "commercial"), ("demio vs webinarjam", "commercial"),
+    ("ewebinar vs easywebinar", "commercial"), ("airmeet vs hopin", "commercial"),
+    ("streamyard vs riverside for webinars", "commercial"), ("goldcast vs on24", "commercial"),
+]
+_PRIORITY_AT = "2026-01-01T00:00:00+00:00"  # queue order is by created_at, so these are picked first
+
+
+def competitors_in(text: str) -> set:
+    words = set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+    return {c for c in COMPETITORS if c in words}
+
 async def seed_keywords() -> int:
     added = 0
+    for kw, intent in COMPETITOR_KEYWORDS:
+        added += await add_keyword(kw, intent, created_at=_PRIORITY_AT)
     for kw, intent in SEED_KEYWORDS:
         added += await add_keyword(kw, intent)
+    # competitor keywords that an older dedup wrongly marked as duplicates of another competitor's post go back in
+    for c in await db.seo_candidates.find(
+            {"status": "duplicate", "keyword": {"$in": [k for k, _ in COMPETITOR_KEYWORDS]}},
+            {"_id": 1, "keyword": 1, "duplicate_of": 1}).to_list(100):
+        if competitors_in(c["keyword"]) - competitors_in(c.get("duplicate_of") or ""):
+            await db.seo_candidates.update_one({"_id": c["_id"]}, {
+                "$set": {"status": "pending", "created_at": _PRIORITY_AT}, "$unset": {"duplicate_of": "", "error": ""}})
+            added += 1
     return added
 
 
@@ -547,13 +585,13 @@ async def refill_keywords() -> int:
     return added
 
 
-async def add_keyword(keyword: str, intent: str = "informational", notes: str = "") -> int:
+async def add_keyword(keyword: str, intent: str = "informational", notes: str = "", created_at: str | None = None) -> int:
     keyword = normalize_text(keyword).strip().lower()
     if not keyword:
         return 0
     res = await db.seo_candidates.update_one(
         {"keyword": keyword},
-        {"$setOnInsert": {"keyword": keyword, "intent": intent, "status": "pending", "created_at": now_iso()}},
+        {"$setOnInsert": {"keyword": keyword, "intent": intent, "status": "pending", "created_at": created_at or now_iso()}},
         upsert=True,
     )
     if notes:
@@ -848,6 +886,9 @@ async def find_overlap(keyword: str) -> dict | None:
     """Return {"slug", "reason"} of an existing post (published, scheduled or draft) covering the same intent, else None."""
     rows = await db.blog_posts.find(
         {}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1}).to_list(5000)
+    named = competitors_in(keyword)
+    if named:  # only a post about the same competitor(s) can be a duplicate
+        rows = [r for r in rows if named <= competitors_in(f"{r.get('slug')} {r.get('keyword')} {r.get('title')}")]
     if not rows:
         return None
     scored = sorted(((max(topic_similarity(keyword, r.get("keyword") or ""), topic_similarity(keyword, r.get("title") or "")), r)

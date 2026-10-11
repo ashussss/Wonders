@@ -377,3 +377,35 @@ def test_refill_keywords_skips_when_queue_full(monkeypatch):
 def test_seed_keywords_are_unique():
     kws = [k for k, _ in pseo.SEED_KEYWORDS]
     assert len(kws) == len(set(kws)) and len(kws) >= 130
+
+
+def test_competitors_in():
+    assert pseo.competitors_in("Livestorm vs Zoom webinar") == {"livestorm", "zoom"}
+    assert pseo.competitors_in("webinar welcome email") == set()
+
+
+def test_overlap_ignores_posts_about_other_competitors(monkeypatch):
+    rows = [{"slug": "demio-alternatives", "keyword": "demio alternatives", "title": "Demio Alternatives"},
+            {"slug": "best-tools-to-reduce-webinar-no-shows", "keyword": "best tools", "title": "Best Tools"}]
+    pseo.db = types.SimpleNamespace(blog_posts=types.SimpleNamespace(find=lambda *a, **k: _Cursor(rows)))
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "")
+    assert asyncio.run(pseo.find_overlap("livestorm alternatives")) is None
+    assert asyncio.run(pseo.find_overlap("demio alternatives"))["slug"] == "demio-alternatives"
+
+
+def test_seed_requeues_competitor_keywords_marked_duplicate_of_another_competitor(monkeypatch):
+    upd = []
+
+    class Cand:
+        def find(self, *a, **k):
+            return _Cursor([{"_id": 1, "keyword": "livestorm alternatives", "duplicate_of": "demio-alternatives"},
+                            {"_id": 2, "keyword": "demio alternatives", "duplicate_of": "demio-alternatives"}])
+
+        async def update_one(self, q, u):
+            upd.append(q["_id"])
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand())
+
+    async def add(*a, **k):
+        return 0
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    assert asyncio.run(pseo.seed_keywords()) == 1 and upd == [1]
