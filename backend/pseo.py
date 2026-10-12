@@ -23,6 +23,8 @@ PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
 PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
+# when fewer keywords than this are pending, top the queue up from the "related topics" earlier posts suggested
+PSEO_QUEUE_MIN = int(os.environ.get("PSEO_QUEUE_MIN", "12"))
 # Auto-publishing: each new draft that passes the quality gate gets the next free publish slot (IST)
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
@@ -30,6 +32,8 @@ PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_
 PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "4"))
 PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
 PSEO_MIN_WORDS = int(os.environ.get("PSEO_MIN_WORDS", "1000"))  # quality gate floor for auto-scheduling
+# floor for the catch-up's last-resort pass, after unsupported sentences were cut
+PSEO_MIN_WORDS_FALLBACK = int(os.environ.get("PSEO_MIN_WORDS_FALLBACK", "700"))
 PSEO_SCHEDULE_HORIZON_DAYS = int(os.environ.get("PSEO_SCHEDULE_HORIZON_DAYS", "14"))
 # Topic dedup: skip queued keywords whose search intent an existing post already covers.
 PSEO_DEDUP = os.environ.get("PSEO_DEDUP", "true").lower() == "true"
@@ -167,6 +171,68 @@ SEED_KEYWORDS = [
     ("masterclass attendance for coaches", "informational"),
     ("webinar confirmation page ideas", "informational"),
     ("webinar reminder automation for small teams", "commercial"),
+
+    # batch 4 (2026-10-11): refill so the 4-a-day cadence doesn't run dry
+    ("virtual event attendance rate", "informational"),
+    ("how to promote a webinar on linkedin", "informational"),
+    ("webinar promotion email sequence", "informational"),
+    ("webinar reminder email subject lines", "informational"),
+    ("how to get more webinar registrations", "informational"),
+    ("webinar registration page examples", "informational"),
+    ("webinar day of reminder email", "informational"),
+    ("webinar starting now email", "informational"),
+    ("webinar reminder text message template", "informational"),
+    ("whatsapp webinar invitation message", "informational"),
+    ("webinar no show email template", "informational"),
+    ("how to follow up after a webinar", "informational"),
+    ("webinar engagement ideas", "informational"),
+    ("interactive webinar formats", "informational"),
+    ("webinar audience retention tips", "informational"),
+    ("how to host a webinar that people attend", "informational"),
+    ("webinar marketing for startups", "informational"),
+    ("webinar marketing for coaches", "informational"),
+    ("webinar marketing for consultants", "informational"),
+    ("webinar marketing for agencies", "informational"),
+    ("webinar strategy for edtech", "informational"),
+    ("webinar series vs single webinar", "informational"),
+    ("evergreen webinar vs live webinar", "informational"),
+    ("hybrid event attendance tips", "informational"),
+    ("community event no shows", "informational"),
+    ("how to reduce meeting no shows", "informational"),
+    ("demo no show follow up email", "informational"),
+    ("free event no show rate", "informational"),
+    ("paid vs free webinar attendance", "informational"),
+    ("webinar attendance certificate ideas", "informational"),
+    ("webinar giveaway ideas to boost attendance", "informational"),
+    ("webinar reminder schedule template", "informational"),
+    ("best webinar reminder tools", "commercial"),
+    ("webinar email automation tools", "commercial"),
+    ("webinar sms reminder software", "commercial"),
+    ("whatsapp reminder tool for events", "commercial"),
+    ("circle community events best practices", "informational"),
+    ("linkedin live vs webinar", "informational"),
+    ("how to measure webinar engagement", "informational"),
+    ("webinar attendee survey questions", "informational"),
+    ("webinar feedback email template", "informational"),
+    ("webinar recording email to registrants", "informational"),
+    ("on demand webinar promotion", "informational"),
+    ("webinar calendar invite best practices", "informational"),
+    ("add to calendar link for webinar emails", "informational"),
+    ("webinar reminder for different time zones", "informational"),
+    ("webinar presenter tips for engagement", "informational"),
+    ("webinar cta examples", "informational"),
+    ("webinar slide design tips", "informational"),
+    ("how to write a webinar description", "informational"),
+    ("webinar invite linkedin message template", "informational"),
+    ("webinar promotion on instagram", "informational"),
+    ("webinar promotion on facebook", "informational"),
+    ("partner webinar promotion email", "informational"),
+    ("internal webinar attendance for employees", "informational"),
+    ("training webinar attendance tips", "informational"),
+    ("customer webinar program for saas", "informational"),
+    ("webinar funnel strategy", "informational"),
+    ("webinar lead scoring", "informational"),
+    ("webinar attendance report template", "informational"),
 ]
 
 
@@ -449,20 +515,83 @@ async def ensure_indexes():
     await db.seo_candidates.create_index("keyword", unique=True)
 
 
+
+# Competitor names: an "alternatives" or "vs" post about one competitor never duplicates a post about another.
+COMPETITORS = ["demio", "livestorm", "webinarjam", "everwebinar", "zoom", "gotowebinar", "on24", "ewebinar",
+               "easywebinar", "airmeet", "webinarninja", "bigmarker", "clickmeeting", "crowdcast", "streamyard",
+               "riverside", "restream", "hopin", "goldcast", "hubspot"]
+
+# Competitor "alternatives" and comparison keywords go to the front of the queue (high buying intent).
+COMPETITOR_KEYWORDS = [
+    ("demio alternatives", "commercial"), ("livestorm alternatives", "commercial"),
+    ("webinarjam alternatives", "commercial"), ("zoom webinar alternatives", "commercial"),
+    ("gotowebinar alternatives", "commercial"), ("on24 alternatives", "commercial"),
+    ("ewebinar alternatives", "commercial"), ("easywebinar alternatives", "commercial"),
+    ("airmeet alternatives", "commercial"), ("webinarninja alternatives", "commercial"),
+    ("bigmarker alternatives", "commercial"), ("clickmeeting alternatives", "commercial"),
+    ("everwebinar alternatives", "commercial"), ("crowdcast alternatives", "commercial"),
+    ("demio vs livestorm", "commercial"), ("zoom webinar vs gotowebinar", "commercial"),
+    ("webinarjam vs everwebinar", "commercial"), ("on24 vs bigmarker", "commercial"),
+    ("livestorm vs zoom webinar", "commercial"), ("demio vs webinarjam", "commercial"),
+    ("ewebinar vs easywebinar", "commercial"), ("airmeet vs hopin", "commercial"),
+    ("streamyard vs riverside for webinars", "commercial"), ("goldcast vs on24", "commercial"),
+]
+_PRIORITY_AT = "2026-01-01T00:00:00+00:00"  # queue order is by created_at, so these are picked first
+
+
+def competitors_in(text: str) -> set:
+    words = set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+    return {c for c in COMPETITORS if c in words}
+
 async def seed_keywords() -> int:
     added = 0
+    for kw, intent in COMPETITOR_KEYWORDS:
+        added += await add_keyword(kw, intent, created_at=_PRIORITY_AT)
     for kw, intent in SEED_KEYWORDS:
         added += await add_keyword(kw, intent)
+    # competitor keywords that an older dedup wrongly marked as duplicates of another competitor's post go back in
+    for c in await db.seo_candidates.find(
+            {"status": "duplicate", "keyword": {"$in": [k for k, _ in COMPETITOR_KEYWORDS]}},
+            {"_id": 1, "keyword": 1, "duplicate_of": 1}).to_list(100):
+        if competitors_in(c["keyword"]) - competitors_in(c.get("duplicate_of") or ""):
+            await db.seo_candidates.update_one({"_id": c["_id"]}, {
+                "$set": {"status": "pending", "created_at": _PRIORITY_AT}, "$unset": {"duplicate_of": "", "error": ""}})
+            added += 1
     return added
 
 
-async def add_keyword(keyword: str, intent: str = "informational", notes: str = "") -> int:
+async def refill_keywords() -> int:
+    """Keep the queue from running dry (an empty queue silently stops posting): if fewer than PSEO_QUEUE_MIN keywords
+    are pending, add the related topics that published posts suggested, newest posts first."""
+    pending = await db.seo_candidates.count_documents({"status": "pending"})
+    if pending >= PSEO_QUEUE_MIN:
+        return 0
+    rows = await db.blog_posts.find(
+        {"related_topics": {"$exists": True, "$ne": []}}, {"_id": 0, "related_topics": 1}
+    ).sort("created_at", -1).to_list(200)
+    added = 0
+    for r in rows:
+        for t in r.get("related_topics") or []:
+            if isinstance(t, str) and 3 <= len(t) <= 90:
+                added += await add_keyword(t, "informational", notes="auto: related topic")
+            if pending + added >= PSEO_QUEUE_MIN * 2:
+                break
+        if pending + added >= PSEO_QUEUE_MIN * 2:
+            break
+    if added:
+        logger.info(f"pSEO keyword queue refilled with {added} related topics ({pending} were pending)")
+    else:
+        logger.warning(f"pSEO keyword queue is low ({pending} pending) and no related topics to refill from")
+    return added
+
+
+async def add_keyword(keyword: str, intent: str = "informational", notes: str = "", created_at: str | None = None) -> int:
     keyword = normalize_text(keyword).strip().lower()
     if not keyword:
         return 0
     res = await db.seo_candidates.update_one(
         {"keyword": keyword},
-        {"$setOnInsert": {"keyword": keyword, "intent": intent, "status": "pending", "created_at": now_iso()}},
+        {"$setOnInsert": {"keyword": keyword, "intent": intent, "status": "pending", "created_at": created_at or now_iso()}},
         upsert=True,
     )
     if notes:
@@ -757,6 +886,9 @@ async def find_overlap(keyword: str) -> dict | None:
     """Return {"slug", "reason"} of an existing post (published, scheduled or draft) covering the same intent, else None."""
     rows = await db.blog_posts.find(
         {}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1}).to_list(5000)
+    named = competitors_in(keyword)
+    if named:  # only a post about the same competitor(s) can be a duplicate
+        rows = [r for r in rows if named <= competitors_in(f"{r.get('slug')} {r.get('keyword')} {r.get('title')}")]
     if not rows:
         return None
     scored = sorted(((max(topic_similarity(keyword, r.get("keyword") or ""), topic_similarity(keyword, r.get("title") or "")), r)
@@ -885,10 +1017,12 @@ async def next_publish_slot() -> str | None:
     return None
 
 
-def passes_quality_gate(post: dict) -> tuple:
-    if not post.get("fact_check_ok"):
+def passes_quality_gate(post: dict, lenient: bool = False) -> tuple:
+    """`lenient` is the catch-up's last resort: the AI fact-check may not have run (Groq down or rate-limited) and the
+    word floor is lower, but every deterministic check (unsourced numbers, sums, banned phrases, brand) still applies."""
+    if not post.get("fact_check_ok") and not lenient:
         return False, "fact-check did not run"
-    if (post.get("word_count") or 0) < PSEO_MIN_WORDS:
+    if (post.get("word_count") or 0) < (PSEO_MIN_WORDS_FALLBACK if lenient else PSEO_MIN_WORDS):
         return False, f"too short ({post.get('word_count')} words)"
     if banned_phrases_in(post.get("content")):
         return False, f"banned phrases: {', '.join(banned_phrases_in(post.get('content')))}"
@@ -962,6 +1096,25 @@ def trim_brand_mentions(content: str, keep: int = 2) -> str:
     return pat.sub(sub, content)
 
 
+def drop_banned_sentences(content: str) -> str:
+    """Remove sentences (and headings/bullets) that still contain a banned phrase when the AI rewrite didn't run."""
+    out = []
+    for line in (content or "").split("\n"):
+        if not banned_phrases_in(line):
+            out.append(line)
+            continue
+        t = line.strip()
+        if t.startswith("#") or t.startswith("|"):
+            continue
+        lead = line[: len(line) - len(line.lstrip())]
+        m = re.match(r"^([-*+]|\d+\.)\s+", t)
+        marker, body = (m.group(0), t[m.end():]) if m else ("", t)
+        keep = [x for x in _SENTENCE.split(body) if not banned_phrases_in(x)]
+        if keep:
+            out.append(lead + marker + " ".join(keep))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+
+
 async def repair_draft(post: dict) -> dict:
     """Fix what the quality gate rejects instead of leaving the draft unscheduled: re-run a fact-check that didn't
     run, rewrite banned phrases, and drop unsourced numbers, wrong sums and hollow tables. Saves the result."""
@@ -979,9 +1132,11 @@ async def repair_draft(post: dict) -> dict:
     return {**post, **upd}
 
 
-async def auto_schedule(post: dict, when: str | None = None) -> dict:
+async def auto_schedule(post: dict, when: str | None = None, last_resort: bool = False) -> dict:
     """If auto-scheduling is on and the draft passes the gate (after one repair pass if needed), give it the next
-    free slot. A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
+    free slot. With `last_resort` (catch-up only), a draft that still fails gets its banned-phrase and unsupported
+    sentences cut without AI and is checked by the lenient gate, so a Groq outage can't stop the day's posts.
+    A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
     if not PSEO_AUTO_SCHEDULE or post.get("published"):
         return {}
     ok, why = passes_quality_gate(post)
@@ -991,6 +1146,18 @@ async def auto_schedule(post: dict, when: str | None = None) -> dict:
             ok, why = passes_quality_gate(post)
         except Exception as e:
             logger.warning(f"pSEO repair failed for {post.get('slug')}: {e}")
+    if not ok and last_resort:
+        content = drop_failing_sentences(drop_banned_sentences(post.get("content") or ""))
+        words = len(content.split())
+        post = {**post, "content": content, "word_count": words}
+        ok, lenient_why = passes_quality_gate(post, lenient=True)
+        if ok:
+            await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {
+                "content": content, "word_count": words, "reading_time": max(1, round(words / 200)),
+                "last_resort_fix": why, "updated_at": now_iso()}})
+            logger.warning(f"pSEO last-resort fix for {post.get('slug')} (was: {why})")
+        else:
+            why = lenient_why
     slot = (when or await next_publish_slot()) if ok else None
     if slot:
         await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"publish_at": slot, "status": "scheduled"},
@@ -1016,7 +1183,7 @@ async def schedule_held_drafts(limit: int) -> int:
             break
         # a draft from an earlier day missed its day: publish it on the next 10-minute publish run
         when = now_iso() if (post.get("created_at") or "") < today else None
-        if (await auto_schedule(post, when)).get("status") == "scheduled":
+        if (await auto_schedule(post, when, last_resort=True)).get("status") == "scheduled":
             n += 1
     return n
 
@@ -1026,6 +1193,7 @@ async def run_pipeline(count: int | None = None) -> dict:
     count = count or PSEO_POSTS_PER_DAY
     await ensure_indexes()
     await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
+    await refill_keywords()
 
     backlog = await db.blog_posts.count_documents({"published": {"$ne": True}, "publish_at": {"$ne": None}})
     if PSEO_AUTO_SCHEDULE and backlog >= PSEO_SCHEDULE_HORIZON_DAYS * PSEO_MAX_PUBLISH_PER_DAY:
@@ -1103,6 +1271,23 @@ async def catch_up() -> dict:
             break
     logger.info(f"pSEO catch-up ({have} today, {missing} missing): {tries}")
     return {"ok": True, "tries": tries}
+
+
+async def pipeline_status() -> dict:
+    """Content-free snapshot for diagnosing missed days without the admin key: today's count, unpublished
+    pipeline drafts with their schedule or held reason, and how many keywords are left."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    start = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0)
+    lo = start.astimezone(timezone.utc).isoformat()
+    hi = (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
+    published_today = await db.blog_posts.count_documents({"published": True, "published_at": {"$gte": lo, "$lt": hi}})
+    drafts = await db.blog_posts.find(
+        {"source": "pseo", "published": {"$ne": True}},
+        {"_id": 0, "slug": 1, "created_at": 1, "publish_at": 1, "held_reason": 1, "status": 1, "word_count": 1,
+         "fact_check_ok": 1}).sort("created_at", -1).to_list(50)
+    pending = await db.seo_candidates.count_documents({"status": "pending"})
+    return {"now_utc": now_iso(), "target_per_day": PSEO_MAX_PUBLISH_PER_DAY, "published_today_ist": published_today,
+            "keywords_pending": pending, "drafts": drafts}
 
 
 async def retry_failed() -> int:
