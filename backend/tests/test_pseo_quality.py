@@ -409,3 +409,43 @@ def test_seed_requeues_competitor_keywords_marked_duplicate_of_another_competito
         return 0
     monkeypatch.setattr(pseo, "add_keyword", add)
     assert asyncio.run(pseo.seed_keywords()) == 1 and upd == [1]
+
+
+def test_is_comparison_and_brand_limit():
+    assert pseo.is_comparison("livestorm alternatives") and pseo.is_comparison("demio vs livestorm")
+    assert not pseo.is_comparison("zoom webinar attendance tips")
+    assert pseo.brand_limit({"keyword": "demio alternatives"}) == pseo.COMPARISON_BRAND_LIMIT
+    assert pseo.brand_limit({"keyword": "webinar countdown email"}) == 2
+
+
+def test_comparison_prompt_recommends_brand(monkeypatch):
+    seen = {}
+
+    def fake_groq(prompt):
+        seen["p"] = prompt
+        raise RuntimeError("stop")
+    monkeypatch.setattr(pseo, "_groq_json", fake_groq)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "x")
+
+    class Coll:
+        async def find_one(self, *a, **k):
+            return None
+
+        def find(self, *a, **k):
+            return types.SimpleNamespace(sort=lambda *a, **k: _Cursor([]))
+    pseo.db = types.SimpleNamespace(seo_candidates=Coll(), blog_posts=Coll())
+    for kw, want in (("livestorm alternatives", True), ("webinar countdown email", False)):
+        try:
+            asyncio.run(pseo.generate_post(kw))
+        except RuntimeError:
+            pass
+        assert ("ShowUpAI is the recommended alternative" in seen["p"]) is want
+        assert ("Mention ShowUpAI exactly ONCE" in seen["p"]) is not want
+
+
+def test_comparison_gate_allows_more_brand_mentions():
+    b = pseo.BRAND
+    base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m",
+            "content": f"{b} a. {b} b. {b} c. {b} d."}
+    assert not pseo.passes_quality_gate({**base, "keyword": "webinar tips"})[0]
+    assert pseo.passes_quality_gate({**base, "keyword": "demio alternatives"})[0]

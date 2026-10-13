@@ -686,6 +686,38 @@ Return ONLY a JSON object with these keys (title/summary/tags map to the post's 
   "related_topics": ["3-5 related topics to write about next, each clearly different from the published articles"]
 }}"""
 
+# Competitor "alternatives" / "X vs Y" posts: ShowUpAI is the recommended pick instead of a once-only mention.
+COMPARISON_V = 1  # bump to rewrite existing competitor posts with a new version of this rule
+COMPARISON_BRAND_LIMIT = 8
+COMPARISON_RULE = """5. ShowUpAI is the recommended alternative (this is a competitor comparison article on {site}).
+   - The reader is unhappy with or evaluating the named tool(s). Position ShowUpAI (https://showupai.live) as the
+     top recommendation for the reader's real goal: getting more registrants to actually show up live.
+   - Be honest about what ShowUpAI is: an attendance layer that plans and sends the reminder sequence, not a webinar
+     streaming platform. It works alongside any platform (Zoom, Livestorm, Demio, etc.), so frame it as "keep or
+     switch your streaming tool, and add ShowUpAI to fix no-shows", or as the better choice when attendance is the
+     problem.
+   - Structure: right after the quick answer, a section "## Why ShowUpAI is the best {keyword_short} for attendance"
+     (adapt the wording) that explains the case. Then cover 3-4 other options briefly and fairly (one H3 each,
+     strengths and limits, no invented prices, ratings or feature claims). Include one comparison table whose
+     first data row is ShowUpAI. End with a short "How to switch / add ShowUpAI" checklist and the link
+     https://showupai.live.
+   - You may mention ShowUpAI up to 6 times. Only describe it with these true facts: it generates an 11-touch
+     reminder sequence timed from about three weeks before the event to after it; channels are email, LinkedIn,
+     Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites; AI writes two variants per message; the host
+     reviews and approves messages before they send; it tracks attendance by channel; plans are $29/$79/$199 per
+     month with a 14-day free trial. Do NOT claim anything else about it.
+   - Never disparage competitors with claims you cannot back up; describe them neutrally."""
+
+
+def is_comparison(keyword: str) -> bool:
+    k = (keyword or "").lower()
+    return bool(competitors_in(k)) and ("alternative" in k or " vs " in k)
+
+
+def brand_limit(post: dict) -> int:
+    return COMPARISON_BRAND_LIMIT if is_comparison(post.get("keyword") or "") else 2
+
+
 # Phrases the writing prompt forbids; drafts that still contain them after the style pass are held back.
 BANNED_PHRASES = [
     "in today's fast-paced", "digital landscape", "game-changer", "game changer", "tapestry", "delve",
@@ -911,7 +943,8 @@ async def find_overlap(keyword: str) -> dict | None:
     return None
 
 
-async def generate_post(keyword: str, intent: str = "informational") -> dict:
+async def generate_post(keyword: str, intent: str = "informational", slug: str | None = None,
+                        save: bool = True) -> dict:
     """Generate one long-form draft and save it to blog_posts (unpublished unless auto-publish)."""
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
@@ -928,6 +961,10 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
     related = "\n".join(f"- {p['title']} - {SITE_URL}/blog/{p['slug']}" for p in pubs) or "(none yet)"
     prompt = PROMPT.format(keyword=keyword, intent=intent, author=AUTHOR_NAME, author_bio=AUTHOR_BIO,
                            notes_block=notes_block, facts=facts, related=related)
+    if is_comparison(keyword):
+        short = re.sub(r"\s+vs\s+.*", " alternative", keyword) if " vs " in keyword else keyword.rstrip("s")
+        prompt = re.sub(r"5\. Native product placement \(ShowUpAI\)\..*?(?=\n\nVerified facts)",
+                        lambda _: COMPARISON_RULE.format(site=SITE_URL, keyword_short=short), prompt, flags=re.S)
     data = await asyncio.get_running_loop().run_in_executor(None, _groq_json, prompt)
     content = clean_content((data.get("content") or "").strip(), bool(data.get("faq_items")))
     content, fixes = await fact_check(content)
@@ -937,7 +974,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         raise RuntimeError(f"Draft too short ({words} words)")
 
     title = (data.get("title") or keyword.title()).strip()
-    slug = await _unique_slug(slugify(keyword))
+    slug = slug or await _unique_slug(slugify(keyword))
     faqs = [f for f in (data.get("faq_items") or []) if isinstance(f, dict) and f.get("question")]
     doc = {
         "id": str(uuid.uuid4()),
@@ -965,6 +1002,7 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "fact_check_ok": fixes is not None,
         "banned_phrases": banned_phrases_in(content),
         "brand_mentions": brand_mentions(content),
+        "comparison_v": COMPARISON_V if is_comparison(keyword) else None,
         "unsourced_numbers": unsourced_numbers(content),
         "bad_math": bad_math(content),
         "status": "published" if PSEO_AUTO_PUBLISH else "draft",
@@ -974,8 +1012,9 @@ async def generate_post(keyword: str, intent: str = "informational") -> dict:
         "updated_at": now_iso(),
     }
     clean_post_fields(doc)
-    await db.blog_posts.insert_one(doc)
-    doc.pop("_id", None)
+    if save:
+        await db.blog_posts.insert_one(doc)
+        doc.pop("_id", None)
     return doc
 
 
@@ -1034,7 +1073,7 @@ def passes_quality_gate(post: dict, lenient: bool = False) -> tuple:
         return False, f"wrong arithmetic: {wrong[0]}"
     if empty_tables(post.get("content")):
         return False, "table with empty cells"
-    if brand_mentions(post.get("content")) > 2:
+    if brand_mentions(post.get("content")) > brand_limit(post):
         return False, f"{BRAND} mentioned {brand_mentions(post.get('content'))} times"
     if "](https://showupai.live" not in (post.get("content") or ""):
         pass  # autolink adds it at publish time
@@ -1046,7 +1085,7 @@ def passes_quality_gate(post: dict, lenient: bool = False) -> tuple:
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
 
-def drop_failing_sentences(content: str) -> str:
+def drop_failing_sentences(content: str, brand_keep: int = 2) -> str:
     """Remove the sentences (or table rows / bullets) the quality gate objects to: unsourced percentages and wrong
     sums. Dropping an unsupported claim is safer than holding the whole post back."""
     loose, wrong = set(unsourced_numbers(content)), bad_math(content)
@@ -1079,7 +1118,7 @@ def drop_failing_sentences(content: str) -> str:
             block = []
             res.append(ln)
         content = "\n".join(res[:-1])
-    return re.sub(r"\n{3,}", "\n\n", trim_brand_mentions(content))
+    return re.sub(r"\n{3,}", "\n\n", trim_brand_mentions(content, brand_keep))
 
 
 def trim_brand_mentions(content: str, keep: int = 2) -> str:
@@ -1125,7 +1164,7 @@ async def repair_draft(post: dict) -> dict:
         if fixes is not None:
             upd.update(fact_check_ok=True, fact_check_edits=fixes)
     content = await style_fix(content)
-    content = drop_failing_sentences(content)
+    content = drop_failing_sentences(content, brand_limit(post))
     words = len(content.split())
     upd.update(content=content, word_count=words, reading_time=max(1, round(words / 200)), updated_at=now_iso())
     await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": upd})
@@ -1147,7 +1186,7 @@ async def auto_schedule(post: dict, when: str | None = None, last_resort: bool =
         except Exception as e:
             logger.warning(f"pSEO repair failed for {post.get('slug')}: {e}")
     if not ok and last_resort:
-        content = drop_failing_sentences(drop_banned_sentences(post.get("content") or ""))
+        content = drop_failing_sentences(drop_banned_sentences(post.get("content") or ""), brand_limit(post))
         words = len(content.split())
         post = {**post, "content": content, "word_count": words}
         ok, lenient_why = passes_quality_gate(post, lenient=True)
@@ -1194,6 +1233,10 @@ async def run_pipeline(count: int | None = None) -> dict:
     await ensure_indexes()
     await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
     await refill_keywords()
+    try:
+        await rewrite_competitor_posts()
+    except Exception as e:
+        logger.warning(f"pSEO competitor rewrite skipped: {e}")
 
     backlog = await db.blog_posts.count_documents({"published": {"$ne": True}, "publish_at": {"$ne": None}})
     if PSEO_AUTO_SCHEDULE and backlog >= PSEO_SCHEDULE_HORIZON_DAYS * PSEO_MAX_PUBLISH_PER_DAY:
@@ -1271,6 +1314,38 @@ async def catch_up() -> dict:
             break
     logger.info(f"pSEO catch-up ({have} today, {missing} missing): {tries}")
     return {"ok": True, "tries": tries}
+
+
+async def rewrite_competitor_posts(limit: int = 2) -> list:
+    """Rewrite competitor posts written before the current COMPARISON_RULE so they recommend ShowUpAI. Keeps the slug
+    and, for published posts, the publish date; a rewrite that fails the gate leaves the old post untouched."""
+    out = []
+    rows = await db.blog_posts.find(
+        {"source": "pseo", "comparison_v": {"$ne": COMPARISON_V}},
+        {"_id": 0, "slug": 1, "keyword": 1, "intent": 1, "published": 1, "publish_at": 1}).to_list(500)
+    for old in [r for r in rows if is_comparison(r.get("keyword") or "")][:limit]:
+        try:
+            new = await generate_post(old["keyword"], old.get("intent") or "commercial", slug=old["slug"], save=False)
+        except Exception as e:
+            logger.warning(f"pSEO competitor rewrite failed for {old['slug']}: {e}")
+            out.append({"slug": old["slug"], "error": str(e)[:200]})
+            continue
+        keep = {"id", "slug", "status", "published", "published_at", "created_at", "publish_at"}
+        upd = {k: v for k, v in new.items() if k not in keep}
+        if old.get("published"):
+            ok, why = passes_quality_gate(new, lenient=True)
+            if not ok:
+                logger.warning(f"pSEO competitor rewrite of {old['slug']} kept old version: {why}")
+                await db.blog_posts.update_one({"slug": old["slug"]}, {"$set": {"comparison_v": COMPARISON_V}})
+                out.append({"slug": old["slug"], "kept": why})
+                continue
+        await db.blog_posts.update_one({"slug": old["slug"]}, {"$set": upd, "$unset": {"held_reason": ""}})
+        if old.get("published"):
+            out.append({"slug": old["slug"], "rewritten": True})
+        else:  # re-check the new draft; a scheduled one keeps its slot if it passes
+            out.append({"slug": old["slug"], **(await auto_schedule({**old, **upd}, old.get("publish_at"), last_resort=True))})
+        logger.info(f"pSEO competitor post rewritten to recommend {BRAND}: {old['slug']}")
+    return out
 
 
 async def pipeline_status() -> dict:
