@@ -63,17 +63,59 @@ def _indexnow_later(urls):
         pass
 
 
-async def _trigger_rebuild(reason: str):
-    """Ask Netlify to rebuild so the prerendered blog HTML (for Google/AI crawlers) picks up changes."""
+REBUILD_MIN_MINUTES = int(os.environ.get("NETLIFY_REBUILD_MIN_MINUTES", "180"))
+
+
+async def _fire_rebuild(reason: str) -> bool:
     if not NETLIFY_BUILD_HOOK:
         return False
     try:
         import httpx
         async with httpx.AsyncClient(timeout=15) as client:
-            await client.post(NETLIFY_BUILD_HOOK, params={"trigger_title": f"Blog: {reason}"[:120]})
-        return True
+            r = await client.post(NETLIFY_BUILD_HOOK, params={"trigger_title": f"Blog: {reason}"[:120]})
+        ok = r.status_code < 400
     except Exception:
+        ok = False
+    await db.site_state.update_one({"_id": "netlify_rebuild"}, {"$set": {
+        "last_fired_at": now_iso(), "last_ok": ok, "last_reason": reason[:200]}}, upsert=True)
+    return ok
+
+
+async def _trigger_rebuild(reason: str, force: bool = False):
+    """Ask Netlify to rebuild so the prerendered blog HTML (for Google/AI crawlers) picks up changes.
+    Requests are batched: at most one build per NETLIFY_REBUILD_MIN_MINUTES; the rest wait in Mongo and
+    flush_rebuild() (run by the 10-min publish job) fires them. A build per publish/cover/relink/edit used up
+    Netlify build minutes, so new posts stopped being prerendered."""
+    if not NETLIFY_BUILD_HOOK:
         return False
+    if force:
+        await db.site_state.update_one({"_id": "netlify_rebuild"}, {"$set": {"pending": False}}, upsert=True)
+        return await _fire_rebuild(reason)
+    await db.site_state.update_one({"_id": "netlify_rebuild"}, {"$set": {"pending": True}, "$push": {
+        "reasons": {"$each": [reason[:120]], "$slice": -20}}}, upsert=True)
+    return await flush_rebuild()
+
+
+async def flush_rebuild() -> bool:
+    """Fire the pending Netlify build if the last one is at least NETLIFY_REBUILD_MIN_MINUTES old."""
+    from datetime import datetime, timedelta, timezone
+    state = await db.site_state.find_one({"_id": "netlify_rebuild"}) or {}
+    if not state.get("pending") or not NETLIFY_BUILD_HOOK:
+        return False
+    last = state.get("last_fired_at")
+    if last:
+        try:
+            if datetime.now(timezone.utc) - datetime.fromisoformat(last) < timedelta(minutes=REBUILD_MIN_MINUTES):
+                return False
+        except ValueError:
+            pass
+    reasons = state.get("reasons") or []
+    # Claim the batch before firing so two workers can't both fire it
+    res = await db.site_state.update_one({"_id": "netlify_rebuild", "pending": True},
+                                         {"$set": {"pending": False, "reasons": []}})
+    if not res.modified_count:
+        return False
+    return await _fire_rebuild(f"{len(reasons)} change(s): " + ", ".join(reasons[-3:]))
 
 
 async def publish_slug(slug: str) -> bool:
@@ -116,6 +158,10 @@ async def publish_due() -> list:
     for d in due:
         if await publish_slug(d["slug"]):
             done.append(d["slug"])
+    try:
+        await flush_rebuild()
+    except Exception:
+        pass
     return done
 
 
@@ -219,7 +265,7 @@ async def seo_indexnow(request: Request):
 async def seo_rebuild(request: Request):
     """Manually trigger a Netlify rebuild (refreshes prerendered blog pages)."""
     _require_key(request)
-    ok = await _trigger_rebuild("manual")
+    ok = await _trigger_rebuild("manual", force=True)
     return {"ok": ok, "note": None if ok else "Set NETLIFY_BUILD_HOOK on Render first"}
 
 
