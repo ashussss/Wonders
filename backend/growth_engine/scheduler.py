@@ -83,6 +83,19 @@ async def run_links_verify() -> dict:
         return {"ok": False, "error": str(e)[:300]}
 
 
+async def run_questions_daily() -> dict:
+    """Draft answers to new public webinar questions. Drafts only; a human posts."""
+    from . import question_finder
+
+    if not GROWTH_ENABLED:
+        return {"ok": True, "skipped": "growth_disabled"}
+    try:
+        return await question_finder.run_daily(db)
+    except Exception as e:                                        # noqa: BLE001
+        logger.error(f"growth questions daily failed: {e}")
+        return {"ok": False, "error": str(e)[:300]}
+
+
 def register() -> None:
     """Register the Growth Engine jobs. Called once from server.py lifespan."""
     scheduler.add_job(run_daily, "cron", hour=DAILY_HOUR, minute=0, id="growth-daily",
@@ -97,8 +110,11 @@ def register() -> None:
                       replace_existing=True, misfire_grace_time=24 * 3600, coalesce=True)
     scheduler.add_job(run_links_verify, "cron", day_of_week="sun", hour=5, minute=0, id="growth-links-verify",
                       replace_existing=True, misfire_grace_time=24 * 3600, coalesce=True)
+    # 02:30 UTC = 08:00 IST: today's answer drafts are waiting when the day starts.
+    scheduler.add_job(run_questions_daily, "cron", hour=2, minute=30, id="growth-questions-daily",
+                      replace_existing=True, misfire_grace_time=12 * 3600, coalesce=True)
     logger.info(f"Growth Engine jobs registered (approval_mode={APPROVAL_MODE}, "
                 f"platforms={','.join(GROWTH_PLATFORMS)})")
 
 
-__all__ = ["run_daily", "run_dispatch", "run_prospect_refresh", "run_links_weekly", "run_links_verify", "register", "DAILY_HOUR"]
+__all__ = ["run_daily", "run_dispatch", "run_prospect_refresh", "run_links_weekly", "run_links_verify", "run_questions_daily", "register", "DAILY_HOUR"]

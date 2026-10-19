@@ -14,3 +14,14 @@ Code: `backend/growth_engine/link_engine.py`. Admin page: `/app/links`. API: `/a
 Anti-spam contract: the engine never submits, posts or emails anywhere. A human approves each draft and
 submits it from their own account. No paid links, link swaps, PBNs or comment link drops. Each site gets
 its own wording. `tests/test_growth_links.py::test_engine_never_sends_anything` guards this.
+
+## Question finder (`question_finder.py`)
+`growth-questions-daily` (02:30 UTC / 08:00 IST) reads public Reddit search RSS and Hacker News (Algolia)
+for recent webinar-attendance questions, scores them, and drafts `GROWTH_QUESTIONS_PER_DAY` (default 3)
+answers into the queue (`source: finder`, `asset: answer`). One draft per thread, ever. Read-only GETs;
+the owner posts from their own account. Tune with `GROWTH_QUESTION_SUBREDDITS` / `GROWTH_QUESTION_QUERIES`.
+
+## Autofill helper (`frontend/src/lib/autofill.js`)
+A "ShowUp Fill" bookmarklet on /app/links. "Copy for autofill" puts the approved draft on the clipboard; the
+bookmarklet fills matching empty fields on the submit form and outlines them. It never signs up, never
+submits, and skips password, email, personal-name, file and hidden fields.

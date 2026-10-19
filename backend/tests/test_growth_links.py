@@ -158,3 +158,62 @@ async def test_verify_marks_live_then_lost(db, monkeypatch):
     pages["html"] = "<p>gone</p>"
     await le.verify_live(db, max_age_days=0)
     assert (await coll.find_one({"key": "crunchbase"}))["status"] == "lost"
+
+
+# ── question finder ──────────────────────────────────────────────────────────
+
+from datetime import datetime, timedelta, timezone   # noqa: E402
+
+from growth_engine import question_finder as qf      # noqa: E402
+
+REDDIT_ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+ <entry><title>How do you cut webinar no-shows? Half our registrants never join</title>
+  <link href="https://www.reddit.com/r/marketing/comments/abc/how_do_you/"/>
+  <updated>%s</updated><content type="html">We send one reminder email. Any tips?</content></entry>
+ <entry><title>Best CRM for agencies</title>
+  <link href="https://www.reddit.com/r/marketing/comments/def/crm/"/>
+  <updated>%s</updated><content type="html">Looking for a CRM.</content></entry>
+ <entry><title>Old webinar attendance question?</title>
+  <link href="https://www.reddit.com/r/marketing/comments/old/x/"/>
+  <updated>2020-01-01T00:00:00+00:00</updated><content type="html">old</content></entry>
+</feed>"""
+
+
+def test_question_scoring_needs_topic_and_prefers_questions():
+    assert qf.score("Best CRM for agencies?") == 0
+    assert qf.score("How do I improve webinar attendance?") > qf.score("Our webinar attendance report")
+
+
+def test_parse_reddit_filters_old_and_keeps_subreddit():
+    now = datetime.now(timezone.utc).isoformat()
+    rows = qf.parse_reddit(REDDIT_ATOM % (now.encode(), now.encode()), datetime.now(timezone.utc) - timedelta(days=7))
+    assert len(rows) == 2 and rows[0]["site"] == "r/marketing"
+    assert all("old" not in r["url"] for r in rows)
+
+
+def test_parse_hn():
+    now = int(datetime.now(timezone.utc).timestamp())
+    rows = qf.parse_hn({"hits": [{"objectID": "1", "title": "Ask HN: webinar reminders that work?",
+                                  "created_at_i": now, "story_text": "<p>hi</p>"}]},
+                       datetime.now(timezone.utc) - timedelta(days=7))
+    assert rows[0]["url"] == "https://news.ycombinator.com/item?id=1" and rows[0]["body"] == "hi"
+
+
+async def test_question_run_drafts_once_per_thread(db, fake_ai):
+    qs = [{"title": "How to reduce webinar no-shows?", "body": "help", "url": "https://www.reddit.com/r/x/1",
+           "site": "r/x", "platform": "reddit", "score": 4, "published_at": "2026-10-19"},
+          {"title": "Webinar reminder cadence?", "body": "", "url": "https://news.ycombinator.com/item?id=2",
+           "site": "Hacker News", "platform": "hackernews", "score": 3, "published_at": "2026-10-19"}]
+    first = await qf.run_daily(db, limit=5, questions=qs)
+    assert len(first["drafted"]) == 2
+    row = await db[COLLECTIONS["links"]].find_one({"submit_url": "https://www.reddit.com/r/x/1"})
+    assert row["source"] == "finder" and row["asset"] == "answer" and row["status"] == "pending_review"
+    again = await qf.run_daily(db, limit=5, questions=qs)
+    assert again["drafted"] == []
+
+
+def test_question_finder_never_sends_anything():
+    src = inspect.getsource(qf)
+    for forbidden in (".post(", ".put(", "selenium", "playwright"):
+        assert forbidden not in src.lower(), forbidden

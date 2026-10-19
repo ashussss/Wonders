@@ -24,7 +24,7 @@ from . import (
     GROWTH_SLOTS_IST,
     GROWTH_WEEKLY_PLAN,
 )
-from . import analytics, blog_engine, link_engine, news_engine, prospect_engine, queue, visual_engine
+from . import analytics, blog_engine, link_engine, news_engine, prospect_engine, question_finder, queue, visual_engine
 from .integrations import router as integrations_router
 
 logger = logging.getLogger("showup.growth.api")
@@ -342,6 +342,13 @@ async def growth_links_status(key: str, request: Request, payload: dict = Body(d
         raise HTTPException(404, "Not found")
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/links/questions")
+async def growth_links_questions(request: Request):
+    """Search public Reddit/HN feeds for webinar questions and draft answers. Never posts."""
+    await _require_admin(request)
+    return await question_finder.run_daily(db)
 
 
 @router.post("/links/verify")
