@@ -13,6 +13,7 @@ import Schedule from "@/pages/Schedule";
 import Settings from "@/pages/Settings";
 import Integrations from "@/pages/Integrations";
 import GrowthReview from "@/pages/GrowthReview";
+import LinkBuilding from "@/pages/LinkBuilding";
 import ContentLibrary from "@/pages/ContentLibrary";
 import AdminDashboard from "@/pages/AdminDashboard";
 import Waitlist from "@/pages/Waitlist";
@@ -68,6 +69,7 @@ export default function App() {
                 <Route path="/app/settings" element={<Settings />} />
                 <Route path="/app/integrations" element={<Integrations />} />
                 <Route path="/app/growth" element={<GrowthReview />} />
+                <Route path="/app/links" element={<LinkBuilding />} />
                 <Route path="/app/library" element={<ContentLibrary />} />
                 <Route path="/app/admin" element={<AdminDashboard />} />
                 <Route path="/app/email" element={<EmailAnalytics />} />

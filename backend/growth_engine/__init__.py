@@ -129,6 +129,7 @@ COLLECTIONS = {
     "activity": "growth_prospect_activity",
     "metrics": "growth_metrics",
     "learning": "growth_learning",
+    "links": "growth_links",
 }
 
 ASSET_BUCKET = "growth_assets_fs"
