@@ -75,9 +75,43 @@ async def already_queued(db, kind: str, source_slug: str, day: str) -> bool:
     return False
 
 
+def auto_mode() -> bool:
+    """True when posts go out without a human approving each one: approval mode off
+    AND auto publish on. Read at call time so a Render env change applies on restart."""
+    from . import APPROVAL_MODE as approval, GROWTH_AUTO_PUBLISH as auto
+    return not approval and bool(auto)
+
+
+def theme_index(day: str, slot: int) -> int:
+    """Colour theme for a post. day*3 + slot walks the 4 themes so the two posts on a
+    day differ, and the next morning differs from the previous afternoon."""
+    try:
+        base = datetime.fromisoformat(day).date().toordinal()
+    except ValueError:
+        base = 0
+    return base * 3 + slot
+
+
+def hold_reason(doc: Dict[str, Any]) -> str:
+    """Why an auto-mode post must wait for a human instead of going out. "" = safe."""
+    if (doc.get("review") or {}).get("visual_error"):
+        return "the image did not render"
+    vis = doc.get("visual") or {}
+    if not doc.get("asset_ids") and not (vis.get("format") == "poll" and doc.get("platforms") == ["linkedin"]):
+        return "no image"
+    if vis.get("title") == "Review needed" or "Add this point" in (vis.get("rows") or []):
+        return "the image text is incomplete"
+    copy = doc.get("platform_copy") or {}
+    for p in doc.get("platforms") or []:
+        if not str((copy.get(p) or {}).get("caption") or "").strip():
+            return f"no {p} caption"
+    return ""
+
+
 async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
-                  render: bool = True) -> Optional[Dict[str, Any]]:
-    """Persist one draft as a pending campaign. Returns the stored doc."""
+                  render: bool = True, slot: int = 0) -> Optional[Dict[str, Any]]:
+    """Persist one draft. Pending review, or approved straight away in auto mode when
+    it passes hold_reason(). Returns the stored doc."""
     from . import visual_engine as ve
 
     doc = draft.model_dump()
@@ -96,11 +130,21 @@ async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
     })
 
     if render:
-        assets = await ve.store_assets(db, draft.visual, seed=f"{draft.kind}:{draft.source_slug}")
+        assets = await ve.store_assets(db, draft.visual, seed=f"{draft.kind}:{draft.source_slug}",
+                                       theme_index=theme_index(day, slot))
         doc["asset_ids"] = assets.get("asset_ids") or []
         doc["asset_urls"] = assets.get("asset_urls") or []
         if assets.get("error"):
             doc["review"]["visual_error"] = assets["error"]
+
+    if auto_mode() and render:
+        reason = hold_reason(doc)
+        if reason:
+            doc["review"]["hold_reason"] = reason
+            logger.warning(f"auto mode: holding '{draft.strategy.hook[:50]}' for review ({reason})")
+        else:
+            doc["status"] = "approved"
+            doc["review"].update(mode="auto", reviewed_by="auto", reviewed_at=now_iso())
 
     await db[COLLECTIONS["campaigns"]].insert_one(doc)
     doc.pop("_id", None)
@@ -288,6 +332,8 @@ async def generate_day(db, day: Optional[str] = None, render: bool = True,
 
     if not force and await db[COLLECTIONS["campaigns"]].find_one({"plan_day": day}, {"_id": 1}):
         return {"ok": True, "note": "already generated for this day", "created": [], "day": day}
+    if not force and not await _claim_generation(db, day):
+        return {"ok": True, "note": "generation already running for this day", "created": [], "day": day}
 
     items = plan_for(day)
     if not items:
@@ -299,11 +345,19 @@ async def generate_day(db, day: Optional[str] = None, render: bool = True,
     for n, item in enumerate(items):
         when = slots[n % len(slots)] if slots else datetime.now(timezone.utc)
         kind = item["kind"]
-        try:
-            draft = await _build_planned(db, item, day, n)
-        except Exception as e:                                 # noqa: BLE001
-            logger.error(f"generate_day: {kind} #{n} failed: {e}")
-            created.append({"kind": kind, "error": str(e)[:200]})
+        draft, err = None, ""
+        # Two tries: a single AI timeout should not cost the day a post.
+        for _ in range(2):
+            try:
+                draft = await _build_planned(db, item, day, n)
+            except Exception as e:                             # noqa: BLE001
+                err = str(e)[:200]
+                logger.error(f"generate_day: {kind} #{n} failed: {e}")
+                continue
+            if draft:
+                break
+        if err and not draft:
+            created.append({"kind": kind, "error": err})
             continue
 
         if not draft:
@@ -312,7 +366,7 @@ async def generate_day(db, day: Optional[str] = None, render: bool = True,
         if await already_queued(db, draft.kind, draft.source_slug or "", day):
             created.append({"kind": draft.kind, "note": "already queued today"})
             continue
-        stored = await enqueue(db, draft, when, day, render=render)
+        stored = await enqueue(db, draft, when, day, render=render, slot=n)
         if not stored:
             created.append({"kind": draft.kind, "note": "enqueue failed"})
             continue
@@ -324,6 +378,40 @@ async def generate_day(db, day: Optional[str] = None, render: bool = True,
 
     return {"ok": True, "day": day, "approval_mode": APPROVAL_MODE,
             "created": created, "count": len([c for c in created if c.get("id")])}
+
+
+LOCK_TTL = timedelta(hours=2)
+
+
+async def _claim_generation(db, day: str) -> bool:
+    """One generator per day, even when the 02:00 job and a catch-up tick overlap.
+    A lock older than LOCK_TTL is a crashed run and can be taken over."""
+    from pymongo.errors import DuplicateKeyError
+
+    locks = db["growth_locks"]
+    key = f"generate:{day}"
+    try:
+        await locks.insert_one({"_id": key, "at": now_iso()})
+        return True
+    except DuplicateKeyError:
+        stale = (datetime.now(timezone.utc) - LOCK_TTL).isoformat()
+        r = await locks.update_one({"_id": key, "at": {"$lt": stale}}, {"$set": {"at": now_iso()}})
+        return bool(r.modified_count)
+
+
+async def ensure_today(db) -> Dict[str, Any]:
+    """Catch-up: if the 02:00 job was missed (server asleep or restarting), build
+    today's posts on the next dispatch tick instead of skipping the day."""
+    from . import GROWTH_ENABLED
+    from .scheduler import DAILY_HOUR
+
+    if not GROWTH_ENABLED or datetime.now(IST).hour < DAILY_HOUR:
+        return {"ok": True, "skipped": True}
+    day = plan_day()
+    if await db[COLLECTIONS["campaigns"]].find_one({"plan_day": day}, {"_id": 1}):
+        return {"ok": True, "skipped": True}
+    logger.warning(f"growth: no posts built for {day} yet, catching up now")
+    return await generate_day(db, day)
 
 
 # ── approval + dispatch ──────────────────────────────────────────────────────
@@ -482,8 +570,8 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
             if platform == "linkedin":
                 vis = doc.get("visual") or {}
                 if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
-                    res = await post_linkedin_poll(settings, text, vis.get("title") or "",
-                                                   vis.get("rows") or [])
+                    res = await post_linkedin_poll(settings, text, (vis.get("title") or "").replace("*", ""),
+                                                   [str(r).replace("*", "") for r in vis.get("rows") or []])
                 elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:
@@ -501,14 +589,27 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
                 res = {"ok": False, "detail": "unsupported platform"}
         except Exception as e:                                  # noqa: BLE001
             res = {"ok": False, "detail": str(e)[:200]}
+        if platform in ("facebook", "instagram") and not res.get("ok") and "must be granted" in str(res.get("detail")):
+            res["detail"] = ("Facebook permissions are missing. On Integrations, disconnect Facebook, connect "
+                             "again and keep every permission on. " + str(res.get("detail"))[:120])
         res["at"] = now_iso()
         results[platform] = res
+        # Saved per platform, so a crash mid-run never re-posts what already went out.
+        await db[COLLECTIONS["campaigns"]].update_one(
+            {"id": doc["id"]}, {"$set": {f"results.{platform}": res, "updated_at": now_iso()}})
 
     oks = [bool(r.get("ok")) for r in results.values()]
     status = "posted" if oks and all(oks) else ("partial" if any(oks) else "failed")
-    await db[COLLECTIONS["campaigns"]].update_one({"id": doc["id"]}, {"$set": {
-        "results": results, "status": status, "posted_at": now_iso(), "updated_at": now_iso()}})
+    await db[COLLECTIONS["campaigns"]].update_one({"id": doc["id"]}, {
+        "$set": {"results": results, "status": status, "posted_at": now_iso(), "updated_at": now_iso()},
+        "$inc": {"attempts": 1}})
     return {"id": doc["id"], "status": status, "results": results}
+
+
+STALE_PUBLISHING = timedelta(minutes=30)
+RETRY_AFTER = timedelta(minutes=30)     # failed platforms are tried again after this
+RETRY_WINDOW = timedelta(hours=24)      # ...for a day, then left for a human
+MAX_ATTEMPTS = 3
 
 
 async def dispatch_due(db, force: bool = False) -> Dict[str, Any]:
@@ -524,17 +625,29 @@ async def dispatch_due(db, force: bool = False) -> Dict[str, Any]:
     if not GROWTH_AUTO_PUBLISH and not force:
         return {"ok": True, "skipped": "auto_publish_disabled"}
 
-    due = await db[COLLECTIONS["campaigns"]].find(
-        {"status": "approved", "scheduled_at": {"$lte": now_iso()}}, {"_id": 0}
+    col = db[COLLECTIONS["campaigns"]]
+    now = datetime.now(timezone.utc)
+    # A run that died mid-publish (deploy, restart) goes back in the queue; platforms
+    # that already succeeded are skipped by publish_campaign.
+    await col.update_many(
+        {"status": "publishing", "updated_at": {"$lt": (now - STALE_PUBLISHING).isoformat()}},
+        {"$set": {"status": "approved", "updated_at": now_iso()}})
+
+    retry_q = {"status": {"$in": ["failed", "partial"]},
+               "attempts": {"$not": {"$gte": MAX_ATTEMPTS}},
+               "updated_at": {"$lt": (now - RETRY_AFTER).isoformat()},
+               "scheduled_at": {"$gte": (now - RETRY_WINDOW).isoformat()}}
+    due = await col.find(
+        {"$or": [{"status": "approved", "scheduled_at": {"$lte": now_iso()}}, retry_q]}, {"_id": 0}
     ).to_list(10)
     if not due:
         return {"ok": True, "published": 0}
     out = []
     for d in due:
-        # Atomic claim: only the tick that flips approved -> publishing posts it,
+        # Atomic claim: only the tick that flips the status to publishing posts it,
         # so overlapping ticks or a second server instance cannot double-post.
-        claimed = await db[COLLECTIONS["campaigns"]].update_one(
-            {"id": d["id"], "status": "approved"},
+        claimed = await col.update_one(
+            {"id": d["id"], "status": d["status"], "updated_at": d.get("updated_at")},
             {"$set": {"status": "publishing", "updated_at": now_iso()}})
         if not claimed.modified_count:
             continue
@@ -544,6 +657,7 @@ async def dispatch_due(db, force: bool = False) -> Dict[str, Any]:
 
 __all__ = [
     "now_iso", "plan_day", "ensure_indexes", "enqueue", "generate_day",
-    "approve", "reject", "edit", "publish_campaign", "dispatch_due",
+    "approve", "reject", "edit", "publish_campaign", "dispatch_due", "ensure_today",
+    "auto_mode", "hold_reason", "theme_index",
     "build_original_campaign", "PAIN_ANGLES", "ENGAGEMENT_ANGLES", "_slots",
 ]

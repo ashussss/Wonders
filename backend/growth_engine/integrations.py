@@ -197,14 +197,21 @@ async def meta_callback(code: str = Query(default=""), state: str = Query(defaul
         raise HTTPException(400, "The account that started this connection no longer exists.")
     try:
         token = await meta.exchange_code(code)
+        granted = await meta.fetch_permissions(token)
         member, *pages = await meta.fetch_pages(token)
     except meta.MetaError as e:
         return _redirect(meta_status="error", meta_error=str(e)[:300])
+    missing_page = meta.missing_permissions(granted, meta.REQUIRED_PAGE_PERMS)
+    if missing_page:
+        logger.warning(f"meta oauth missing page permissions: {missing_page}")
+        return _redirect(meta_status="error", meta_error=(
+            "Facebook did not grant " + ", ".join(missing_page) + ". Connect again, click "
+            "'Edit access' in the Facebook dialog, select your Page and keep every permission switched on."))
     if not pages:
         return _redirect(meta_status="error",
                          meta_error="No Facebook Pages were shared. Reconnect and select your Page (and its Instagram account).")
     try:
-        await meta.save_connection(db, owner_id, member, pages)
+        await meta.save_connection(db, owner_id, member, pages, granted)
     except li.EncryptionUnavailable:
         return _redirect(meta_status="error", meta_error="This server cannot store credentials securely (FERNET_KEY missing).")
     return _redirect(meta_status="connected")

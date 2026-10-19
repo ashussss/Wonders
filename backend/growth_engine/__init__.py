@@ -59,13 +59,15 @@ GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 # Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
 # A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
 DEFAULT_WEEKLY_PLAN = (
-    "mon=blog:infographic,mon=pain_point:carousel,"
-    "tue=blog:carousel,tue=engagement:quote,"
-    "wed=blog:checklist,wed=engagement:poll,"
+    # 14 posts a week across 9 visual templates; no template runs twice in a row and
+    # the colour theme rotates per post (see queue.theme_index).
+    "mon=blog:carousel,mon=engagement:poll,"
+    "tue=blog:myth_fact,tue=pain_point:timeline,"
+    "wed=blog:infographic,wed=engagement:hot_take,"
     "thu=blog:carousel,thu=competitor:comparison,"
-    "fri=blog:infographic,fri=pain_point:carousel,"
-    "sat=blog:carousel,sat=engagement:poll,"
-    "sun=blog:checklist,sun=news:infographic"
+    "fri=blog:checklist,fri=engagement:quote,"
+    "sat=blog:timeline,sat=engagement:poll,"
+    "sun=blog:myth_fact,sun=news:infographic"
 )
 GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 
@@ -145,6 +147,9 @@ VISUAL_FORMATS = (
     "comparison",
     "quote",
     "poll",
+    "myth_fact",
+    "timeline",
+    "hot_take",
 )
 
 __all__ = [
