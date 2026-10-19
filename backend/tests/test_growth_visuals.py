@@ -89,3 +89,24 @@ def test_all_formats_registered():
     from growth_engine import VISUAL_FORMATS
     assert set(ve.RENDERERS) == set(VISUAL_FORMATS) == {
         "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll"}
+
+def test_design_highlight_tokens():
+    from growth_engine import design
+    toks = design.tokens("One email is *not a sequence*")
+    assert [w for w, em in toks if em] == ["not", "a", "sequence"]
+    assert all(not em for w, em in toks if w in ("One", "email", "is"))
+    # no asterisks: numbers are highlighted automatically
+    assert dict(design.tokens("Send the 1-hour reminder"))["1-hour"] is True
+    assert design.plain("*Bold* claim") == "Bold claim"
+
+
+def test_design_uses_vendored_brand_font():
+    from growth_engine import design
+    assert design.font("black", 40).getname()[0].startswith("Outfit")
+
+
+@pytest.mark.parametrize("fmt", sorted(_specs()))
+def test_every_format_is_portrait(fmt):
+    out = ve.RENDERERS[fmt](_specs()[fmt], seed=f"p-{fmt}")
+    for b in (out if isinstance(out, list) else [out]):
+        assert Image.open(io.BytesIO(b)).size == (1080, 1350)

@@ -55,13 +55,20 @@ VOICE (applies to every platform):
 - Assertive. Take a clear position. No hedging ("might", "could potentially", "in some cases").
 - Short sentences. Most under 12 words. One sentence per line. A blank line between ideas.
 - Concrete over clever: a specific situation, a specific step, a specific mistake.
+- The first line decides whether anyone reads on. Open with one of: a contrarian claim, a
+  costly mistake the reader is making right now, a sharp before/after, or a number you were
+  given. Never open with a question, a greeting, "Did you know", or the brand name.
+- Make the reader feel seen: name the exact moment they live through (the empty Zoom room at
+  minute five, the replay nobody watches, the reminder sent the day before).
+- One idea per post. Cut every line that does not serve it.
 - No emojis. No decorative symbols or arrows. No em dashes. Plain "1." "2." "3." for lists.
 - Banned words and phrases: in today's, fast-paced, landscape, dive in, let's dive, delve,
   game-changer, game changer, unlock, elevate, leverage, harness, supercharge, seamless,
   revolutionize, robust, navigate, realm, tapestry, embark, buckle up, level up,
   "here's the thing", "the truth is", "it's not just X, it's Y", "let that sink in".
 - End with ONE question about this exact subject that a reader can answer from their own
-  experience, then ask them to answer in the comments. Vary the wording; never a bare
+  experience in a few words (an either/or, a "which one", a "what's your number"), then ask
+  them to answer in the comments. Vary the wording; never a bare
   "Thoughts?" or "What do you think?". The question is always the last line before hashtags.
 """
 
@@ -69,13 +76,13 @@ PLATFORM_RULES = """
 PLATFORM COPY RULES (LinkedIn and Meta best practice; return each as a separate object):
 - linkedin: 700-1300 characters. Line 1 is the hook, under 12 words, alone on its line, and
   must make someone click "see more". Line 2 adds tension or a stake. Then the substance as
-  short lines or a plain numbered list. If the visual is a carousel, say what they get by
-  swiping. Always one plain line pointing to showupai.live (domain only, no https, no
+  short lines or a plain numbered list. Close the body with a one-line takeaway worth saving.
+  If the visual is a carousel, say what they get by swiping. Always one plain line pointing to showupai.live (domain only, no https, no
   "link in bio"). Then the question and the comment ask. Exactly 3 hashtags on the last line.
 - facebook: 150-450 characters. Hook line, 2-4 short lines, one line mentioning showupai.live,
   the question and the comment ask. 0-2 hashtags.
 - instagram: 400-1100 characters. Hook in the first 125 characters. Short lines. Ask them
-  to save or share the post if it is useful, one line "More at showupai.live (link in bio)",
+  to save the post or send it to a teammate who runs webinars, one line "More at showupai.live (link in bio)",
   then the question and the comment ask. 3-5 specific hashtags on the last line.
 - Put the hashtags inside the caption text and also list them in "hashtags".
 """
@@ -84,9 +91,13 @@ VISUAL_RULES = """
 VISUAL RULES — you describe the image, a renderer draws it in the flat ShowUpAI brand style
 (no stock photos, no illustrations, no AI art). Text on the image must be short and readable
 on a phone. One idea per slide or row.
+Highlight: in every headline, title, quote and stat label on the image, wrap the 1-3 words
+that carry the point in *asterisks*; the renderer highlights them in the brand colour. Use
+asterisks ONLY inside "visual", never in captions. Slide titles are punchy statements, not
+labels ("One email is not a sequence", not "Email strategy").
 Pick the format you are told to use, or the best fit if none is given, and fill only the
 fields that format uses:
-- carousel:      {"format":"carousel","title":"cover headline, a bold claim or promise (<=10 words)","slides":[{"title":"<=8 words","body":"<=25 words, one actionable point"}],"cta":"last slide: the comment question or a save prompt (<=14 words)"}  (4-6 slides)
+- carousel:      {"format":"carousel","title":"cover headline, a bold claim (<=10 words)","subtitle":"the promise of swiping, <=12 words, e.g. 4 fixes that lift live attendance","slides":[{"title":"<=8 words","body":"<=25 words, one actionable point"}],"cta":"last slide: the comment question or a save prompt (<=14 words)"}  (4-6 slides)
 - infographic:   {"format":"infographic","title":"<=9 words","rows":["<=12 words each, 4-6 rows, an insight or step per row"]}
 - stat_card:     {"format":"stat_card","title":"short label","number":"e.g. 51.3%","label":"what it means, <=22 words","source":"the exact source name provided"}   (needs a number you were GIVEN)
 - checklist:     {"format":"checklist","title":"<=9 words","rows":["<=12 words each, 5-6 checklist items"]}
@@ -259,7 +270,7 @@ def _visual(d: Dict[str, Any], kind: str, seed: str, preferred: str = "") -> Vis
     if spec.format == "poll":
         # LinkedIn's limits: question 140 characters, 2-4 options of 30 characters.
         spec.title = spec.title[:140]
-        spec.rows = [r[:30].strip() for r in spec.rows if r.strip()][:4]
+        spec.rows = [r.replace("*", "")[:30].strip() for r in spec.rows if r.strip()][:4]
 
     # Normalise an unusable format into one that can actually be drawn.
     # Order matters: each branch is guarded on renderability so a format can never
@@ -499,7 +510,7 @@ Return ONLY a JSON object with exactly this shape:
             return None
         copy = _platform_copy(raw, platforms)
         for block in copy.values():
-            block.caption = ensure_site(humanize(block.caption))
+            block.caption = ensure_site(humanize(block.caption.replace("*", "")))
         issues = copy_issues(copy) if copy else ["no captions returned"]
         if not issues:
             break
