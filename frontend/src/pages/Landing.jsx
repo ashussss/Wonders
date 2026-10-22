@@ -34,7 +34,7 @@ const PLANS = [
     period: "/mo",
     desc: "For agencies managing multiple clients.",
     features: ["Everything in Growth", "Multi-brand workspaces", "White-label reports", "Custom sender domains", "Dedicated onboarding", "SLA support"],
-    cta: "Talk to us",
+    cta: "Start free trial",
     highlight: false},
 ];
 
@@ -111,7 +111,7 @@ function Nav() {
         <div className="hidden md:flex items-center gap-3">
           <Link to="/login" className="text-sm text-gray-400 hover:text-white transition-colors px-4 py-2">Sign in</Link>
           <Link to="/app" className="text-sm text-gray-400 hover:text-white transition-colors px-4 py-2">Dashboard</Link>
-          <Link to="/waitlist" className="text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg transition-colors shadow-[0_0_20px_rgba(234,88,12,0.3)]">
+          <Link to="/register" className="text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg transition-colors shadow-[0_0_20px_rgba(234,88,12,0.3)]">
             Start free →
           </Link>
         </div>
@@ -133,7 +133,7 @@ function Nav() {
             <Link to="/privacy" onClick={() => setOpen(false)} className="text-gray-300 py-1">Privacy</Link>
             <div className="flex gap-3 pt-2 border-t border-white/[0.06]">
               <Link to="/login" className="flex-1 text-center py-2 text-gray-400 border border-white/[0.1] rounded-lg text-sm">Sign in</Link>
-              <Link to="/waitlist" className="flex-1 text-center py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold">Start free</Link>
+              <Link to="/register" className="flex-1 text-center py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold">Start free</Link>
             </div>
           </motion.div>
         )}
@@ -208,7 +208,7 @@ export default function Landing() {
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }}
             className="flex flex-col sm:flex-row gap-3 justify-center mb-16">
-            <Link to="/waitlist"
+            <Link to="/register"
               className="group inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-semibold px-8 py-4 rounded-xl text-lg transition-all shadow-[0_0_40px_rgba(234,88,12,0.4)] hover:shadow-[0_0_60px_rgba(234,88,12,0.6)]">
               Start for free
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
@@ -374,7 +374,7 @@ export default function Landing() {
                   <span className="text-gray-500 text-sm">{plan.period}</span>
                 </div>
                 <p className="text-gray-300 text-sm mb-6">{plan.desc}</p>
-                <Link to="/waitlist"
+                <Link to="/register"
                   className={`block text-center py-3 rounded-xl text-sm font-semibold mb-6 transition-all ${plan.highlight
                     ? "bg-orange-600 hover:bg-orange-500 text-white shadow-[0_0_24px_rgba(234,88,12,0.4)]"
                     : "border border-white/[0.12] text-gray-300 hover:bg-white/[0.06]"}`}>
@@ -422,7 +422,7 @@ export default function Landing() {
             </span>
           </h2>
           <p className="text-gray-400 text-xl mb-10">Join 100+ webinar hosts already using ShowUpAI. 14-day free trial, no card required.</p>
-          <Link to="/waitlist"
+          <Link to="/register"
             className="inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-semibold px-10 py-5 rounded-xl text-lg transition-all shadow-[0_0_60px_rgba(234,88,12,0.5)] hover:shadow-[0_0_80px_rgba(234,88,12,0.7)]">
             Get started free <ArrowRight size={20} />
           </Link>
