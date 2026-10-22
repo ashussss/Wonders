@@ -1,7 +1,7 @@
 """Delivery, file downloads, third-party integrations, social image generation."""
 import os
 from typing import Dict, Any, List
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 from bson import ObjectId
 
@@ -24,7 +24,30 @@ router = APIRouter(prefix="/api")
 
 async def _user_settings_decrypted(user_id: str) -> Dict[str, Any]:
     s = await db.settings.find_one({"owner_id": user_id}, {"_id": 0}) or {}
-    return decrypt_settings(s)
+    return await _with_user_oauth(user_id, decrypt_settings(s))
+
+
+async def _with_user_oauth(user_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Layer the user's own OAuth connections (Integrations page) over their Settings tokens.
+
+    LinkedIn adds the member token used by linkedin_personal (and by linkedin when no
+    company Page token is set). A connected Facebook Page replaces the pasted Meta
+    token, Page id and Instagram id. Missing or expired connections change nothing.
+    """
+    from growth_engine import linkedin as li, meta
+    try:
+        member = await li.member_publishing_settings(db, user_id)
+        page = await meta.publishing_settings(db, user_id)
+    except Exception as e:                                  # noqa: BLE001
+        logger.warning(f"oauth lookup failed for owner={user_id}: {e}")
+        return settings
+    merged = {**settings, **member}
+    if page:
+        merged.update(page)
+        if "instagram_business_id" not in page:
+            # The connected Page has no Instagram account: don't pair its token with a pasted IG id.
+            merged.pop("instagram_business_id", None)
+    return merged
 
 
 # ---------- File downloads (public) ----------
@@ -435,21 +458,38 @@ async def send_now(tid: str, request: Request, user=Depends(get_user)):
 
 
 # ---------- Scheduler tick ----------
+def touch_auto_send(t: Dict[str, Any], settings: Dict[str, Any]) -> bool:
+    """A touch's own auto-post switch wins; otherwise the per-touch-number default from Settings."""
+    if t.get("auto_send") is not None:
+        return bool(t["auto_send"])
+    return bool((settings.get("per_touch_auto_send") or {}).get(str(t["touch_num"]), False))
+
+
+MAX_SEND_ATTEMPTS = 3
+RETRY_DELAY = timedelta(minutes=15)
+
+
 async def scheduler_tick():
     now = datetime.now(timezone.utc).isoformat()
     sent_count = 0
     candidates = await db.touches.find({"approval_status": "approved", "sent_status": "planned",
-                                          "scheduled_at": {"$lte": now}}, {"_id": 0}).to_list(200)
+                                          "scheduled_at": {"$lte": now},
+                                          "$or": [{"retry_at": None}, {"retry_at": {"$lte": now}}]},
+                                         {"_id": 0}).to_list(200)
     for t in candidates:
         settings = await _user_settings_decrypted(t["owner_id"])
-        auto = (settings.get("per_touch_auto_send") or {}).get(str(t["touch_num"]), False)
-        if auto:
+        if touch_auto_send(t, settings):
             public_url = os.environ.get("PUBLIC_BACKEND_URL", "")
             result = await _deliver_touch(t, settings, public_backend_url=public_url)
-            await db.touches.update_one({"id": t["id"], "owner_id": t.get("owner_id", "")},
-                                          {"$set": {"sent_status": "sent" if result["ok"] else "failed",
-                                                    "sent_at": now_iso(),
-                                                    "delivery_log": result.get("log", [])}})
+            attempts = int(t.get("send_attempts") or 0) + 1
+            upd: Dict[str, Any] = {"sent_status": "sent" if result["ok"] else "failed",
+                                   "sent_at": now_iso(), "send_attempts": attempts,
+                                   "delivery_log": result.get("log", [])}
+            if not result["ok"] and attempts < MAX_SEND_ATTEMPTS:
+                # Nothing went out at all, so a retry can't double-post. Try again shortly.
+                upd.update(sent_status="planned", sent_at=None,
+                           retry_at=(datetime.now(timezone.utc) + RETRY_DELAY).isoformat())
+            await db.touches.update_one({"id": t["id"], "owner_id": t.get("owner_id", "")}, {"$set": upd})
             if result.get("ok"):
                 sent_count += 1
         else:
@@ -480,6 +520,7 @@ async def get_schedule(user=Depends(get_user)):
         {"owner_id": user["id"], "sent_status": {"$in": ["planned", "queued"]}},
         {"_id": 0}
     ).to_list(1000)
+    settings = await db.settings.find_one({"owner_id": user["id"]}, {"_id": 0, "per_touch_auto_send": 1}) or {}
 
     # Bulk fetch webinars (no N+1)
     wid_set = list({t["webinar_id"] for t in touches})
@@ -500,6 +541,8 @@ async def get_schedule(user=Depends(get_user)):
             "approval_status": t["approval_status"],
             "sent_status": t["sent_status"],
             "channels": t.get("channels", []),
+            "auto_send": touch_auto_send(t, settings),
+            "send_attempts": t.get("send_attempts") or 0,
             "webinar_id": t["webinar_id"],
             "webinar_title": w.get("title", "?"),
             "webinar_starts_at": w.get("starts_at"),

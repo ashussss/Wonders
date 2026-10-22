@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, Send } from "@/components/Icons";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Edit, Send } from "@/components/Icons";
 import { motion, AnimatePresence } from "framer-motion";
 import { api, fmtDate, CHANNEL_META } from "@/lib/api";
 import { Link } from "react-router-dom";
@@ -63,6 +63,16 @@ export default function Schedule() {
     } finally { setSending(null); }
   };
 
+  const patchTouch = async (tid, body, msg) => {
+    try {
+      await api.patch(`/touches/${tid}`, body);
+      toast.success(msg);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not save");
+    }
+  };
+
   const prev = () => setCursor(c => { const d = new Date(c.year, c.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; });
   const next = () => setCursor(c => { const d = new Date(c.year, c.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; });
 
@@ -76,7 +86,7 @@ export default function Schedule() {
           <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-white">Schedule</span>
         </div>
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-1" style={{ fontFamily: 'Outfit', color: "var(--text-primary)" }}>Send Calendar</h1>
-        <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>All scheduled touches across your webinars — approve and send from here.</p>
+        <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>All scheduled touches across your webinars. Change the send time and turn on auto-post so they go out on their own.</p>
 
         <div className="grid lg:grid-cols-[1fr_380px] gap-6">
 
@@ -169,7 +179,7 @@ export default function Schedule() {
                 </div>
                 {selectedTouches.length === 0
                   ? <div className="p-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>No touches scheduled for this day.</div>
-                  : <AnimatePresence>{selectedTouches.map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} />)}</AnimatePresence>
+                  : <AnimatePresence>{selectedTouches.map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} onPatch={patchTouch} />)}</AnimatePresence>
                 }
               </div>
             )}
@@ -187,7 +197,7 @@ export default function Schedule() {
               )}
               <div className="max-h-[420px] overflow-y-auto">
                 {touches.filter(t => t.scheduled_at && t.scheduled_at >= todayStr).slice(0, 20)
-                  .map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} />)}
+                  .map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} onPatch={patchTouch} />)}
               </div>
             </div>
 
@@ -197,7 +207,7 @@ export default function Schedule() {
                   <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>On Registration</div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Triggered automatically when someone registers</div>
                 </div>
-                {unscheduled.map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} />)}
+                {unscheduled.map(t => <TouchRow key={t.touch_id} t={t} onSend={sendNow} sending={sending} onPatch={patchTouch} />)}
               </div>
             )}
           </div>
@@ -207,8 +217,22 @@ export default function Schedule() {
   );
 }
 
-function TouchRow({ t, onSend, sending }) {
+// "2026-10-07T09:30:00+00:00" -> "2026-10-07T15:00" in the viewer's timezone, for <input type="datetime-local">.
+const toLocalInput = (iso) => {
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
+function TouchRow({ t, onSend, sending, onPatch }) {
   const st = STATUS_STYLE[t.approval_status] || STATUS_STYLE.pending;
+  const [editing, setEditing] = useState(false);
+  const [when, setWhen] = useState("");
+  const startEdit = () => { setWhen(toLocalInput(t.scheduled_at)); setEditing(true); };
+  const saveTime = async () => {
+    if (!when) return;
+    await onPatch(t.touch_id, { scheduled_at: new Date(when).toISOString() }, "Send time updated");
+    setEditing(false);
+  };
   return (
     <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
       className="px-5 py-3.5 transition-colors hover:bg-white/[0.02]"
@@ -228,7 +252,31 @@ function TouchRow({ t, onSend, sending }) {
               <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
                 {t.scheduled_at ? fmtDate(t.scheduled_at) : "On registration"}
               </span>
+              {t.scheduled_at && !editing && (
+                <button onClick={startEdit} data-testid={`edit-time-${t.touch_id}`} title="Change send time"
+                  className="ml-1 opacity-60 hover:opacity-100" style={{ color: "var(--text-muted)" }}>
+                  <Edit size={10} />
+                </button>
+              )}
             </div>
+            {editing && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)}
+                  data-testid={`time-input-${t.touch_id}`}
+                  className="text-[11px] rounded-md px-1.5 py-0.5"
+                  style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
+                <button onClick={saveTime} className="text-[10px] px-2 py-0.5 rounded-md bg-orange-600 text-white font-bold">Save</button>
+                <button onClick={() => setEditing(false)} className="text-[10px] px-1" style={{ color: "var(--text-muted)" }}>Cancel</button>
+              </div>
+            )}
+            {t.scheduled_at && (
+              <label className="flex items-center gap-1.5 mt-1.5 text-[10px] cursor-pointer" style={{ color: "var(--text-muted)" }}>
+                <input type="checkbox" checked={!!t.auto_send} data-testid={`auto-send-${t.touch_id}`}
+                  onChange={() => onPatch(t.touch_id, { auto_send: !t.auto_send },
+                    t.auto_send ? "Auto-post off" : "Auto-post on")} />
+                Auto-post at this time{t.auto_send && t.approval_status !== "approved" ? " (after you approve it)" : ""}
+              </label>
+            )}
             <div className="flex flex-wrap gap-1 mt-1.5">
               {(t.channels || []).slice(0, 4).map(ch => (
                 <span key={ch} className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--bg-sunken)", color: "var(--text-muted)" }}>

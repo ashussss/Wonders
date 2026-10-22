@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme";
 
@@ -16,7 +17,7 @@ const TOUCHES = [
 ];
 
 const ALL_CHANNELS = [
-  ["email","Email"],["linkedin","LinkedIn Page"],["linkedin_personal","LinkedIn (manual)"],
+  ["email","Email"],["linkedin","LinkedIn"],["linkedin_personal","LinkedIn (personal)"],
   ["facebook","Facebook Page"],["instagram","Instagram"],["whatsapp","WhatsApp/SMS"],["circle","Circle.so"]
 ];
 
@@ -78,7 +79,15 @@ export default function Settings() {
         <TestSend label="Test Buzz.ai email endpoint" channel="email" testId="test-buzzai-email"/>
       </Group>
 
-      <Group title="LinkedIn">
+      <Group title="Social accounts">
+        <div className="text-sm" style={{ color: "var(--text-secondary)" }} data-testid="settings-connect-social">
+          Connect LinkedIn, Facebook and Instagram in one click on the{" "}
+          <Link to="/app/integrations" className="text-orange-500 font-semibold hover:underline">Integrations page</Link>.
+          Connected accounts are used for posting automatically. The token fields below are only needed if you'd rather paste API tokens yourself.
+        </div>
+      </Group>
+
+      <Group title="LinkedIn (manual tokens)">
         <Row label="LinkedIn provider for posting"><select data-testid="set-linkedin_provider" value={s.linkedin_provider||"marketing_api"} onChange={e=>set("linkedin_provider", e.target.value)} className="input">
           <option value="marketing_api">LinkedIn Marketing API (default)</option>
           <option value="buzzai">Buzz.ai (uses your Buzz.ai endpoint above)</option>
@@ -86,10 +95,9 @@ export default function Settings() {
         <Field label="LinkedIn Marketing API Token" k="linkedin_marketing_token" s={s} set={set}/>
         <Row label="LinkedIn Organization URN"><input data-testid="set-linkedin_org_urn" value={s.linkedin_org_urn||""} onChange={e=>set("linkedin_org_urn", e.target.value)} placeholder="urn:li:organization:1234567" className="input"/></Row>
         <Field label="LinkedIn Events API Token (best-effort)" k="linkedin_events_token" s={s} set={set} hint="LinkedIn restricts Events API to approved partners. Manual paste-import is the realistic default."/>
-        <Banner>No auto-posting to personal LinkedIn profiles. The app drafts the post and provides a Copy &amp; Paste button.</Banner>
       </Group>
 
-      <Group title="Meta (Facebook + Instagram)">
+      <Group title="Meta — Facebook + Instagram (manual tokens)">
         <Field label="Meta Graph API Token" k="meta_graph_token" s={s} set={set}/>
         <Field label="Facebook Page ID" k="meta_page_id" s={s} set={set}/>
         <Field label="Instagram Business Account ID" k="instagram_business_id" s={s} set={set} hint="Instagram must be a Business/Creator account linked to the Facebook Page."/>
