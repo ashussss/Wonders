@@ -63,7 +63,9 @@ def _indexnow_later(urls):
         pass
 
 
-REBUILD_MIN_MINUTES = int(os.environ.get("NETLIFY_REBUILD_MIN_MINUTES", "180"))
+# Netlify credit plans charge 15 credits per production deploy (Free: 300/month = 20 deploys, Personal: 1000).
+# One batched deploy a day (~30/month) fits Personal with room for bandwidth.
+REBUILD_MIN_MINUTES = int(os.environ.get("NETLIFY_REBUILD_MIN_MINUTES", "1440"))
 
 
 async def _fire_rebuild(reason: str) -> bool:
