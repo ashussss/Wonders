@@ -324,7 +324,8 @@ async def draft(db, key: str, extra: str = "") -> Dict[str, Any]:
     return _public(await _coll(db).find_one({"key": key}))
 
 
-async def draft_on_demand(db, kind: str, text: str, url: str = "", site: str = "") -> Dict[str, Any]:
+async def draft_on_demand(db, kind: str, text: str, url: str = "", site: str = "",
+                          key: str = "", source: str = "on_demand") -> Dict[str, Any]:
     """Draft from something the owner pasted: a journalist query, a thread, or a guest-post target.
 
     kind: pr_answer | answer | pitch. Creates its own queue row (not a catalog row).
@@ -336,7 +337,7 @@ async def draft_on_demand(db, kind: str, text: str, url: str = "", site: str = "
         raise ValueError("paste the query, thread or target notes")
     domain = re.sub(r"^https?://(www\.)?", "", url or "").split("/")[0] or site or "unknown"
     item = {
-        "key": f"{kind}-{uuid.uuid4().hex[:8]}", "name": site or domain, "domain": domain,
+        "key": key or f"{kind}-{uuid.uuid4().hex[:8]}", "name": site or domain, "domain": domain,
         "submit_url": url, "category": {"pr_answer": "pr", "answer": "community", "pitch": "guest_post"}[kind],
         "asset": kind, "priority": 1, "cadence": "on_demand",
         "link": {"pr_answer": "Journalist query.", "answer": "Community thread. Help first.",
@@ -344,7 +345,7 @@ async def draft_on_demand(db, kind: str, text: str, url: str = "", site: str = "
     }
     label = {"pr_answer": "JOURNALIST QUERY", "answer": "THREAD / QUESTION", "pitch": "TARGET SITE NOTES"}[kind]
     body = await build_draft(db, item, f"{label}:\n{text.strip()[:4000]}")
-    doc = {**item, "id": str(uuid.uuid4()), "source": "on_demand", "input": text.strip()[:4000],
+    doc = {**item, "id": str(uuid.uuid4()), "source": source, "input": text.strip()[:4000],
            "status": "pending_review", "draft": body, "history": [{"at": _now(), "event": "drafted"}],
            "created_at": _now(), "updated_at": _now(), "drafted_at": _now()}
     await _coll(db).insert_one(doc)

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, Copy, ExternalLink, Loader2, RefreshCw, Shield, Sparkles, X } from "@/components/Icons";
+import { BOOKMARKLET, buildFillPayload } from "@/lib/autofill";
+import { Check, Copy, ExternalLink, Loader2, MessageSquare, RefreshCw, Shield, Sparkles, X } from "@/components/Icons";
 
 /**
  * Link building — review queue (admin only).
@@ -103,7 +104,7 @@ function Item({ it, onChanged, setError, setNotice }) {
         {it.submit_url && (
           <a href={it.submit_url} target="_blank" rel="noreferrer"
              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs" style={btn}>
-            Open site <ExternalLink size={13} />
+            {it.asset === "answer" ? "Open thread" : "Open site"} <ExternalLink size={13} />
           </a>
         )}
       </div>
@@ -162,12 +163,40 @@ function Item({ it, onChanged, setError, setNotice }) {
             </button>
           </>
         )}
+        {it.draft && ["listing", "launch_kit", "profile"].includes(it.asset) && (
+          <button data-testid={`link-autofill-${it.key}`} onClick={() => copy(buildFillPayload({ ...it, draft: { ...draft, ...edits } }))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs" style={btn}>
+            <Copy size={13} /> Copy for autofill
+          </button>
+        )}
         {it.status !== "skipped" && it.status !== "live" && (
-          <button onClick={skip} disabled={!!busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs disabled:opacity-50" style={btn}>
+          <button data-testid={`link-skip-${it.key}`} onClick={skip} disabled={!!busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs disabled:opacity-50" style={btn}>
             <X size={13} /> Skip
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function AutofillInstall() {
+  // React blocks javascript: URLs in JSX, so the bookmarklet href is set on the DOM node.
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.setAttribute("href", BOOKMARKLET); }, []);
+  return (
+    <div className="rounded-2xl p-5 mb-6" style={card}>
+      <h2 className="text-sm font-semibold" style={primary}>Autofill helper</h2>
+      <p className="text-xs mt-1" style={muted}>
+        Drag this button to your bookmarks bar once:{" "}
+        <a ref={ref} data-testid="links-bookmarklet" onClick={(e) => e.preventDefault()} draggable
+           className="inline-block px-2.5 py-1 rounded-lg text-xs font-medium text-white align-middle" style={{ background: "#EA580C" }}>
+          ShowUp Fill
+        </a>
+      </p>
+      <p className="text-xs mt-2" style={muted}>
+        Then: press "Copy for autofill" on a draft, open the site's submit form, click "ShowUp Fill". It fills the empty
+        fields and outlines them in orange. It never signs up or submits. You check the form and press Submit.
+      </p>
     </div>
   );
 }
@@ -223,6 +252,7 @@ export default function LinkBuilding() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [finding, setFinding] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -255,6 +285,21 @@ export default function LinkBuilding() {
     }
   };
 
+  const findQuestions = async () => {
+    setFinding(true);
+    setError("");
+    try {
+      const { data: d } = await api.post("/growth/links/questions");
+      setNotice(`${d?.found || 0} matching thread(s) found, ${d?.drafted?.length || 0} new answer draft(s).`);
+      setStatus("pending_review");
+      await load();
+    } catch (e) {
+      setError(errText(e, "Could not search for questions."));
+    } finally {
+      setFinding(false);
+    }
+  };
+
   if (!isAdmin) {
     return <div className="p-8 text-sm" style={muted}>This page is only available to admins.</div>;
   }
@@ -273,6 +318,11 @@ export default function LinkBuilding() {
           <button onClick={load} disabled={loading} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm disabled:opacity-50" style={btn}>
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
+          <button data-testid="links-find" onClick={findQuestions} disabled={finding}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm disabled:opacity-50" style={btn}>
+            {finding ? <Loader2 size={15} className="animate-spin" /> : <MessageSquare size={15} />}
+            {finding ? "Searching…" : "Find questions"}
+          </button>
           <button data-testid="links-run" onClick={runWeek} disabled={running}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50" style={{ background: "#EA580C" }}>
             {running ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
@@ -290,6 +340,8 @@ export default function LinkBuilding() {
       {notice && <div className="mb-4 px-4 py-3 rounded-xl text-sm" style={{ background: "rgba(34,197,94,0.12)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.3)" }}>{notice}</div>}
       {error && <div className="mb-4 px-4 py-3 rounded-xl text-sm" style={{ background: "rgba(239,68,68,0.10)", color: "#dc2626", border: "1px solid rgba(239,68,68,0.3)" }}>{error}</div>}
 
+      <AutofillInstall />
+
       <OnDemand onDone={load} setError={setError} setNotice={setNotice} />
 
       <div className="flex flex-wrap gap-2 mb-5">
@@ -305,7 +357,7 @@ export default function LinkBuilding() {
         <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin" style={muted} /></div>
       ) : !data?.items?.length ? (
         <div className="rounded-2xl p-8 text-center text-sm" style={{ ...card, ...muted }}>
-          Nothing here. New drafts arrive every Monday, or press "Draft this week's links".
+          Nothing here. Site drafts arrive every Monday and answer drafts every day, or use the buttons above.
         </div>
       ) : (
         <div className="space-y-4">
