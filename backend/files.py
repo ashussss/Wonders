@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
 
 from ics import Calendar, Event
+from ics.alarm import DisplayAlarm
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
@@ -26,7 +27,10 @@ def build_ics(webinar: Dict[str, Any]) -> bytes:
     e.end = start + timedelta(hours=1)
     if webinar.get("join_link"):
         e.url = webinar["join_link"]
+        e.location = webinar["join_link"]
     e.uid = f"showup-{webinar['id']}@showupai.live"
+    # Calendar pop-ups an hour and ten minutes before: the nudge people actually see.
+    e.alarms = [DisplayAlarm(trigger=timedelta(hours=-1)), DisplayAlarm(trigger=timedelta(minutes=-10))]
     c.events.add(e)
     return str(c).encode("utf-8")
 

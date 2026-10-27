@@ -75,7 +75,7 @@ class TestWebinarCreation:
         r = requests.get(f"{API}/webinars/{created_webinar}/touches", headers=hdrs, timeout=20)
         assert r.status_code == 200
         touches = r.json()
-        assert len(touches) == 8
+        assert len(touches) == 12
         nums = sorted(t["touch_num"] for t in touches)
         assert nums == [1, 2, 3, 4, 5, 6, 7, 8]
 

@@ -25,9 +25,11 @@ export const daysUntil = (iso) => {
 
 export const CHANNEL_META = {
   email:        { label: "Email",            icon: "Mail",         autoSendCapable: true,  manualOnly: false },
-  linkedin:     { label: "LinkedIn Page",    icon: "Linkedin",     autoSendCapable: true,  manualOnly: false },
-  linkedin_personal: { label: "LinkedIn (personal)", icon: "Linkedin", autoSendCapable: false, manualOnly: true },
+  linkedin:     { label: "LinkedIn",         icon: "Linkedin",     autoSendCapable: true,  manualOnly: false },
+  linkedin_page: { label: "LinkedIn",        icon: "Linkedin",     autoSendCapable: true,  manualOnly: false },
+  linkedin_personal: { label: "LinkedIn (personal)", icon: "Linkedin", autoSendCapable: true, manualOnly: false },
   facebook:     { label: "Facebook Page",    icon: "Facebook",     autoSendCapable: true,  manualOnly: false },
+  facebook_page: { label: "Facebook Page",   icon: "Facebook",     autoSendCapable: true,  manualOnly: false },
   instagram:    { label: "Instagram",        icon: "Instagram",    autoSendCapable: true,  manualOnly: false },
   whatsapp:     { label: "WhatsApp / SMS",   icon: "Mail",autoSendCapable: true,  manualOnly: false },
   circle:       { label: "Circle.so",        icon: "Users",        autoSendCapable: true,  manualOnly: false },

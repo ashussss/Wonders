@@ -5,7 +5,7 @@ import os
 import json
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("showup.ai")
 
@@ -55,7 +55,7 @@ async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
                         model=GEMINI_MODEL,
                         contents=prompt,
                         config=genai_types.GenerateContentConfig(
-                            max_output_tokens=min(max_tokens, 400), temperature=0.7))
+                            max_output_tokens=min(max_tokens, 2000), temperature=0.7))
                     logger.info(f"Gemini OK: {len(r.text)} chars")
                     return r.text.strip()
                 loop = asyncio.get_event_loop()
@@ -75,7 +75,7 @@ async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
                     r = groq_client.chat.completions.create(
                         model=GROQ_MODEL,
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=min(max_tokens, 400), temperature=0.7)
+                        max_tokens=min(max_tokens, 2000), temperature=0.7)
                     logger.info(f"Groq OK: {len(r.choices[0].message.content)} chars")
                     return r.choices[0].message.content.strip()
                 loop = asyncio.get_event_loop()
@@ -129,115 +129,230 @@ async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
         return "{}"
 
 
+# What each touch in config.TOUCH_DEFS has to do. Keyed by touch number, so the copy
+# matches the moment it is sent (a "1 day before" message never reads like a recap).
 TOUCH_CONTEXT = {
-    1: "Registration confirmation — confirm their spot, set expectations, one warm CTA. NOT a reminder.",
-    2: "7 days before — share ONE provocative insight or uncomfortable truth related to the webinar topic. No 'join us'. Make them think. End with a soft teaser that the answer is in the webinar.",
-    3: "3 days before — poll or question. Ask the audience something directly related to the problem this webinar solves. 2-3 poll options. Make it feel like a conversation, not a broadcast.",
-    4: "1 day before — share a mini case study or stat that makes the cost of NOT attending feel real. One sentence reminder of the date at the end.",
-    5: "Morning of — thought-provoking question or bold claim about the topic. Short. Punchy. No fluff. Join link at end.",
-    6: "1 hour before — final reminder only. Join link front and centre. Nothing else. Max 3 sentences.",
-    7: "Post-event attendees — share ONE key insight from the session. Not just 'thanks for joining'. Give them something to act on today. Recording link.",
-    8: "Post-event no-shows — share what they missed as a teaser insight. Make them regret not attending. Recording link as CTA.",
+    1: "Registration confirmation, sent the second they sign up. Confirm the date and time, give the join link, "
+       "ask them to add it to their calendar now, and ask them to hit reply with the one question they want answered.",
+    2: "About 3 weeks out. Open with the problem below, in the words the audience uses, and the concrete example. "
+       "Then one line on what they will be able to do after the session, then the link.",
+    3: "About 19 days out. Teach the tips below so a reader can use them today without attending. "
+       "Then one line saying the session goes further, with the date, then the link.",
+    4: "About 2 weeks out. Ask the poll question below with its options, each on its own line. Ask them to answer "
+       "in the comments or by reply. Say you'll share the results live on the date, then the link.",
+    5: "About 10 days out. Tell the case study below as a short story: where things stood, what changed, the result, "
+       "and the lesson. No invented names, companies or numbers beyond what is given. Then: the session shows how, "
+       "with the date, then the link.",
+    6: "About 8 days out. Share the agenda below as a short numbered list, each item specific. "
+       "Then the date and time, then the link.",
+    7: "About 5 days out. Lead with the common belief below and why it's wrong, in 2 or 3 lines. Then the practical "
+       "part: the date, the time, and ask them to block it in their calendar now with {{calendar_link}} (email) "
+       "or the link (social).",
+    8: "Day before, sent at the same time of day as the session. 'This time tomorrow'. Share the short prep checklist "
+       "below so they arrive ready and get more out of it. Then the time and the join link. Mention they can send "
+       "a question in advance by replying.",
+    9: "1 hour before. Very short. 'We start in an hour.' One line on the one thing to have ready (from below). "
+       "The join link on its own line. Nothing else.",
+    10: "Day after, to people who attended. Thank them in one line, then the key takeaways below as a short list "
+        "they can act on today, the recording link, and ask what they'll try first.",
+    11: "Two days after, to people who registered but didn't come. No guilt. Give the key takeaways below as a short "
+        "list so they get value even without watching, then the recording link, and offer to answer their question by reply.",
+    12: "The moment the session starts, to everyone registered. 'We're live now.' The join link. One line saying "
+        "they haven't missed anything important yet.",
 }
 
 TOUCH_TYPE = {
-    1: "confirmation",
-    2: "insight",
-    3: "poll",
-    4: "case_study",
-    5: "thought_provoking",
-    6: "reminder",
-    7: "post_event_insight",
-    8: "fomo",
+    1: "confirmation", 2: "problem", 3: "insight", 4: "poll", 5: "case_study", 6: "teaser",
+    7: "reminder", 8: "day_before", 9: "one_hour", 10: "post_event_insight", 11: "no_show", 12: "live_now",
 }
 
+VOICE_RULES = """
+VOICE (every channel):
+- Write as the host, one real person, in the first person ("I", "we"). Not a brand. Not a marketer.
+- Sound like a message a busy professional would actually send a colleague: plain words, contractions,
+  specific details from the topic. Mix short and medium sentences.
+- Never invent statistics, studies, customer names, companies or quotes.
+- No em dashes or en dashes. No emojis except where the channel rule allows them.
+- Banned words and phrases: in today's, fast-paced, landscape, dive in, deep dive, delve, game-changer,
+  unlock, elevate, leverage, harness, supercharge, seamless, revolutionize, robust, navigate, realm,
+  embark, level up, don't miss out, exciting opportunity, we are thrilled, we're excited to announce,
+  join us for, valuable insights, take your X to the next level, I hope this finds you well.
+"""
+
 EMAIL_RULES = """
-EMAIL RULES (follow exactly):
-- Max 4 sentences in body. Short. Direct.
-- Use these placeholders: {{first_name}}, {{webinar_title}}, {{webinar_date}}, {{webinar_time}}, {{join_link}}, {{recording_link}}
-- Subject line: under 8 words, curiosity-driven or benefit-driven
-- One CTA only
-- No fluff. No "I hope this finds you well". No filler.
-- For insight/poll/case_study touches: lead with the insight or question FIRST, mention webinar at end
-- Example confirmation: "Hi {{first_name}}, you are in for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}. Add it now: {{join_link}}"
-- Example insight touch: "Hi {{first_name}}, here is something most [audience] get wrong: [insight]. We are unpacking this live on {{webinar_date}}. {{join_link}}"
-- Example poll touch: "Hi {{first_name}}, quick question before {{webinar_title}}: [poll question]? [option A] or [option B]? We will share results live. Join: {{join_link}}"
+EMAIL RULES:
+- Subject: 3 to 7 words, lowercase except names, like a person typed it. No clickbait, no ALL CAPS, no emojis.
+- Body: 40 to 110 words, or up to 170 when the message teaches something (tips, a case study, a checklist,
+  takeaways). Start with "Hi {{first_name}}," on its own line. Short paragraphs, one idea each. Lists are fine.
+- Exactly one call to action. For pre-event emails that is the join link: {{join_link}}.
+- Placeholders you may use: {{first_name}}, {{webinar_title}}, {{webinar_date}}, {{webinar_time}},
+  {{join_link}}, {{calendar_link}}, {{recording_link}}, {{speaker}}. Never write a real link or date yourself.
+- Sign off with just {{speaker}} on the last line.
 """
 
 SOCIAL_RULES = """
-SOCIAL POST RULES (follow exactly):
-- Max 3 sentences. Each hits hard.
-- VARY the approach based on touch type:
-  * insight: open with a bold claim or uncomfortable truth about the topic. No "join us" openers.
-  * poll: ask a direct provocative question with 2 options. End with "Drop your answer below."
-  * case_study: one specific scenario that makes the problem feel real and costly.
-  * thought_provoking: one sentence that makes them stop scrolling. A tension or paradox.
-  * reminder/confirmation: short, warm, practical. Join link prominent.
-  * fomo: what they missed. Make it tangible. Recording link.
-  * post_event_insight: one actionable takeaway from the session. Not "great webinar!".
-- LinkedIn/Facebook: 1-2 hashtags at end
-- WhatsApp: no hashtags, friendly tone
-- Instagram: emoji ok, 3 hashtags max
-- BANNED: "Don't miss out", "exciting opportunity", "we are thrilled", "join us for", "register now" as opening
+SOCIAL POST RULES:
+- First line is the hook, under 12 words, alone on its line. It must make someone stop scrolling:
+  a specific problem, a surprising claim you can back up, or a direct question.
+- Then the substance in 2 to 8 short lines. One idea per line. A blank line between ideas.
+  When this message shares tips, a checklist or takeaways, a short numbered list is fine.
+- Include the registration link exactly once, as {{join_link}}, on its own line near the end.
+- End with one specific question about this topic that a reader can answer from experience,
+  and ask them to answer in the comments. Never just "Thoughts?".
+- Never use {{first_name}} in a social post.
 """
 
+CHANNEL_RULES = {
+    "email": "An email to one registrant.",
+    "linkedin": "A LinkedIn post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
+    "linkedin_page": "A LinkedIn company Page post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
+    "linkedin_personal": "A personal LinkedIn post by the host, first person, a little more personal than a Page post. "
+                         "500 to 1200 characters. Up to 3 hashtags on the last line.",
+    "facebook": "A Facebook Page post. 150 to 450 characters. Conversational. No hashtags.",
+    "facebook_page": "A Facebook Page post. 150 to 450 characters. Conversational. No hashtags.",
+    "instagram": "An Instagram caption. 300 to 900 characters. Hook in the first 125 characters. "
+                 "Write 'link in bio' instead of the link. One emoji at most. 3 to 5 specific hashtags on the last line.",
+    "whatsapp": "A WhatsApp message to one registrant. 1 to 3 short sentences. Start with 'Hi {{first_name}},'. "
+                "Include {{join_link}}. No hashtags. No sign-off.",
+    "circle": "A post in the host's online community. 300 to 900 characters. Share something useful first, "
+              "then the session, then a question to start discussion. No hashtags.",
+}
 
-async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder", custom_instructions: str = "") -> tuple:
+BANNED_PHRASES = (
+    "in today's", "fast-paced", "landscape", "dive in", "deep dive", "delve", "game-changer", "game changer",
+    "unlock", "elevate", "leverage", "harness", "supercharge", "seamless", "revolutioniz", "robust",
+    "navigate", "realm", "embark", "level up", "don't miss out", "exciting opportunity", "we are thrilled",
+    "excited to announce", "join us for", "valuable insights", "next level", "hope this finds you",
+)
+
+# Used when the model is unavailable or returns nothing usable. Human, specific to the
+# moment, and built only from placeholders so they are always correct.
+FALLBACK_COPY = {
+    "confirmation": ("you're in: {{webinar_title}}",
+                     "Hi {{first_name}},\n\nYou're registered for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}.\n\n"
+                     "Your link to join: {{join_link}}\n\nPut it in your calendar now so it doesn't get buried: {{calendar_link}}\n\n"
+                     "Hit reply and tell me the one question you want answered. I'll try to cover it live.\n\n{{speaker}}"),
+    "day_before": ("this time tomorrow",
+                   "Hi {{first_name}},\n\nQuick one: {{webinar_title}} is tomorrow at {{webinar_time}}.\n\n"
+                   "Here's your link so you don't have to dig for it: {{join_link}}\n\n"
+                   "If there's something you want me to cover, reply and tell me.\n\n{{speaker}}"),
+    "one_hour": ("we start in an hour",
+                 "Hi {{first_name}},\n\nWe start in an hour.\n\n{{join_link}}\n\nSee you there,\n{{speaker}}"),
+    "live_now": ("we're live",
+                 "Hi {{first_name}},\n\nWe've just started. Jump in here: {{join_link}}\n\n"
+                 "You haven't missed anything important yet.\n\n{{speaker}}"),
+    "post_event_insight": ("thanks for coming",
+                           "Hi {{first_name}},\n\nThanks for spending the time with us.\n\n"
+                           "Here's the recording if you want to rewatch any part: {{recording_link}}\n\n"
+                           "What's the one thing you'll try first? Reply and tell me.\n\n{{speaker}}"),
+    "no_show": ("sorry we missed you",
+                "Hi {{first_name}},\n\nWe missed you at {{webinar_title}}. It happens.\n\n"
+                "Here's the recording: {{recording_link}}\n\n"
+                "If you had a question you wanted answered, reply and I'll answer it myself.\n\n{{speaker}}"),
+}
+_DEFAULT_FALLBACK = ("{{webinar_title}} on {{webinar_date}}",
+                     "Hi {{first_name}},\n\nA reminder that {{webinar_title}} is on {{webinar_date}} at {{webinar_time}}.\n\n"
+                     "Your link to join: {{join_link}}\n\n{{speaker}}")
+_SOCIAL_FALLBACK = ("{{webinar_title}}\n\n{{webinar_date}}, {{webinar_time}}.\n\n"
+                    "Save your spot: {{join_link}}\n\nWhat's the one question you'd want answered on this? Tell me below.")
+
+
+def fallback_copy(channel: str, touch_type: str) -> dict:
+    if channel in ("email", "whatsapp"):
+        subject, body = FALLBACK_COPY.get(touch_type, _DEFAULT_FALLBACK)
+        if channel == "whatsapp":
+            body = body.split("\n\n{{speaker}}")[0].replace("\n\n", " ")
+        block = {"subject": subject, "body": body} if channel == "email" else {"body": body}
+    else:
+        block = {"body": _SOCIAL_FALLBACK}
+    return {"safe": block, "casual": dict(block)}
+
+
+def banned_hits(copy: dict) -> list:
+    text = json.dumps(copy).lower()
+    return [p for p in BANNED_PHRASES if p in text]
+
+
+def _usable(copy: Any, is_email: bool) -> bool:
+    if not isinstance(copy, dict):
+        return False
+    for v in ("safe", "casual"):
+        block = copy.get(v)
+        if not isinstance(block, dict) or not str(block.get("body") or "").strip():
+            return False
+        if is_email and not str(block.get("subject") or "").strip():
+            return False
+    return True
+
+
+async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder",
+                                   custom_instructions: str = "", content: str = "") -> tuple:
     """Generate copy for a single channel — runs in parallel."""
     is_email = channel == "email"
-    rules = EMAIL_RULES if is_email else SOCIAL_RULES
+    rules = EMAIL_RULES if is_email else ("" if channel == "whatsapp" else SOCIAL_RULES)
     schema = '{"subject": "...", "body": "..."}' if is_email else '{"body": "..."}'
 
-    # Build speaker line
     speakers = webinar.get('speakers') or webinar.get('speaker') or ''
-    speaker_line = f"Speaker(s): {speakers}" if speakers else ""
-    topics = webinar.get('key_topics', '') or ''
-    topic_line = f"Key topics: {topics}" if topics else ""
-    custom_ctx = webinar.get('custom_context', '') or ''
-    custom_block = f"\nSPECIAL INSTRUCTIONS (follow exactly):\n{custom_ctx}" if custom_ctx else ""
-    extra = f"\nADDITIONAL INSTRUCTIONS:\n{custom_instructions}" if custom_instructions else ""
+    facts = "\n".join(line for line in [
+        f"WEBINAR: {webinar.get('title', '')}",
+        f"HOST / SPEAKER: {speakers}" if speakers else "",
+        f"AUDIENCE: {webinar.get('target_audience', '')}" if webinar.get('target_audience') else "",
+        f"WHAT IT'S ABOUT: {(webinar.get('description') or '')[:600]}",
+        f"KEY TOPICS / OUTCOMES: {webinar.get('key_topics')}" if webinar.get('key_topics') else "",
+        f"HOST'S SPECIAL INSTRUCTIONS (follow exactly): {webinar.get('custom_context')}" if webinar.get('custom_context') else "",
+        f"BRAND RULES: {custom_instructions}" if custom_instructions else "",
+    ] if line)
 
-    channel_rules = {
-        "email": "Write a compelling EMAIL. Subject: 8 words max, curiosity-driven. Body: 3-4 short punchy sentences. Use {{first_name}}, {{webinar_title}}, {{webinar_date}}, {{webinar_time}}, {{join_link}}. No fluff.",
-        "linkedin_page": "Write a LINKEDIN POST. Open with a bold stat or question (NOT 'join us'). 3-4 sentences. End with relevant insight. 2 hashtags. Professional but engaging.",
-        "linkedin_personal": "Write a personal LINKEDIN POST from the speaker. First-person, authentic, story-driven. 3-4 sentences. Conversational. 1-2 hashtags.",
-        "facebook_page": "Write a FACEBOOK POST. Conversational and warm. 2-3 sentences. Include an emoji. Ask a question to boost engagement.",
-        "instagram": "Write an INSTAGRAM CAPTION. Hook first line. 3-4 sentences. 3-5 relevant hashtags. Include a call to action.",
-        "whatsapp": "Write a WHATSAPP message. Friendly and personal. 2-3 sentences max. No hashtags. Include join link naturally.",
-        "circle": "Write a CIRCLE COMMUNITY post. Community-first tone. Share value first. 3-4 sentences. Encourage discussion.",
-    }
-    ch_rule = channel_rules.get(channel, "Write engaging social copy. 3 sentences. Platform-appropriate.")
-    
-    prompt = f"""You are writing pre-webinar campaign content for ShowUpAI.
+    share = (f"CONTENT TO SHARE IN THIS MESSAGE (this is the point of the message, so a reader gets real value "
+             f"even if they never attend; put it in your own words for this channel; the reminder comes after it):\n"
+             f"{content}\n\n") if content else ""
+    prompt = f"""You write the messages that get people who registered for a webinar to actually show up.
 
-WEBINAR: {webinar.get('title', '')}
-DATE: {webinar.get('starts_at', '')}  
-AUDIENCE: {webinar.get('target_audience', '')}
-DESCRIPTION: {(webinar.get('description') or '')[:200]}
+{facts}
 
-TOUCH #{touch_num} — {touch_type.upper()}
-GOAL: {context[:150]}
-{f"SPECIAL INSTRUCTIONS: {custom_block[:150]}" if custom_block else ""}
+THIS MESSAGE: touch #{touch_num} ({touch_type})
+JOB: {context}
 
-CHANNEL RULES: {ch_rule}
-
-Write 2 variants — safe (professional) and casual (conversational/urgent).
-Make it genuinely engaging — NOT generic. Reference the actual topic.
+{share}CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
+{VOICE_RULES}
+{rules}
+Write 2 variants of the same message:
+- "safe": warm and professional.
+- "casual": more relaxed and direct, like a quick note.
+Use the real topic. Nothing generic that could be about any webinar.
 Return ONLY valid JSON: {{"safe": {schema}, "casual": {schema}}}"""
 
-    try:
-        raw = await _call_llm(prompt, max_tokens=600)
-        return channel, json.loads(raw)
-    except Exception as e:
-        fallback_body = f"Hi {{{{first_name}}}}, {{{{webinar_title}}}} is on {{{{webinar_date}}}} at {{{{webinar_time}}}}. Join here: {{{{join_link}}}}"
-        if is_email:
-            return channel, {"safe": {"subject": "Your spot is confirmed", "body": fallback_body}, "casual": {"subject": "See you there!", "body": fallback_body}}
-        return channel, {"safe": {"body": fallback_body}, "casual": {"body": fallback_body}}
+    copy = None
+    for attempt in range(2):
+        try:
+            raw = await _call_llm(prompt, max_tokens=1400)
+            cand = json.loads(raw)
+        except Exception:
+            continue
+        if not _usable(cand, is_email):
+            continue
+        copy = cand
+        hits = banned_hits(cand)
+        if not hits:
+            break
+        prompt += f"\n\nYour last draft used these banned phrases: {', '.join(hits)}. Rewrite without them."
+    if copy is None:
+        return channel, fallback_copy(channel, touch_type)
+    from touch_render import clean
+    for v in ("safe", "casual"):
+        for k in ("subject", "body"):
+            if isinstance(copy[v].get(k), str):
+                copy[v][k] = clean(copy[v][k], channel)
+    return channel, copy
 
 
-async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, custom_instructions: str = "") -> dict:
+async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, custom_instructions: str = "",
+                             kit: Optional[dict] = None) -> dict:
     """Generate copy for ALL channels in parallel — much faster."""
     context = TOUCH_CONTEXT.get(touch_num, f"Touch {touch_num}")
+    if kit is None and touch_num in TOUCH_ASSET:
+        kit = await load_kit(webinar.get("id", ""))
+    content = kit_brief(kit, touch_num)
 
     touch_type = TOUCH_TYPE.get(touch_num, "reminder")
     
@@ -249,7 +364,7 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
             await asyncio.sleep(0.3)  # small stagger
             for attempt in range(3):
                 try:
-                    r = await _generate_single_channel(webinar, touch_num, ch, context, touch_type, custom_instructions)
+                    r = await _generate_single_channel(webinar, touch_num, ch, context, touch_type, custom_instructions, content)
                     return r
                 except Exception as e:
                     if "429" in str(e) and attempt < 2:
@@ -273,32 +388,152 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
         "angle": context,
         "touch_type": touch_type,
         "channels": channel_copy,
+        "content": content,
         "reasoning": f"Touch {touch_num} ({touch_type}) — {context}"
     }
 
 
+# ── Content kit ────────────────────────────────────────────────────────────────
+# Each pre- and post-event touch carries one piece of real value (a tip, a case study,
+# a poll, a checklist) and the reminder rides along with it. The pieces are written once
+# per webinar so touches don't repeat each other, then each touch gets its own piece.
+# Stored in lead_magnets.ai_content; case_study / snippets / one_pager are the original
+# lead-magnet fields and stay for the Lead Magnets tab.
+
+TOUCH_ASSET = {2: "problem", 3: "insights", 4: "poll", 5: "story", 6: "agenda", 7: "myth",
+               8: "checklist", 9: "checklist", 10: "takeaways", 11: "takeaways"}
+
+
 async def generate_lead_magnets(webinar: dict) -> dict:
     prompt = f"""Webinar: {webinar.get('title', '')}
-Description: {webinar.get('description', '')}
+Host: {webinar.get('speakers') or webinar.get('speaker') or ''}
+Description: {(webinar.get('description') or '')[:1200]}
 Audience: {webinar.get('target_audience', '')}
+Key topics: {webinar.get('key_topics', '')}
+Host's notes: {webinar.get('custom_context', '')}
 
-Write supporting content. No fabricated company names or fake statistics.
+You are preparing the content the host will share with registrants in the weeks before the
+session, so every reminder teaches something real. Be specific to this topic and audience.
+Never invent statistics, studies, company names, people or quotes. Plain words, no em dashes,
+none of: unlock, elevate, leverage, game-changer, deep dive, seamless, robust, landscape.
 
 Return ONLY valid JSON:
 {{
-  "case_study": "150 word illustrative scenario showing value of this topic",
+  "problem": {{"hook": "the core problem in the audience's words, max 90 chars",
+               "example": "one concrete everyday example of it, max 160 chars"}},
+  "insights": [{{"heading": "tip, max 45 chars", "detail": "how to apply it today, max 120 chars"}},
+               {{"heading": "...", "detail": "..."}}, {{"heading": "...", "detail": "..."}}],
+  "poll": {{"question": "a question the audience can answer from experience, max 90 chars",
+            "options": ["max 40 chars", "max 40 chars", "max 40 chars"]}},
+  "story": {{"before": "where a typical person in this audience starts, max 140 chars",
+             "change": "the one thing they did differently, max 140 chars",
+             "after": "what was different afterwards, described not quantified unless given, max 140 chars",
+             "lesson": "the lesson in one line, max 90 chars"}},
+  "agenda": ["what the session covers, specific, max 70 chars", "...", "..."],
+  "myth": {{"myth": "a common belief about this topic that is wrong, max 90 chars",
+            "truth": "what's actually true, max 140 chars"}},
+  "checklist": ["one thing to have ready or think about before the session, max 70 chars", "...", "..."],
+  "takeaways": ["an action someone can take after the session, max 80 chars", "...", "..."],
+  "case_study": "the story above written as a 150 word illustrative scenario",
   "snippets": ["sharp insight 1", "sharp insight 2", "sharp insight 3", "sharp insight 4"],
-  "one_pager": {{
-    "title": "...",
-    "outline": ["section 1", "section 2", "section 3", "section 4", "section 5"]
-  }}
+  "one_pager": {{"title": "...", "outline": ["section 1", "section 2", "section 3", "section 4", "section 5"]}}
 }}"""
 
     try:
-        raw = await _call_llm(prompt, max_tokens=1000)
-        return json.loads(raw)
+        raw = await _call_llm(prompt, max_tokens=2400)
+        return normalize_kit(json.loads(raw))
     except Exception:
-        return {"case_study": "", "snippets": [], "one_pager": {"title": "", "outline": []}}
+        return normalize_kit({})
+
+
+def _s(v: Any, limit: int = 200) -> str:
+    from touch_render import clean
+    return clean(str(v or ""), "email")[:limit].strip() if isinstance(v, (str, int, float)) else ""
+
+
+def _strs(v: Any, n: int, limit: int) -> List[str]:
+    return [x for x in (_s(i, limit) for i in (v if isinstance(v, list) else [])) if x][:n]
+
+
+def normalize_kit(raw: Any) -> dict:
+    """Coerce whatever the model returned into the kit shape; drop pieces that are empty."""
+    k = raw if isinstance(raw, dict) else {}
+    get = lambda key: k.get(key) if isinstance(k.get(key), dict) else {}
+    out: Dict[str, Any] = {
+        "case_study": _s(k.get("case_study"), 1500),
+        "snippets": _strs(k.get("snippets"), 6, 240),
+        "one_pager": k.get("one_pager") if isinstance(k.get("one_pager"), dict) else {"title": "", "outline": []},
+    }
+    p = get("problem")
+    if _s(p.get("hook")):
+        out["problem"] = {"hook": _s(p.get("hook"), 120), "example": _s(p.get("example"), 220)}
+    ins = [{"heading": _s(i.get("heading"), 60), "detail": _s(i.get("detail"), 160)}
+           for i in (k.get("insights") or []) if isinstance(i, dict) and _s(i.get("heading"))][:5]
+    if not ins and out["snippets"]:
+        ins = [{"heading": s, "detail": ""} for s in out["snippets"][:3]]
+    if ins:
+        out["insights"] = ins
+    poll = get("poll")
+    opts = _strs(poll.get("options"), 4, 60)
+    if _s(poll.get("question")) and len(opts) >= 2:
+        out["poll"] = {"question": _s(poll.get("question"), 120), "options": opts}
+    st = get("story")
+    if all(_s(st.get(f)) for f in ("before", "change", "after")):
+        out["story"] = {f: _s(st.get(f), 200) for f in ("before", "change", "after", "lesson")}
+    m = get("myth")
+    if _s(m.get("myth")) and _s(m.get("truth")):
+        out["myth"] = {"myth": _s(m.get("myth"), 120), "truth": _s(m.get("truth"), 200)}
+    for key, lim in (("agenda", 90), ("checklist", 90), ("takeaways", 110)):
+        items = _strs(k.get(key), 5, lim)
+        if items:
+            out[key] = items
+    return out
+
+
+def kit_from_lead_magnets(lm: Optional[dict]) -> dict:
+    """The host's edits on the Lead Magnets tab win over the AI draft."""
+    lm = lm or {}
+    kit = normalize_kit(lm.get("ai_content") or {})
+    edited = lm.get("edited_content") or {}
+    if isinstance(edited.get("case_study"), str) and edited["case_study"].strip():
+        kit["case_study"] = edited["case_study"].strip()
+    return kit
+
+
+def kit_brief(kit: Optional[dict], touch_num: int) -> str:
+    """The piece of content this touch shares, as plain text for the copy prompt."""
+    kit = kit or {}
+    name = TOUCH_ASSET.get(touch_num)
+    piece = kit.get(name) if name else None
+    if not piece:
+        if name == "story" and kit.get("case_study"):
+            return f"Case study:\n{kit['case_study']}"
+        return ""
+    if name == "problem":
+        return f"Problem: {piece['hook']}\nExample: {piece.get('example', '')}"
+    if name == "insights":
+        return "Tips:\n" + "\n".join(f"- {i['heading']}: {i['detail']}".rstrip(": ") for i in piece[:3])
+    if name == "poll":
+        return f"Poll question: {piece['question']}\nOptions:\n" + "\n".join(
+            f"{'ABCD'[i]}) {o}" for i, o in enumerate(piece['options'][:4]))
+    if name == "story":
+        return (f"Case study:\nBefore: {piece['before']}\nWhat changed: {piece['change']}\n"
+                f"After: {piece['after']}\nLesson: {piece.get('lesson', '')}")
+    if name == "myth":
+        return f"Common belief: {piece['myth']}\nWhat's actually true: {piece['truth']}"
+    if name == "checklist" and touch_num == 9:
+        return f"The one thing to have ready: {piece[0]}"
+    labels = {"agenda": "What the session covers", "checklist": "Prep checklist", "takeaways": "Key takeaways"}
+    return f"{labels[name]}:\n" + "\n".join(f"- {x}" for x in piece)
+
+
+async def load_kit(webinar_id: str) -> dict:
+    try:
+        from database import db
+        return kit_from_lead_magnets(await db.lead_magnets.find_one({"webinar_id": webinar_id}, {"_id": 0}))
+    except Exception as e:
+        logger.warning(f"load_kit {webinar_id}: {e}")
+        return {}
 
 
 async def generate_adhoc_post(webinar: dict, channel: str = "linkedin", prompt: str = "",
@@ -306,8 +541,8 @@ async def generate_adhoc_post(webinar: dict, channel: str = "linkedin", prompt: 
     brief = custom_brief or f"Webinar: {webinar.get('title', '')}. Audience: {webinar.get('target_audience', '')}."
 
     user_msg = f"""{brief}
-Channel: {channel.upper()}
-
+Channel: {CHANNEL_RULES.get(channel, channel.upper())}
+{VOICE_RULES}
 {SOCIAL_RULES}
 
 Return ONLY valid JSON:
@@ -319,87 +554,87 @@ Return ONLY valid JSON:
 }}"""
 
     try:
-        raw = await _call_llm(user_msg, max_tokens=600)
+        raw = await _call_llm(user_msg, max_tokens=1200)
         return json.loads(raw)
     except Exception:
-        return {"content": f"{{{{webinar_title}}}} — {{{{webinar_date}}}}. Register: {{{{join_link}}}}", "hashtags": [], "image_prompt": ""}
+        return {"content": _SOCIAL_FALLBACK, "hashtags": [], "image_prompt": ""}
 
 
 
-async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total_touches: int = 11) -> str | None:
+# Days before the session for the warm-up touches when there are 3+ weeks of lead time.
+NOMINAL_DAYS_BEFORE = {2: 21, 3: 19, 4: 14, 5: 10, 6: 8, 7: 5}
+SEND_HOUR_LOCAL = 9          # pre-event emails land at the start of the reader's day
+POST_EVENT_HOUR_LOCAL = 10
+
+
+def _warmup_days(lead_days: float) -> Dict[int, int]:
+    """Whole days before the session for touches 2-7, scaled to the lead time.
+
+    Each touch gets its own day (no two warm-ups on one day) and the last one is at
+    least 2 days out, because day-before, 1-hour and live-now have their own touches.
     """
-    Dynamically calculate touch send time based on days available before webinar.
-    
-    Strategy:
-    - Touch 1: Immediate (on registration)
-    - Touches 2-9: Spread evenly across available days (1 per day gap)
-    - Touch 10: 1 day after event
-    - Touch 11: 3 days after event
-    
-    If webinar is < 3 days away: compress schedule, send 1-2 touches/day
-    If webinar is > 21 days away: use full 3-week warmup schedule
+    scale = min(1.0, lead_days / 21)
+    nums = sorted(NOMINAL_DAYS_BEFORE)
+    days = {n: int(NOMINAL_DAYS_BEFORE[n] * scale) for n in nums}
+    floor = 2
+    for n in reversed(nums):
+        days[n] = max(days[n], floor)
+        floor = days[n] + 1
+    return days
+
+
+async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total_touches: int = 12,
+                                   tz: str = "") -> str | None:
+    """Send time (UTC ISO) for a touch, or None when it has no fixed time.
+
+    Day-before goes out exactly 24 hours ahead ("this time tomorrow"), then 1 hour
+    before, then at the start ("we're live"). Warm-ups go at 9am in the webinar's own
+    timezone. A touch whose time has already passed (short lead time) is not
+    scheduled rather than fired late in a burst.
     """
     from datetime import datetime, timezone, timedelta
-    
-    if not webinar_starts_at:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    if not webinar_starts_at or touch_num == 1:
         return None
-    
     try:
-        now = datetime.now(timezone.utc)
-        webinar_dt = datetime.fromisoformat(webinar_starts_at.replace("Z", "+00:00"))
-        days_available = max(0, (webinar_dt - now).days)
-        
-        # Post-event touches
-        if touch_num == 10:
-            return (webinar_dt + timedelta(days=1)).replace(hour=10, minute=0, second=0).isoformat()
-        if touch_num == 11:
-            return (webinar_dt + timedelta(days=3)).replace(hour=10, minute=0, second=0).isoformat()
-        
-        # Touch 1 = immediate (no schedule)
-        if touch_num == 1:
-            return None
-        
-        # Touches 2-9 = pre-event sequence
-        pre_touches = 8  # touches 2-9
-        touch_index = touch_num - 2  # 0-indexed
-        
-        if days_available <= 0:
-            return None
-        elif days_available >= 21:
-            # Full 3-week schedule
-            ideal_days = [21, 19, 14, 10, 8, 5, 1, 0.04]  # 0.04 = 1 hour before
-        elif days_available >= 14:
-            # 2-week schedule
-            ratio = days_available / 21
-            ideal_days = [int(d * ratio) for d in [21, 19, 14, 10, 8, 5, 1, 0.04]]
-        elif days_available >= 7:
-            # 1-week schedule — compress
-            spread = days_available / pre_touches
-            ideal_days = [days_available - int(i * spread) for i in range(pre_touches)]
-            ideal_days[-1] = 0.04  # last one = 1 hour before
-        else:
-            # Less than 7 days — daily touches
-            spread = max(1, days_available / pre_touches)
-            ideal_days = [max(0.04, days_available - int(i * spread)) for i in range(pre_touches)]
-        
-        if touch_index >= len(ideal_days):
-            return None
-            
-        days_before = ideal_days[touch_index]
-        
-        if days_before < 1:
-            # Hours before
-            hours_before = int(days_before * 24)
-            send_dt = webinar_dt - timedelta(hours=max(1, hours_before))
-        else:
-            send_dt = webinar_dt - timedelta(days=int(days_before))
-            send_dt = send_dt.replace(hour=9, minute=0, second=0, microsecond=0)
-        
-        return send_dt.isoformat()
-        
-    except Exception as e:
+        start = datetime.fromisoformat(webinar_starts_at.replace("Z", "+00:00"))
+    except ValueError as e:
         logger.error(f"Dynamic schedule error: {e}")
         return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    try:
+        zone = ZoneInfo((tz or "UTC").strip())
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("UTC")
+    now = datetime.now(timezone.utc)
+    local_start = start.astimezone(zone)
+
+    def at_local(day_offset: int, hour: int) -> datetime:
+        d = (local_start + timedelta(days=day_offset)).replace(hour=hour, minute=0, second=0, microsecond=0)
+        return d.astimezone(timezone.utc)
+
+    if touch_num == 10:
+        send = at_local(1, POST_EVENT_HOUR_LOCAL)
+    elif touch_num == 11:
+        send = at_local(2, POST_EVENT_HOUR_LOCAL)
+    elif touch_num == 12:
+        send = start
+    elif touch_num == 9:
+        send = start - timedelta(hours=1)
+    elif touch_num == 8:
+        send = start - timedelta(hours=24)
+    elif touch_num in NOMINAL_DAYS_BEFORE:
+        lead_days = (start - now).total_seconds() / 86400
+        send = at_local(-_warmup_days(lead_days)[touch_num], SEND_HOUR_LOCAL)
+    else:
+        return None
+
+    if touch_num <= 9 and send <= now:
+        return None
+    return send.astimezone(timezone.utc).isoformat()
+
 
 async def compute_send_time(starts_at: str, offset_minutes: int):
     if not starts_at or offset_minutes is None:
