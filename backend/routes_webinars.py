@@ -9,6 +9,7 @@ from slowapi.util import get_remote_address
 
 from database import db
 from auth_utils import get_user, now_iso
+from billing import require_webinar_quota
 from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnetPatch
 from config import TOUCH_DEFS
 from ai import generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule, touch_reasoning
@@ -98,6 +99,7 @@ async def list_webinars(user=Depends(get_user)):
 
 @router.post("/webinars")
 async def create_webinar(data: WebinarIn, user=Depends(get_user)):
+    await require_webinar_quota(user)
     doc = _webinar_doc(user["id"], data)
     await db.webinars.insert_one(doc)
     settings = await db.settings.find_one({"owner_id": user["id"]}, {"_id": 0}) or {}
