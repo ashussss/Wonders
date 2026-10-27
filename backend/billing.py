@@ -26,14 +26,21 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+import re
+
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
-from auth_utils import get_user, now_iso
+from auth_utils import get_user, make_token, now_iso, verify_pw
 from database import db
+from routes_auth import create_user
 
 logger = logging.getLogger("showup.billing")
 router = APIRouter(prefix="/api/billing")
+limiter = Limiter(key_func=get_remote_address)
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 TRIAL_DAYS = 14
 PLANS: Dict[str, Dict[str, Any]] = {
@@ -287,9 +294,8 @@ async def status(user=Depends(get_user)):
             "subscription_id": (user.get("billing") or {}).get("subscription_id")}
 
 
-@router.post("/subscribe")
-async def subscribe(payload: Dict[str, Any] = Body(...), user=Depends(get_user)):
-    plan = (payload.get("plan") or "").lower()
+async def start_subscription(user: Dict[str, Any], plan: str) -> Dict[str, Any]:
+    """Create a PayPal subscription for the user and return {approve_url, subscription_id}."""
     if plan not in PLANS:
         raise HTTPException(400, "Unknown plan")
     b = user.get("billing") or {}
@@ -314,6 +320,44 @@ async def subscribe(payload: Dict[str, Any] = Body(...), user=Depends(get_user))
     await db.users.update_one({"id": user["id"]}, {"$set": {
         "billing_pending": {"subscription_id": sub["id"], "plan": plan, "created_at": now_iso()}}})
     return {"approve_url": approve, "subscription_id": sub["id"]}
+
+
+@router.post("/subscribe")
+async def subscribe(payload: Dict[str, Any] = Body(...), user=Depends(get_user)):
+    return await start_subscription(user, (payload.get("plan") or "").lower())
+
+
+@router.post("/checkout")
+@limiter.limit("10/minute")
+async def checkout(request: Request, payload: Dict[str, Any] = Body(...)):
+    """One-step checkout from the pricing page: email + password -> account -> PayPal.
+
+    A new email gets an account on the spot. An existing email must give its
+    password, so nobody can start a subscription on someone else's account.
+    """
+    plan = (payload.get("plan") or "").lower()
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    if plan not in PLANS:
+        raise HTTPException(400, "Unknown plan")
+    if not EMAIL_RE.match(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        if not verify_pw(password, existing["password"]):
+            raise HTTPException(401, "This email already has an account. Enter its password, or log in first.")
+        user = existing
+    else:
+        if len(password) < 8:
+            raise HTTPException(400, "Choose a password of at least 8 characters.")
+        if not configured() or plan not in await plan_ids():
+            raise HTTPException(503, "Payments are not set up yet. Please contact support.")
+        name = (payload.get("name") or "").strip() or email.split("@")[0]
+        user = await create_user(email, name, password)
+    started = await start_subscription(user, plan)
+    return {**started, "token": make_token(user["id"]),
+            "user": {"id": user["id"], "email": user["email"], "name": user.get("name", ""),
+                     "role": user.get("role", "user")}}
 
 
 @router.post("/confirm")

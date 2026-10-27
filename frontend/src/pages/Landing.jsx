@@ -14,27 +14,30 @@ const ORANGE = "#EA580C";
 const PLANS = [
   {
     name: "Starter",
+    key: "starter",
     price: "$29",
     period: "/mo",
     desc: "For independent speakers and solo consultants.",
     features: ["5 webinars/month", "11-touch AI sequences", "Email + LinkedIn", "Public registration page", "Attendance analytics"],
-    cta: "Start free trial",
+    cta: "Get started",
     highlight: false},
   {
     name: "Growth",
+    key: "growth",
     price: "$79",
     period: "/mo",
     desc: "For teams running webinars as a growth channel.",
     features: ["Unlimited webinars", "All 7 channels", "AI image generation", "Poll + case study touches", "Lead magnet builder", "Priority support"],
-    cta: "Start free trial",
+    cta: "Get started",
     highlight: true},
   {
     name: "Agency",
+    key: "agency",
     price: "$199",
     period: "/mo",
     desc: "For agencies managing multiple clients.",
     features: ["Everything in Growth", "Multi-brand workspaces", "White-label reports", "Custom sender domains", "Dedicated onboarding", "SLA support"],
-    cta: "Start free trial",
+    cta: "Get started",
     highlight: false},
 ];
 
@@ -352,7 +355,7 @@ export default function Landing() {
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-16">
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-orange-500 mb-4">Pricing</div>
             <h2 className="text-4xl sm:text-5xl font-bold text-white mb-3" style={{ fontFamily: "Outfit" }}>Simple. No surprises.</h2>
-            <p className="text-gray-300">14-day free trial on all plans. No card required.</p>
+            <p className="text-gray-300">Pay with PayPal or card. Cancel anytime. Or try any plan free for 14 days, no card required.</p>
           </motion.div>
           <div className="grid md:grid-cols-3 gap-5 items-start">
             {PLANS.map((plan, i) => (
@@ -374,11 +377,14 @@ export default function Landing() {
                   <span className="text-gray-500 text-sm">{plan.period}</span>
                 </div>
                 <p className="text-gray-300 text-sm mb-6">{plan.desc}</p>
-                <Link to="/register"
-                  className={`block text-center py-3 rounded-xl text-sm font-semibold mb-6 transition-all ${plan.highlight
+                <Link to={`/checkout/${plan.key}`} data-testid={`pricing-${plan.key}`}
+                  className={`block text-center py-3 rounded-xl text-sm font-semibold mb-2 transition-all ${plan.highlight
                     ? "bg-orange-600 hover:bg-orange-500 text-white shadow-[0_0_24px_rgba(234,88,12,0.4)]"
                     : "border border-white/[0.12] text-gray-300 hover:bg-white/[0.06]"}`}>
                   {plan.cta} →
+                </Link>
+                <Link to="/register" className="block text-center text-xs text-gray-400 hover:text-gray-200 mb-6">
+                  or try it free for 14 days
                 </Link>
                 <ul className="space-y-3">
                   {plan.features.map(f => (
