@@ -196,6 +196,8 @@ async def public_register(wid: str, data: RegistrantIn, request: Request):
 
 @router.post("/webinars/{wid}/registrants/import")
 async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
     inserted = 0
     deduped = 0
     for it in items:
@@ -242,8 +244,11 @@ async def update_registrant(rid: str, payload: Dict[str, Any], user=Depends(get_
 
 @router.post("/webinars/{wid}/mark-attendance")
 async def mark_attendance(wid: str, payload: Dict[str, Any], user=Depends(get_user)):
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
     emails = [e.lower() for e in payload.get("emails", [])]
-    await db.registrants.update_many({"webinar_id": wid, "email": {"$in": emails}}, {"$set": {"attended": True}})
+    await db.registrants.update_many({"webinar_id": wid, "owner_id": user["id"], "email": {"$in": emails}},
+                                     {"$set": {"attended": True}})
     await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$set": {"status": "completed"}})
     return {"ok": True, "marked": len(emails)}
 
