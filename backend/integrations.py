@@ -246,6 +246,82 @@ async def _circle_list(client, base: str, path: str, headers: dict, params: dict
     return status, records
 
 
+def _event_start(rec: dict) -> str:
+    for src in (rec, rec.get("event_setting") or {}, rec.get("event_setting_attributes") or {}):
+        for k in ("starts_at", "start_at", "start_time", "event_date"):
+            if src.get(k):
+                return str(src[k])
+    return ""
+
+
+def upcoming_circle_events(records: List[Dict[str, Any]], now_iso: str, spaces: Dict[Any, dict] | None = None) -> List[Dict[str, Any]]:
+    """Shape Circle event records for the picker: only real events that haven't
+    started yet, soonest first. Records without a start time are dropped, so news
+    or discussion posts can never show up as events."""
+    spaces = spaces or {}
+    out, seen = [], set()
+    for rec in records:
+        starts = _event_start(rec)
+        if not rec.get("name") or not starts or starts[:19] < now_iso[:19]:
+            continue
+        if rec.get("id") in seen:
+            continue
+        seen.add(rec.get("id"))
+        space = spaces.get(rec.get("space_id")) or rec.get("space") or {}
+        url = rec.get("url") or ""
+        if not url and space.get("url") and rec.get("slug"):
+            url = f"{space['url'].rstrip('/')}/{rec['slug']}"
+        out.append({
+            "id": rec.get("id"),
+            "name": rec.get("name"),
+            "slug": rec.get("slug"),
+            "starts_at": starts,
+            "space_name": space.get("name", ""),
+            "cover_image_url": rec.get("cover_image_url") or rec.get("cover_image") or "",
+            "url": url,
+        })
+    out.sort(key=lambda e: e["starts_at"])
+    return out
+
+
+async def circle_list_upcoming_events(api_token: str, now_iso: str) -> Dict[str, Any]:
+    """Upcoming events from every event space (e.g. "Events & Webinars") in the community."""
+    bases = ["https://app.circle.so", "https://eu.app.circle.so"]
+    async with httpx.AsyncClient(timeout=20) as client:
+        for base in bases:
+            for scheme in ("Bearer", "Token"):
+                headers = {"Authorization": f"{scheme} {api_token}", "Accept": "application/json"}
+                try:
+                    st, spaces = await _circle_list(client, base, "/api/admin/v2/spaces", headers, {"per_page": 100}, "records")
+                    if st in (401, 403):
+                        continue
+                    if st != 200:
+                        break
+                    event_spaces = {sp.get("id"): sp for sp in spaces if sp.get("space_type") == "event"}
+                    records: list = []
+                    for sid in event_spaces:
+                        _, recs = await _circle_list(client, base, "/api/admin/v2/events", headers,
+                                                     {"per_page": 100, "space_id": sid}, "records")
+                        for r in recs:
+                            r.setdefault("space_id", sid)
+                        records.extend(recs)
+                    if not records:
+                        # Older API: event posts live under /posts with an event_setting.
+                        for sid in event_spaces:
+                            _, posts = await _circle_list(client, base, "/api/admin/v2/posts", headers,
+                                                          {"per_page": 100, "space_id": sid}, "records")
+                            for r in posts:
+                                r.setdefault("space_id", sid)
+                            records.extend(posts)
+                    events = upcoming_circle_events(records, now_iso, event_spaces)
+                    return {"events": events, "count": len(events),
+                            "spaces": [sp.get("name") for sp in event_spaces.values()]}
+                except Exception as e:
+                    logger.error(f"Circle upcoming events error ({base}): {e}")
+                    continue
+    return {"events": [], "count": 0, "spaces": []}
+
+
 async def fetch_circle_event(url: str, api_token: str, settings: dict = None) -> dict:
     """Fetch Circle.so event — full data: title, description, time, banner, speaker, attendees."""
     import httpx, re as _r

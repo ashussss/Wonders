@@ -757,41 +757,7 @@ async def circle_upcoming_events(user=Depends(get_user)):
     if not api_key:
         raise HTTPException(400, "Circle API key not configured")
     
-    space_id = settings.get("circle_space_id", "")
-    
-    # Try v1 events API
-    import httpx
-    results = []
-    bases = ["https://app.circle.so", "https://eu.app.circle.so"]
-    
-    async with httpx.AsyncClient(timeout=15) as client:
-        for base in bases:
-            for scheme in ("Bearer", "Token"):
-                headers = {"Authorization": f"{scheme} {api_key}", "Accept": "application/json"}
-                try:
-                    params = {"per_page": 50, "sort": "latest"}
-                    if space_id:
-                        params["space_id"] = space_id
-                    r = await client.get(f"{base}/api/admin/v2/posts", headers=headers, params=params)
-                    if r.status_code == 200:
-                        posts = r.json().get("records", [])
-                        # Only event posts belong in the picker; fall back to all posts
-                        # if this Circle API version doesn't tag them.
-                        events = [p for p in posts if p.get("event_setting") or p.get("post_type") == "event"]
-                        for p in (events or posts):
-                            if p.get("name"):
-                                ev = p.get("event_setting") or {}
-                                results.append({
-                                    "id": p.get("id"),
-                                    "name": p.get("name"),
-                                    "slug": p.get("slug"),
-                                    "published_at": p.get("published_at"),
-                                    "starts_at": ev.get("starts_at") or ev.get("start_at") or "",
-                                    "cover_image_url": p.get("cover_image_url"),
-                                    "url": p.get("url"),
-                                })
-                        return {"events": results, "count": len(results)}
-                except:
-                    continue
-    
-    return {"events": [], "count": 0}
+    from datetime import datetime, timezone
+    from integrations import circle_list_upcoming_events
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    return await circle_list_upcoming_events(api_key, now)
