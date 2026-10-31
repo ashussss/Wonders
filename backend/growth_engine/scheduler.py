@@ -5,7 +5,8 @@ with unique ids. Neither touches the existing touch-tick / blog-publish-due /
 social-daily / pseo-daily jobs.
 
     growth-daily    02:00 IST — build the day's 9 campaigns (drafts only)
-    growth-dispatch every 5 min — publish approved campaigns that are due
+    growth-dispatch every 5 min — publish approved campaigns that are due, retry failed ones
+    growth-catchup  every 15 min — build today's posts if growth-daily was missed
 
 Safety: with the default GROWTH_APPROVAL_MODE=true the dispatch job is a no-op.
 Nothing reaches a platform without an explicit approval first.
@@ -45,6 +46,15 @@ async def run_dispatch() -> dict:
         return res
     except Exception as e:                                        # noqa: BLE001
         logger.error(f"growth dispatch failed: {e}")
+        return {"ok": False, "error": str(e)[:300]}
+
+
+async def run_catchup() -> dict:
+    """Build today's posts if the 02:00 job did not run (server asleep, deploy)."""
+    try:
+        return await queue.ensure_today(db)
+    except Exception as e:                                        # noqa: BLE001
+        logger.error(f"growth catch-up failed: {e}")
         return {"ok": False, "error": str(e)[:300]}
 
 
@@ -102,6 +112,8 @@ def register() -> None:
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     scheduler.add_job(run_dispatch, "interval", minutes=5, id="growth-dispatch",
                       replace_existing=True, coalesce=True)
+    scheduler.add_job(run_catchup, "interval", minutes=15, id="growth-catchup",
+                      replace_existing=True, coalesce=True)
     # Scoring is cheap; twice a day is plenty for a list that changes slowly.
     scheduler.add_job(run_prospect_refresh, "cron", hour=3, minute=15, id="growth-prospect-refresh",
                       replace_existing=True, misfire_grace_time=3 * 3600, coalesce=True)
@@ -113,8 +125,9 @@ def register() -> None:
     # 02:30 UTC = 08:00 IST: today's answer drafts are waiting when the day starts.
     scheduler.add_job(run_questions_daily, "cron", hour=2, minute=30, id="growth-questions-daily",
                       replace_existing=True, misfire_grace_time=12 * 3600, coalesce=True)
-    logger.info(f"Growth Engine jobs registered (approval_mode={APPROVAL_MODE}, "
+    logger.info(f"Growth Engine jobs registered (approval_mode={APPROVAL_MODE}, auto={queue.auto_mode()}, "
                 f"platforms={','.join(GROWTH_PLATFORMS)})")
 
 
-__all__ = ["run_daily", "run_dispatch", "run_prospect_refresh", "run_links_weekly", "run_links_verify", "run_questions_daily", "register", "DAILY_HOUR"]
+__all__ = ["run_daily", "run_dispatch", "run_catchup", "run_prospect_refresh", "run_links_weekly",
+           "run_links_verify", "run_questions_daily", "register", "DAILY_HOUR"]

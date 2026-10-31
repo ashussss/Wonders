@@ -41,6 +41,11 @@ SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts",
 
 PLATFORM = "meta"
 
+# Without these the Page token cannot post: Graph answers "(#200) ... must be granted
+# before impersonating a user's page". Instagram needs its own two on top.
+REQUIRED_PAGE_PERMS = ("pages_show_list", "pages_read_engagement", "pages_manage_posts")
+REQUIRED_IG_PERMS = ("instagram_basic", "instagram_content_publish")
+
 
 class MetaError(Exception):
     """OAuth/Graph failure with a message that is safe to show a user."""
@@ -121,6 +126,18 @@ async def fetch_pages(user_token: str) -> List[Dict[str, Any]]:
     return [{"member_id": str(me.get("id") or ""), "member_name": str(me.get("name") or "")[:200]}] + pages
 
 
+async def fetch_permissions(user_token: str) -> List[str]:
+    """Permissions the member actually granted (Facebook lets them untick any of them)."""
+    async with httpx.AsyncClient(timeout=30) as c:
+        data = await _get(c, f"{GRAPH_URL}/me/permissions", {"access_token": user_token}, "permission check")
+    return sorted({str(p.get("permission")) for p in data.get("data") or []
+                   if p.get("status") == "granted" and p.get("permission")})
+
+
+def missing_permissions(granted: List[str], perms=REQUIRED_PAGE_PERMS + REQUIRED_IG_PERMS) -> List[str]:
+    return [p for p in perms if p not in set(granted or [])]
+
+
 def _pick(pages: List[Dict[str, Any]], page_id: str = "") -> Optional[Dict[str, Any]]:
     if page_id:
         return next((p for p in pages if p["id"] == page_id), None)
@@ -128,7 +145,8 @@ def _pick(pages: List[Dict[str, Any]], page_id: str = "") -> Optional[Dict[str, 
     return next((p for p in pages if p.get("ig_id")), pages[0] if pages else None)
 
 
-async def save_connection(db, owner_id: str, member: Dict[str, Any], pages: List[Dict[str, Any]]) -> None:
+async def save_connection(db, owner_id: str, member: Dict[str, Any], pages: List[Dict[str, Any]],
+                          granted: Optional[List[str]] = None) -> None:
     from crypto_utils import encrypt_value
 
     stored = []
@@ -146,7 +164,7 @@ async def save_connection(db, owner_id: str, member: Dict[str, Any], pages: List
         "pages": stored,
         "page_id": sel["id"] if sel else "", "page_name": sel["name"] if sel else "",
         "ig_id": sel.get("ig_id", "") if sel else "", "ig_username": sel.get("ig_username", "") if sel else "",
-        "scopes": SCOPES, "expires_at": None, "supports_refresh": False,
+        "scopes": granted if granted is not None else SCOPES, "expires_at": None, "supports_refresh": False,
         "status": "connected" if sel else "no_pages", "updated_at": li.now_iso(),
     }
     existing = await db[li.CONNECTIONS_COLLECTION].find_one(
@@ -197,6 +215,7 @@ def public_view(conn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "name": conn.get("name") or "",
         "page_id": conn.get("page_id") or "", "page_name": conn.get("page_name") or "",
         "ig_id": conn.get("ig_id") or "", "ig_username": conn.get("ig_username") or "",
+        "missing_permissions": missing_permissions(conn.get("scopes") or []),
         "pages": [{"id": p["id"], "name": p["name"], "ig_username": p.get("ig_username", ""),
                    "has_instagram": bool(p.get("ig_id"))} for p in conn.get("pages") or []],
         "connected_at": conn.get("connected_at"), "updated_at": conn.get("updated_at"),
