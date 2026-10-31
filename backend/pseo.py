@@ -578,11 +578,49 @@ async def refill_keywords() -> int:
                 break
         if pending + added >= PSEO_QUEUE_MIN * 2:
             break
+    if pending + added < PSEO_QUEUE_MIN and GROQ_API_KEY:
+        # Related topics run out once every suggestion has been written; ask the model for fresh ones.
+        try:
+            for t in await brainstorm_keywords(PSEO_QUEUE_MIN * 2 - pending - added):
+                added += await add_keyword(t, "informational", notes="auto: brainstormed topic")
+        except Exception as e:
+            logger.warning(f"pSEO keyword brainstorm failed: {e}")
     if added:
-        logger.info(f"pSEO keyword queue refilled with {added} related topics ({pending} were pending)")
+        logger.info(f"pSEO keyword queue refilled with {added} topics ({pending} were pending)")
     else:
-        logger.warning(f"pSEO keyword queue is low ({pending} pending) and no related topics to refill from")
+        logger.warning(f"pSEO keyword queue is low ({pending} pending) and nothing new to refill from")
     return added
+
+
+BRAINSTORM_PROMPT = """You plan blog topics for {brand} ({site}), software that raises live attendance for B2B
+webinars, virtual events and online community events with multi-channel reminders (email, LinkedIn, WhatsApp, SMS,
+Facebook, Instagram, Circle.so).
+
+Topics already written or queued (do NOT repeat these or rephrase them):
+{existing}
+
+Suggest {n} NEW search keywords that webinar hosts, B2B marketers, community managers, event organisers or
+customer-education teams actually type into Google. Each must be a different search intent from every topic above and
+from each other. Mix how-to, templates/examples, checklists, mistakes, by-industry and by-channel angles. Lowercase,
+3-9 words, no brand names except well-known webinar platforms, no years.
+
+Return ONLY JSON: {{"keywords": ["...", "..."]}}"""
+
+
+async def brainstorm_keywords(n: int) -> list:
+    """Ask the model for `n` new keyword ideas that differ from every post and queued keyword."""
+    posts = await db.blog_posts.find({}, {"_id": 0, "keyword": 1, "title": 1}).to_list(5000)
+    queued = await db.seo_candidates.find({}, {"_id": 0, "keyword": 1}).to_list(5000)
+    seen = {normalize_text(x).strip().lower() for r in posts + queued for x in (r.get("keyword"), r.get("title")) if x}
+    existing = "\n".join(f"- {k}" for k in sorted(seen))
+    data = await asyncio.get_running_loop().run_in_executor(
+        None, _groq_json, BRAINSTORM_PROMPT.format(brand=BRAND, site=SITE_URL, existing=existing, n=max(n, 1)))
+    out = []
+    for k in data.get("keywords") or []:
+        k = normalize_text(str(k)).strip().lower()
+        if 3 <= len(k) <= 90 and k not in seen and k not in out:
+            out.append(k)
+    return out[:max(n, 0)]
 
 
 async def add_keyword(keyword: str, intent: str = "informational", notes: str = "", created_at: str | None = None) -> int:

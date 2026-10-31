@@ -362,8 +362,49 @@ def test_refill_keywords_adds_related_topics_when_queue_low(monkeypatch):
         return 1
     monkeypatch.setattr(pseo, "add_keyword", add)
     monkeypatch.setattr(pseo, "PSEO_QUEUE_MIN", 12)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "")
     assert asyncio.run(pseo.refill_keywords()) == 2
     assert added == ["webinar poll examples", "how to run a webinar q&a"]
+
+
+def test_refill_keywords_brainstorms_when_related_topics_are_used_up(monkeypatch):
+    added = []
+
+    class Cand:
+        async def count_documents(self, q):
+            return 0
+
+    rows = [{"related_topics": ["already written topic"]}]
+    posts = types.SimpleNamespace(find=lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor(rows)))
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand(), blog_posts=posts)
+
+    async def add(kw, intent="informational", notes=""):
+        if kw == "already written topic":
+            return 0
+        added.append((kw, notes))
+        return 1
+
+    async def brainstorm(n):
+        assert n == 24
+        return ["webinar reminder email subject lines", "how to get webinar replays watched"]
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    monkeypatch.setattr(pseo, "brainstorm_keywords", brainstorm)
+    monkeypatch.setattr(pseo, "PSEO_QUEUE_MIN", 12)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "k")
+    assert asyncio.run(pseo.refill_keywords()) == 2
+    assert [k for k, _ in added] == ["webinar reminder email subject lines", "how to get webinar replays watched"]
+    assert all(n == "auto: brainstormed topic" for _, n in added)
+
+
+def test_brainstorm_keywords_drops_existing_and_repeats(monkeypatch):
+    pseo.db = types.SimpleNamespace(
+        blog_posts=_Coll([{"keyword": "webinar no-show rate", "title": "Webinar No-Show Rate Explained"}]),
+        seo_candidates=_Coll([{"keyword": "webinar reminder sms"}]))
+    monkeypatch.setattr(pseo, "_groq_json", lambda prompt: {"keywords": [
+        "Webinar No-Show Rate", "webinar reminder sms", "webinar countdown timer ideas", "webinar countdown timer ideas",
+        "x", "how to promote a webinar on slack communities"]})
+    out = asyncio.run(pseo.brainstorm_keywords(5))
+    assert out == ["webinar countdown timer ideas", "how to promote a webinar on slack communities"]
 
 
 def test_refill_keywords_skips_when_queue_full(monkeypatch):
