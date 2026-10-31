@@ -24,7 +24,7 @@ from . import (
     GROWTH_SLOTS_IST,
     GROWTH_WEEKLY_PLAN,
 )
-from . import analytics, blog_engine, news_engine, prospect_engine, queue, visual_engine
+from . import analytics, blog_engine, link_engine, news_engine, prospect_engine, question_finder, queue, visual_engine
 from .integrations import router as integrations_router
 
 logger = logging.getLogger("showup.growth.api")
@@ -290,6 +290,71 @@ async def growth_prospect_log(pid: str, request: Request, payload: dict = Body(d
     await _require_admin(request)
     return await prospect_engine.log_history(db, pid, str(payload.get("event") or "note"),
                                              str(payload.get("detail") or ""))
+
+
+# ── link building (drafts + tracking only; never submits anywhere) ───────────
+
+@router.get("/links")
+async def growth_links(request: Request, status: str = "", category: str = ""):
+    await _require_admin(request)
+    await link_engine.seed_catalog(db)
+    return {"items": await link_engine.list_items(db, status, category), **await link_engine.summary(db)}
+
+
+@router.post("/links/run")
+async def growth_links_run(request: Request):
+    """Run the weekly drafting job now."""
+    await _require_admin(request)
+    return await link_engine.weekly_run(db)
+
+
+@router.post("/links/{key}/draft")
+async def growth_links_draft(key: str, request: Request, payload: dict = Body(default={})):
+    await _require_admin(request)
+    try:
+        return await link_engine.draft(db, key, str(payload.get("notes") or ""))
+    except KeyError:
+        raise HTTPException(404, "Not found")
+    except ValueError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/links/on-demand")
+async def growth_links_on_demand(request: Request, payload: dict = Body(default={})):
+    """Draft from a pasted journalist query (pr_answer), thread (answer) or guest-post target (pitch)."""
+    await _require_admin(request)
+    try:
+        return await link_engine.draft_on_demand(db, str(payload.get("kind") or ""), str(payload.get("text") or ""),
+                                                 str(payload.get("url") or ""), str(payload.get("site") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/links/{key}/status")
+async def growth_links_status(key: str, request: Request, payload: dict = Body(default={})):
+    await _require_admin(request)
+    edit = payload.get("draft")
+    try:
+        return await link_engine.set_status(db, key, str(payload.get("status") or ""),
+                                            str(payload.get("live_url") or ""), str(payload.get("note") or ""),
+                                            edit if isinstance(edit, dict) else None)
+    except KeyError:
+        raise HTTPException(404, "Not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/links/questions")
+async def growth_links_questions(request: Request):
+    """Search public Reddit/HN feeds for webinar questions and draft answers. Never posts."""
+    await _require_admin(request)
+    return await question_finder.run_daily(db)
+
+
+@router.post("/links/verify")
+async def growth_links_verify(request: Request):
+    await _require_admin(request)
+    return await link_engine.verify_live(db, max_age_days=0)
 
 
 __all__ = ["router"]

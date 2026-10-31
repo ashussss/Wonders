@@ -51,8 +51,9 @@ TOUCH_DEFS = [
     {"num": 5,  "name": "Week 2 — Case study",          "trigger": "10 days before",     "days_before": 10,   "default_channels": ["email", "linkedin_page", "facebook_page"]},
     {"num": 6,  "name": "Week 2 — Infographic teaser",  "trigger": "8 days before",      "days_before": 8,    "default_channels": ["instagram", "linkedin_page", "facebook_page"]},
     {"num": 7,  "name": "Week 1 — Urgency email",       "trigger": "5 days before",      "days_before": 5,    "default_channels": ["email", "whatsapp"]},
-    {"num": 8,  "name": "Day before — Final warmup",    "trigger": "1 day before",       "days_before": 1,    "default_channels": ["email", "linkedin_page", "linkedin_personal"]},
+    {"num": 8,  "name": "Day before — Final warmup",    "trigger": "24 hours before",       "days_before": 1,    "default_channels": ["email", "linkedin_page", "linkedin_personal"]},
     {"num": 9,  "name": "Day of — Join link",           "trigger": "1 hour before",      "days_before": 0,    "default_channels": ["email", "whatsapp", "circle"]},
     {"num": 10, "name": "Post-event — Attended",        "trigger": "After event",        "days_before": -1,   "default_channels": ["email"]},
     {"num": 11, "name": "Post-event — No show FOMO",    "trigger": "2 days after",       "days_before": -2,   "default_channels": ["email"]},
+    {"num": 12, "name": "Live now — doors open",        "trigger": "At start time",      "days_before": 0,    "default_channels": ["email", "whatsapp"]},
 ]

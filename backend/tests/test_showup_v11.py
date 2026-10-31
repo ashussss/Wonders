@@ -134,12 +134,12 @@ class TestSendGuardrails:
         assert d["provider"] == "instagram"
         assert "Missing" in d["detail"]
 
-    def test_linkedin_personal_guardrail(self, hdrs):
-        # Even with keys this should be Manual copy-paste only
+    def test_linkedin_personal_needs_connection(self, hdrs):
+        # Personal posting only works through the user's own LinkedIn OAuth connection
         r = requests.post(f"{API}/test-send/linkedin_personal", headers=hdrs, json={"body": "y"}, timeout=20)
         d = r.json()
         assert d["ok"] is False
-        assert "Manual copy-paste only" in d["detail"]
+        assert "Connect LinkedIn" in d["detail"]
 
 
 # ---------- Settings new fields ----------

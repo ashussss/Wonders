@@ -456,6 +456,31 @@ async def get_access_token(db, owner_id: str, platform: str = PLATFORM) -> Optio
     return decrypt_value(enc)
 
 
+async def member_publishing_settings(db, owner_id: str) -> Dict[str, str]:
+    """This owner's member token + person URN for posting, or {} when not usable.
+
+    Empty when there is no connection, it has expired (LinkedIn issues no refresh
+    token, so the owner must reconnect), or the token cannot be decrypted. Callers
+    then fall back to whatever manual credentials they already had.
+    """
+    conn = await get_connection(db, owner_id, PLATFORM)
+    if not conn or conn.get("status", "connected") != "connected" or not conn.get("platform_user_id"):
+        return {}
+    expires = conn.get("expires_at")
+    if expires:
+        try:
+            if datetime.fromisoformat(expires) <= datetime.now(timezone.utc):
+                logger.warning(f"linkedin token expired for owner={owner_id}; reconnect on /app/integrations")
+                return {}
+        except ValueError:
+            pass
+    token = await get_access_token(db, owner_id, PLATFORM)
+    if not token or token.startswith("enc::"):          # missing, or could not decrypt
+        return {}
+    return {"linkedin_member_token": token,
+            "linkedin_member_urn": f"urn:li:person:{conn['platform_user_id']}"}
+
+
 async def disconnect(db, owner_id: str, platform: str = PLATFORM) -> bool:
     """Remove only THIS owner's connection for this platform. Other clients untouched."""
     r = await db[CONNECTIONS_COLLECTION].delete_one({"owner_id": owner_id, "platform": platform})
@@ -487,7 +512,7 @@ def public_view(conn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 __all__ = [
     "SCOPES", "CAPABILITY", "PLATFORM", "ACCOUNT_TYPE_MEMBER", "SUPPORTS_REFRESH_TOKEN",
-    "configured", "missing_config", "generate_state", "create_state", "consume_state",
+    "configured", "missing_config", "member_publishing_settings", "generate_state", "create_state", "consume_state",
     "StateError", "purge_expired_states", "build_authorization_url",
     "exchange_code_for_token", "fetch_userinfo", "parse_userinfo", "LinkedInError",
     "EncryptionUnavailable",

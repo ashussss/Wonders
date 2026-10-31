@@ -25,9 +25,11 @@ export function AuthProvider({ children }) {
     localStorage.setItem("showup_token", r.data.token);
     setUser(r.data.user);
   };
+  // Store a session returned by another endpoint (e.g. one-step checkout).
+  const setSession = (token, u) => { localStorage.setItem("showup_token", token); setUser(u); };
   const logout = () => { localStorage.removeItem("showup_token"); setUser(null); };
 
-  return <AuthCtx.Provider value={{ user, loading, login, register, logout }}>{children}</AuthCtx.Provider>;
+  return <AuthCtx.Provider value={{ user, loading, login, register, setSession, logout }}>{children}</AuthCtx.Provider>;
 }
 
 export const useAuth = () => useContext(AuthCtx);
