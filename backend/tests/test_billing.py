@@ -400,3 +400,20 @@ async def test_access_token_strips_pasted_whitespace_and_reports_rejected_keys(m
     import base64
     assert seen["auth"] == "Basic " + base64.b64encode(b"cid:secret").decode()
     assert e.value.status_code == 503
+
+
+def test_admin_check_explains_invalid_client(env, monkeypatch):
+    import httpx
+    fake_db, _, client = env
+    fake_db.users.docs[0]["role"] = "admin"
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(billing.httpx, "AsyncClient", lambda **kw: real_client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(
+            401, json={"error": "invalid_client", "error_description": "Client Authentication failed"})), **kw))
+    r = client.get("/api/billing/admin/check")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is False and body["paypal_error"]["error"] == "invalid_client"
+    assert "Sandbox tab" in body["problem"]
+    fake_db.users.docs[0]["role"] = "user"
+    assert client.get("/api/billing/admin/check").status_code == 403

@@ -442,3 +442,35 @@ async def admin_setup_plans(user=Depends(get_user)):
         raise HTTPException(403, "Admin only")
     return {"env": _env(), "plans": await setup_plans(),
             "webhook_url": os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/") + "/api/billing/webhook"}
+
+
+@router.get("/admin/check")
+async def admin_check(user=Depends(get_user)):
+    """Admin-only: can the server log in to PayPal with the keys on Render, and why not."""
+    if user.get("role") not in ADMIN_ROLES:
+        raise HTTPException(403, "Admin only")
+    cid = os.environ.get("PAYPAL_CLIENT_ID", "").strip().strip('"\'')
+    out = {"env": _env(), "api": _api_base(), "configured": configured(),
+           "client_id_hint": f"{cid[:4]}…{cid[-4:]}" if len(cid) > 8 else None,
+           "webhook_id_set": bool(os.environ.get("PAYPAL_WEBHOOK_ID")),
+           "plans": await plan_ids()}
+    if not configured():
+        return {**out, "ok": False, "problem": "PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is missing on Render."}
+    secret = os.environ["PAYPAL_CLIENT_SECRET"].strip().strip('"\'')
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_api_base()}/v1/oauth2/token", auth=(cid, secret),
+                             data={"grant_type": "client_credentials"})
+    except httpx.HTTPError as e:
+        return {**out, "ok": False, "problem": f"Network error reaching PayPal: {e}"}
+    if r.status_code == 200:
+        return {**out, "ok": True}
+    try:
+        err = r.json()
+    except ValueError:
+        err = {"raw": r.text[:300]}
+    hint = None
+    if err.get("error") == "invalid_client":
+        hint = (f"PayPal does not recognise these keys in {_env()} mode. Copy both keys from the "
+                f"{'Live' if _env() == 'live' else 'Sandbox'} tab of the same app, or change PAYPAL_ENV.")
+    return {**out, "ok": False, "status": r.status_code, "paypal_error": err, "problem": hint}
