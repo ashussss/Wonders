@@ -72,10 +72,18 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
   };
 
   const selectCircleEvent = (ev) => {
+    // Fetch the picked event by its own link so date, speaker and attendees
+    // come from that exact event.
+    if (ev.url) {
+      setShowCirclePicker(false);
+      onUrlChange(ev.url);
+      fetchDetails(ev.url);
+      return;
+    }
     setForm(prev => ({
       ...prev,
       title: ev.name || prev.title,
-      starts_at: ev.published_at ? ev.published_at.slice(0,16) : prev.starts_at,
+      starts_at: ev.starts_at ? ev.starts_at.slice(0,16) : prev.starts_at,
       join_link: ev.url || prev.join_link,
       cover_image_url: ev.cover_image_url || prev.cover_image_url,
     }));
@@ -90,11 +98,12 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
     else setPlatform(null);
   };
 
-  const fetchDetails = async () => {
-    if (!url.trim()) return;
+  const fetchDetails = async (overrideUrl) => {
+    const target = (typeof overrideUrl === "string" ? overrideUrl : url).trim();
+    if (!target) return;
     setStep("fetching");
     try {
-      const r = await api.post("/webinars/fetch-from-url", { url });
+      const r = await api.post("/webinars/fetch-from-url", { url: target });
       const d = r.data;
       setFetched(d);
       setAttendees(d.attendees || []);
@@ -103,7 +112,7 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
         title:       d.title || prev.title,
         description: d.description || prev.description,
         speaker:     d.speaker || prev.speaker,
-        join_link:   d.join_link || url,
+        join_link:   d.join_link || target,
         starts_at:   d.starts_at ? d.starts_at.slice(0,16) : prev.starts_at,
         cover_image_url: d.cover_image_url || prev.cover_image_url || "",
       }));

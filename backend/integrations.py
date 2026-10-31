@@ -162,6 +162,90 @@ def detect_platform(url: str) -> str:
     return "unknown"
 
 
+def _circle_url_parts(url: str) -> tuple[str, str]:
+    """(space_slug, post_slug) from a Circle link, ignoring query string and #fragment."""
+    from urllib.parse import urlparse
+    parts = [p for p in urlparse(url.strip()).path.split("/") if p]
+    post_slug = parts[-1].lower() if parts else ""
+    space_slug = parts[-2].lower() if len(parts) >= 2 and parts[-2] not in ("c", "events") else ""
+    return space_slug, post_slug
+
+
+def _slug_words(text: str) -> set[str]:
+    return {w for w in _re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split() if len(w) > 2}
+
+
+def _record_space_slug(rec: dict) -> str:
+    space = rec.get("space")
+    if isinstance(space, dict):
+        return (space.get("slug") or "").lower()
+    return (rec.get("space_slug") or "").lower()
+
+
+def match_circle_record(records: List[Dict[str, Any]], url: str) -> Dict[str, Any] | None:
+    """Pick the event/post the link points at, or None when nothing clearly matches.
+
+    An exact slug (or id) match always wins. Otherwise a fuzzy title match is only
+    accepted when it covers most of the link's slug words and beats every other
+    candidate, so a shared word like "webinar" can't pull in a different event.
+    """
+    space_slug, post_slug = _circle_url_parts(url)
+    if not post_slug:
+        return None
+
+    for rec in records:
+        rec_slug = (rec.get("slug") or "").lower()
+        rec_url = (rec.get("url") or "").lower()
+        rec_id = str(rec.get("id") or "")
+        if rec_slug == post_slug or rec_id == post_slug or (
+            rec_url and _circle_url_parts(rec_url)[1] == post_slug
+        ):
+            if not space_slug or not _record_space_slug(rec) or _record_space_slug(rec) == space_slug:
+                return rec
+
+    target = _slug_words(post_slug)
+    if not target:
+        return None
+    scored = []
+    for rec in records:
+        words = _slug_words(rec.get("name") or rec.get("title") or "") | _slug_words(rec.get("slug") or "")
+        overlap = len(target & words)
+        if not overlap:
+            continue
+        coverage = overlap / len(target)
+        if space_slug and _record_space_slug(rec) == space_slug:
+            coverage += 0.05
+        scored.append((coverage, overlap, rec))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    best_cov, _, best = scored[0]
+    if best_cov < 0.75:
+        return None
+    if len(scored) > 1 and scored[1][0] == best_cov:
+        return None  # two equally good candidates: don't guess
+    return best
+
+
+async def _circle_list(client, base: str, path: str, headers: dict, params: dict, key: str, pages: int = 5) -> tuple[int, list]:
+    """Read up to `pages` pages of a Circle list endpoint. Returns (first status, records)."""
+    records, status = [], 0
+    for page in range(1, pages + 1):
+        r = await client.get(f"{base}{path}", headers=headers, params={**params, "page": page})
+        if page == 1:
+            status = r.status_code
+        if r.status_code != 200:
+            break
+        data = r.json()
+        batch = data if isinstance(data, list) else data.get(key, data.get("records", []))
+        records.extend(batch or [])
+        if not batch or len(batch) < params.get("per_page", 100):
+            break
+        if isinstance(data, dict) and data.get("has_next_page") is False:
+            break
+    return status, records
+
+
 async def fetch_circle_event(url: str, api_token: str, settings: dict = None) -> dict:
     """Fetch Circle.so event — full data: title, description, time, banner, speaker, attendees."""
     import httpx, re as _r
@@ -175,12 +259,6 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
         "cover_image_url": "", "location": "", "raw_url": url,
     }
 
-    # Extract slug/hash from URL
-    url_slug = url.rstrip("/").split("/")[-1]
-    hash_match = _r.search(r'-([a-f0-9]{4,})$', url_slug)
-    url_hash = hash_match.group(1) if hash_match else None
-    clean_slug = _r.sub(r'-[a-f0-9]{4,}$', '', url_slug)
-
     bases = ["https://app.circle.so", "https://eu.app.circle.so"]
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -192,31 +270,12 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
                     params = {"per_page": 100}
                     if space_id:
                         params["space_id"] = space_id
-                    ev_r = await client.get(f"{base}/api/v1/events", headers=headers, params=params)
-                    logger.info(f"Circle v1 events: {ev_r.status_code}")
+                    ev_status, events = await _circle_list(client, base, "/api/v1/events", headers, params, "events")
+                    logger.info(f"Circle v1 events: {ev_status}, count={len(events)}")
 
-                    if ev_r.status_code == 200:
-                        events = ev_r.json()
-                        if isinstance(events, dict):
-                            events = events.get("events", events.get("records", []))
-                        logger.info(f"Circle events count: {len(events)}")
-
-                        best = None
-                        best_score = 0
-                        for ev in events:
-                            ev_name = (ev.get("name") or ev.get("title") or "").lower()
-                            ev_slug = (ev.get("slug") or "").lower()
-                            ev_id = str(ev.get("id", ""))
-                            name_words = set(w for w in _r.sub(r'[^a-z0-9]', ' ', ev_name).split() if len(w) > 3)
-                            slug_words = set(w for w in clean_slug.split('-') if len(w) > 3)
-                            score = len(name_words & slug_words)
-                            if url_hash and (url_hash in ev_slug or url_hash in ev_id):
-                                score += 50
-                            if score > best_score:
-                                best_score = score
-                                best = ev
-
-                        if best and best_score >= 1:
+                    if ev_status == 200:
+                        best = match_circle_record(events, url)
+                        if best:
                             ev = best
                             ev_id = ev.get("id")
 
@@ -275,31 +334,18 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
                     # ── METHOD 2: v2 admin posts ──────────────────────────
                     all_posts = []
                     for params in [
-                        {"per_page": 200, "sort": "published_at", "space_id": space_id} if space_id else None,
-                        {"per_page": 200, "sort": "latest"},
+                        {"per_page": 100, "space_id": space_id} if space_id else None,
+                        {"per_page": 100},
                     ]:
                         if not params:
                             continue
-                        r = await client.get(f"{base}/api/admin/v2/posts", headers=headers, params=params)
-                        if r.status_code == 200:
-                            all_posts = r.json().get("records", [])
+                        st, all_posts = await _circle_list(client, base, "/api/admin/v2/posts", headers, params, "records")
+                        if st == 200 and all_posts:
                             break
 
-                    slug_words = set(w for w in clean_slug.split('-') if len(w) > 3)
-                    best_match, best_score = None, 0
+                    best_match = match_circle_record(all_posts, url)
 
-                    for post in all_posts:
-                        name = (post.get("name") or "").lower()
-                        post_slug = (post.get("slug") or "").lower()
-                        name_words = set(w for w in _r.sub(r'[^a-z0-9]', ' ', name).split() if len(w) > 3)
-                        score = len(slug_words & name_words)
-                        if url_hash and url_hash in post_slug:
-                            score += 50
-                        if score > best_score:
-                            best_score = score
-                            best_match = post
-
-                    if best_match and best_score >= 1:
+                    if best_match:
                         post = best_match
                         post_id = post.get("id")
                         result["title"] = post.get("name", "")
@@ -350,14 +396,14 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
                         logger.info(f"✓ Circle v2: title={result['title']}, starts={result['starts_at']}, attendees={len(result['attendees'])}")
                         return result
 
-                    if ev_r.status_code != 401:
+                    if ev_status != 401:
                         break
 
                 except Exception as e:
                     logger.error(f"Circle fetch error ({base}): {e}")
                     continue
 
-    result["error"] = "Could not find event. Please check Circle API token and URL."
+    result["error"] = "Couldn't find this exact event in your Circle community. Check the link and API key, or pick the event from the list."
     return result
 
 
@@ -570,11 +616,12 @@ async def fetch_webinar_from_url(url: str, settings: dict) -> dict:
         base_result["error"] = "LinkedIn detected — fill title, date and speaker manually. Join link has been set."
         return base_result
 
-    elif platform == "eventbrite":
-        return await fetch_eventbrite_event(url)
-
-    elif platform == "luma":
-        return await fetch_luma_event(url)
+    elif platform in ("eventbrite", "luma"):
+        scraped = await scrape_and_extract(url)
+        scraped["platform"] = platform
+        if not scraped.get("title"):
+            scraped["error"] = scraped.get("error") or "Could not read the event page. Fill details manually."
+        return scraped
 
     else:
         # Try scraping for any unknown platform
