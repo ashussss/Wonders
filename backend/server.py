@@ -21,6 +21,7 @@ import social
 import pseo
 # Growth Engine — isolated module, own queue + collections + /api/growth routes
 from growth_engine.routes import router as growth_router
+from billing import router as billing_router
 from growth_engine import scheduler as growth_scheduler
 from datetime import datetime, timedelta, timezone
 
@@ -45,7 +46,8 @@ async def lifespan(_app: FastAPI):
     # booting) and again at 06:30 UTC (12:00 IST) in case the 09:00 IST draft failed the quality gate
     scheduler.add_job(pseo.catch_up, "date", id="pseo-catch-up", replace_existing=True,
                       run_date=datetime.now(timezone.utc) + timedelta(minutes=2))
-    scheduler.add_job(pseo.catch_up, "cron", hour=6, minute=30, id="pseo-catch-up-daily",
+    # 12:00, 15:00 and 18:00 IST, so a failed catch-up gets two more chances the same day
+    scheduler.add_job(pseo.catch_up, "cron", hour="6,9,12", minute=30, id="pseo-catch-up-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     # Growth Engine: own daily draft job + own dispatch tick (approval-gated)
     growth_scheduler.register()
@@ -80,6 +82,7 @@ app.include_router(blog_router)
 app.include_router(gsc_router)
 app.include_router(social_router)
 app.include_router(growth_router)
+app.include_router(billing_router)
 
 
 @app.get("/api/")

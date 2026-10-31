@@ -270,7 +270,7 @@ def test_catch_up_schedules_held_drafts_before_writing_new(monkeypatch):
     monkeypatch.setattr(pseo, "PSEO_MAX_PUBLISH_PER_DAY", 4)
     pseo.db = types.SimpleNamespace(blog_posts=coll)
 
-    async def sched(post, when=None):
+    async def sched(post, when=None, **kw):
         return {"status": "scheduled"}
     calls = []
 
@@ -291,9 +291,202 @@ def test_held_draft_from_earlier_day_publishes_now(monkeypatch):
     pseo.db = types.SimpleNamespace(blog_posts=coll)
     seen = {}
 
-    async def sched(post, when=None):
+    async def sched(post, when=None, **kw):
         seen[post["slug"]] = when
         return {"status": "scheduled"}
     monkeypatch.setattr(pseo, "auto_schedule", sched)
     assert asyncio.run(pseo.schedule_held_drafts(5)) == 2
     assert seen["old"] and seen["new"] is None
+
+
+def test_last_resort_publishes_when_fact_check_cannot_run(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_ai(c):
+        return c, None  # Groq down: fact-check never runs
+
+    async def no_style(c):
+        return c
+
+    async def slot():
+        return "2026-10-09T05:00:00+00:00"
+    monkeypatch.setattr(pseo, "fact_check", no_ai)
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "next_publish_slot", slot)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    body = " ".join(["Plain specific advice about reminders."] * 200)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "word_count": 1000,
+            "content": body + "\nThis is a game-changer for teams.\nTeams lose 73% of signups."}
+    assert asyncio.run(pseo.auto_schedule(dict(post)))["held"] == "fact-check did not run"
+    res = asyncio.run(pseo.auto_schedule(dict(post), last_resort=True))
+    assert res["status"] == "scheduled"
+    saved = [u["$set"] for _, u in coll.updates if u.get("$set", {}).get("last_resort_fix")][0]
+    assert "73%" not in saved["content"] and "game-changer" not in saved["content"]
+
+
+def test_last_resort_still_holds_thin_drafts(monkeypatch):
+    coll = _UpdColl()
+    pseo.db = types.SimpleNamespace(blog_posts=coll)
+
+    async def no_ai(c):
+        return c, None
+
+    async def no_style(c):
+        return c
+    monkeypatch.setattr(pseo, "fact_check", no_ai)
+    monkeypatch.setattr(pseo, "style_fix", no_style)
+    monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
+    post = {"slug": "s", "title": "t", "meta_description": "m", "content": "short", "word_count": 1}
+    assert asyncio.run(pseo.auto_schedule(post, last_resort=True))["held"].startswith("too short")
+
+
+def test_drop_banned_sentences():
+    out = pseo.drop_banned_sentences("## Unlock growth\nKeep me. Let's dive in now.\n- A game changer. Real tip.\nFine.")
+    assert out == "Keep me.\n- Real tip.\nFine."
+
+
+def test_refill_keywords_adds_related_topics_when_queue_low(monkeypatch):
+    added = []
+
+    class Cand:
+        async def count_documents(self, q):
+            return 2
+
+    rows = [{"related_topics": ["webinar poll examples", "x", "how to run a webinar q&a"]}]
+    posts = types.SimpleNamespace(find=lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor(rows)))
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand(), blog_posts=posts)
+
+    async def add(kw, intent="informational", notes=""):
+        added.append(kw)
+        return 1
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    monkeypatch.setattr(pseo, "PSEO_QUEUE_MIN", 12)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "")
+    assert asyncio.run(pseo.refill_keywords()) == 2
+    assert added == ["webinar poll examples", "how to run a webinar q&a"]
+
+
+def test_refill_keywords_brainstorms_when_related_topics_are_used_up(monkeypatch):
+    added = []
+
+    class Cand:
+        async def count_documents(self, q):
+            return 0
+
+    rows = [{"related_topics": ["already written topic"]}]
+    posts = types.SimpleNamespace(find=lambda *a, **k: types.SimpleNamespace(sort=lambda *a, **k: _Cursor(rows)))
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand(), blog_posts=posts)
+
+    async def add(kw, intent="informational", notes=""):
+        if kw == "already written topic":
+            return 0
+        added.append((kw, notes))
+        return 1
+
+    async def brainstorm(n):
+        assert n == 24
+        return ["webinar reminder email subject lines", "how to get webinar replays watched"]
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    monkeypatch.setattr(pseo, "brainstorm_keywords", brainstorm)
+    monkeypatch.setattr(pseo, "PSEO_QUEUE_MIN", 12)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "k")
+    assert asyncio.run(pseo.refill_keywords()) == 2
+    assert [k for k, _ in added] == ["webinar reminder email subject lines", "how to get webinar replays watched"]
+    assert all(n == "auto: brainstormed topic" for _, n in added)
+
+
+def test_brainstorm_keywords_drops_existing_and_repeats(monkeypatch):
+    pseo.db = types.SimpleNamespace(
+        blog_posts=_Coll([{"keyword": "webinar no-show rate", "title": "Webinar No-Show Rate Explained"}]),
+        seo_candidates=_Coll([{"keyword": "webinar reminder sms"}]))
+    monkeypatch.setattr(pseo, "_groq_json", lambda prompt: {"keywords": [
+        "Webinar No-Show Rate", "webinar reminder sms", "webinar countdown timer ideas", "webinar countdown timer ideas",
+        "x", "how to promote a webinar on slack communities"]})
+    out = asyncio.run(pseo.brainstorm_keywords(5))
+    assert out == ["webinar countdown timer ideas", "how to promote a webinar on slack communities"]
+
+
+def test_refill_keywords_skips_when_queue_full(monkeypatch):
+    class Cand:
+        async def count_documents(self, q):
+            return 50
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand())
+    assert asyncio.run(pseo.refill_keywords()) == 0
+
+
+def test_seed_keywords_are_unique():
+    kws = [k for k, _ in pseo.SEED_KEYWORDS]
+    assert len(kws) == len(set(kws)) and len(kws) >= 130
+
+
+def test_competitors_in():
+    assert pseo.competitors_in("Livestorm vs Zoom webinar") == {"livestorm", "zoom"}
+    assert pseo.competitors_in("webinar welcome email") == set()
+
+
+def test_overlap_ignores_posts_about_other_competitors(monkeypatch):
+    rows = [{"slug": "demio-alternatives", "keyword": "demio alternatives", "title": "Demio Alternatives"},
+            {"slug": "best-tools-to-reduce-webinar-no-shows", "keyword": "best tools", "title": "Best Tools"}]
+    pseo.db = types.SimpleNamespace(blog_posts=types.SimpleNamespace(find=lambda *a, **k: _Cursor(rows)))
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "")
+    assert asyncio.run(pseo.find_overlap("livestorm alternatives")) is None
+    assert asyncio.run(pseo.find_overlap("demio alternatives"))["slug"] == "demio-alternatives"
+
+
+def test_seed_requeues_competitor_keywords_marked_duplicate_of_another_competitor(monkeypatch):
+    upd = []
+
+    class Cand:
+        def find(self, *a, **k):
+            return _Cursor([{"_id": 1, "keyword": "livestorm alternatives", "duplicate_of": "demio-alternatives"},
+                            {"_id": 2, "keyword": "demio alternatives", "duplicate_of": "demio-alternatives"}])
+
+        async def update_one(self, q, u):
+            upd.append(q["_id"])
+    pseo.db = types.SimpleNamespace(seo_candidates=Cand())
+
+    async def add(*a, **k):
+        return 0
+    monkeypatch.setattr(pseo, "add_keyword", add)
+    assert asyncio.run(pseo.seed_keywords()) == 1 and upd == [1]
+
+
+def test_is_comparison_and_brand_limit():
+    assert pseo.is_comparison("livestorm alternatives") and pseo.is_comparison("demio vs livestorm")
+    assert not pseo.is_comparison("zoom webinar attendance tips")
+    assert pseo.brand_limit({"keyword": "demio alternatives"}) == pseo.COMPARISON_BRAND_LIMIT
+    assert pseo.brand_limit({"keyword": "webinar countdown email"}) == 2
+
+
+def test_comparison_prompt_recommends_brand(monkeypatch):
+    seen = {}
+
+    def fake_groq(prompt):
+        seen["p"] = prompt
+        raise RuntimeError("stop")
+    monkeypatch.setattr(pseo, "_groq_json", fake_groq)
+    monkeypatch.setattr(pseo, "GROQ_API_KEY", "x")
+
+    class Coll:
+        async def find_one(self, *a, **k):
+            return None
+
+        def find(self, *a, **k):
+            return types.SimpleNamespace(sort=lambda *a, **k: _Cursor([]))
+    pseo.db = types.SimpleNamespace(seo_candidates=Coll(), blog_posts=Coll())
+    for kw, want in (("livestorm alternatives", True), ("webinar countdown email", False)):
+        try:
+            asyncio.run(pseo.generate_post(kw))
+        except RuntimeError:
+            pass
+        assert ("ShowUpAI is the recommended alternative" in seen["p"]) is want
+        assert ("Mention ShowUpAI exactly ONCE" in seen["p"]) is not want
+
+
+def test_comparison_gate_allows_more_brand_mentions():
+    b = pseo.BRAND
+    base = {"fact_check_ok": True, "word_count": 1500, "title": "t", "meta_description": "m",
+            "content": f"{b} a. {b} b. {b} c. {b} d."}
+    assert not pseo.passes_quality_gate({**base, "keyword": "webinar tips"})[0]
+    assert pseo.passes_quality_gate({**base, "keyword": "demio alternatives"})[0]

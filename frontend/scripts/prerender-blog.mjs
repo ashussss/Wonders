@@ -194,8 +194,13 @@ async function main() {
   // Re-runs start from the clean shell saved by the first run
   const shell = fs.readFileSync(fs.existsSync(cleanPath) ? cleanPath : shellPath, "utf8");
   if (!shell.includes('<div id="root"></div>')) return console.log("[prerender] root div not found, skipping");
-  // Clean SPA shell for every non-prerendered route (/_redirects: /* -> /app-shell.html)
+  // Clean shell kept for re-runs (setHead needs its canonical/og:url tags to replace)
   fs.writeFileSync(path.join(BUILD, "app-shell.html"), shell);
+  // SPA fallback for every non-prerendered route (/_redirects: /* -> /spa.html). No homepage canonical or
+  // og:url: a post published after the last Netlify build was served this file with canonical "/", so Google
+  // folded it into the homepage. React (BlogPost.jsx) sets the right canonical once it renders.
+  fs.writeFileSync(path.join(BUILD, "spa.html"),
+    shell.replace(/\s*<link rel="canonical"[^>]*>/, "").replace(/\s*<meta property="og:url"[^>]*>/, ""));
 
   const list = await getJSON(`${API}/blog`);
   await writeSitemap();
@@ -255,7 +260,7 @@ ${bodyHtml(md, PRIVACY_MD)}</main>`));
       title, description, url: `${SITE}/${slug}`, type: "website", robots: "noindex, follow",
     }));
   }
-  console.log("[prerender] wrote homepage + about + waitlist + privacy + login + register + app-shell");
+  console.log("[prerender] wrote homepage + about + waitlist + privacy + login + register + app-shell + spa");
 
   if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
   const md = await loadMarkdown();
