@@ -348,3 +348,35 @@ def test_checkout_does_not_create_account_when_payments_off(checkout_env, monkey
     r = client.post("/api/billing/checkout", json={"plan": "growth", "email": "x@y.com", "password": "longpass1"})
     assert r.status_code == 503
     assert len(fake_db.users.docs) == 1
+
+
+def test_first_checkout_creates_paypal_plans(env, monkeypatch):
+    fake_db, pp, client = env
+    for k in PLAN_IDS:
+        monkeypatch.delenv(f"PAYPAL_PLAN_{k.upper()}")
+    created = []
+    real = pp.__call__
+
+    async def with_catalog(method, path, payload=None, content=None):
+        if path == "/v1/catalogs/products":
+            return {"id": "PROD-1"}
+        if path == "/v1/billing/plans":
+            created.append(payload["name"])
+            return {"id": f"P-NEW-{len(created)}"}
+        return await real(method, path, payload, content)
+    monkeypatch.setattr(billing, "paypal", with_catalog)
+
+    r = client.post("/api/billing/subscribe", json={"plan": "starter"})
+    assert r.status_code == 200, r.text
+    assert len(created) == 3
+    assert fake_db.billing_config.docs[0]["plans"]["starter"] == "P-NEW-1"
+    # Second checkout reuses the stored plans.
+    client.post("/api/billing/subscribe", json={"plan": "growth"})
+    assert len(created) == 3
+
+
+def test_subscribe_without_keys_says_not_set_up(env, monkeypatch):
+    _, _, client = env
+    monkeypatch.delenv("PAYPAL_CLIENT_SECRET")
+    r = client.post("/api/billing/subscribe", json={"plan": "starter"})
+    assert r.status_code == 503

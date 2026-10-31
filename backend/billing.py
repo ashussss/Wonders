@@ -301,9 +301,12 @@ async def start_subscription(user: Dict[str, Any], plan: str) -> Dict[str, Any]:
     b = user.get("billing") or {}
     if b.get("status") in LIVE_STATUSES and b.get("plan") == plan:
         raise HTTPException(400, f"You are already on the {PLANS[plan]['name']} plan.")
+    if not configured():
+        raise HTTPException(503, "Payments are not set up yet. Please contact support.")
     ids = await plan_ids()
     if plan not in ids:
-        raise HTTPException(503, "Payments are not set up yet. Please contact support.")
+        # First checkout after the keys are set: create the PayPal plans now.
+        ids = await setup_plans()
     sub = await paypal("POST", "/v1/billing/subscriptions", {
         "plan_id": ids[plan], "custom_id": user["id"],
         "subscriber": {"email_address": user["email"]},
@@ -350,7 +353,7 @@ async def checkout(request: Request, payload: Dict[str, Any] = Body(...)):
     else:
         if len(password) < 8:
             raise HTTPException(400, "Choose a password of at least 8 characters.")
-        if not configured() or plan not in await plan_ids():
+        if not configured():
             raise HTTPException(503, "Payments are not set up yet. Please contact support.")
         name = (payload.get("name") or "").strip() or email.split("@")[0]
         user = await create_user(email, name, password)
