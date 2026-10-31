@@ -141,7 +141,7 @@ def test_confirmation_sent_on_registration(monkeypatch):
     fake = _DB()
     sent = []
 
-    async def fake_dispatch(ch, settings, to_email, to_phone, subject, body, ics_bytes=None, image_url=None):
+    async def fake_dispatch(ch, settings, to_email, to_phone, subject, body, ics_bytes=None, image_url=None, link_labels=None):
         sent.append((ch, to_email, subject, body, bool(ics_bytes)))
         return {"ok": True}
 

@@ -2,8 +2,9 @@
 
 Each card shows the touch's piece of the webinar's content kit (ai.TOUCH_ASSET) and,
 in the footer, the webinar title, date and host, so the reminder rides on something
-people would save or share. Cards are the host's content, so they carry no ShowUpAI
-branding. 1080x1350 JPEG: the 4:5 shape LinkedIn, Facebook and Instagram all show in
+people would save or share. Cards are the host's content, so they wear the host's brand
+kit (brand_kit.py): their colours, font and logo. ShowUp AI only appears as a small
+"Powered by ShowUp AI" mark at the bottom, which Agency plans can hide. 1080x1350 JPEG: the 4:5 shape LinkedIn, Facebook and Instagram all show in
 full, and Instagram only accepts JPEG.
 
 Cards are rendered on first use and re-rendered only when what they show changes
@@ -13,10 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+import brand_kit
 from ai import TOUCH_ASSET
 from touch_render import parse_start, values, webinar_tz
 
@@ -37,7 +40,8 @@ TAGS = {
 }
 
 
-def card_spec(touch_num: int, kit: Optional[Dict[str, Any]], w: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def card_spec(touch_num: int, kit: Optional[Dict[str, Any]], w: Dict[str, Any],
+              brand: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """What the card for this touch shows, or None when the touch has no card (or no content)."""
     kind = TOUCH_ASSET.get(touch_num)
     if touch_num == 9 or not kind:          # one-hour reminder stays a short text
@@ -50,7 +54,7 @@ def card_spec(touch_num: int, kit: Optional[Dict[str, Any]], w: Dict[str, Any]) 
     else:
         tag = TAGS[kind]
     return {"kind": kind, "tag": tag, "data": data, "footer": footer_lines(w, touch_num in POST_EVENT),
-            "seed": w.get("id") or w.get("title") or ""}
+            "seed": w.get("id") or w.get("title") or "", "brand": brand_kit.card_brand(brand)}
 
 
 def footer_lines(w: Dict[str, Any], post_event: bool) -> Tuple[str, str]:
@@ -74,8 +78,10 @@ def spec_hash(spec: Dict[str, Any]) -> str:
 
 # ── drawing ──────────────────────────────────────────────────────────────────
 
-def _colors(seed: str):
+def _colors(seed: str, brand_theme: Optional[Dict[str, str]] = None):
     import social_images as si
+    if brand_theme:
+        return brand_theme, brand_theme["accent"], brand_theme["on_accent"]
     t = si._theme(seed)
     accent = t["accent"] if t["accent"] != "#111111" else t["fg"]
     on_accent = "#FFFFFF" if t["accent"] not in ("#FFFFFF",) else "#111111"
@@ -146,15 +152,59 @@ def _panel(d, si, t, label, text, top, bottom, label_color, fill, text_kind="sem
     si._text_block(d, text, f, PAD + 40, top + 82, W - 2 * PAD - 80, si._hex(t["fg"]), lh, max_lines=5)
 
 
-def render_card(spec: Dict[str, Any]) -> bytes:
+def _brand_mark(img, d, si, t, brand: Dict[str, Any], logo_png: Optional[bytes]):
+    """The customer's logo (or name) in the top-right corner."""
+    from PIL import Image
+    if logo_png:
+        try:
+            logo = Image.open(io.BytesIO(logo_png)).convert("RGBA")
+            logo.thumbnail((300, 76))
+            img.alpha_composite(logo, (W - PAD - logo.width, PAD + 25 - logo.height // 2))
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"brand logo unusable: {e}")
+    name = (brand.get("name") or "").strip()
+    if name:
+        f, _ = si._fit(d, name, "bold", 380, 50, 32, 20, max_lines=1)
+        d.text((W - PAD, PAD + 25), name, font=f, fill=si._hex(t["fg"]), anchor="rm")
+
+
+def _powered_by(img, d, si, t):
+    """Small 'Powered by ShowUp AI' with the ShowUp icon, bottom right, under the footer."""
+    from blog_cover import _logo
+    f = si._font("semi", 20)
+    text = brand_kit.POWERED_BY
+    tw = int(d.textlength(text, font=f))
+    y = H - 40
+    x = W - PAD - tw
+    d.text((x, y), text, font=f, fill=si._hex(t["muted"]), anchor="lm")
+    icon = _logo(24)
+    img.alpha_composite(icon, (x - 32, y - 12))
+
+
+def render_card(spec: Dict[str, Any], logo_png: Optional[bytes] = None,
+                fonts: Optional[Dict[str, str]] = None) -> bytes:
+    from blog_cover import FONT_OVERRIDE
+    token = FONT_OVERRIDE.set(fonts or None)
+    try:
+        return _render_card(spec, logo_png)
+    finally:
+        FONT_OVERRIDE.reset(token)
+
+
+def _render_card(spec: Dict[str, Any], logo_png: Optional[bytes]) -> bytes:
     from PIL import Image, ImageDraw
     import social_images as si
 
-    t, accent, on_accent = _colors(spec["seed"])
+    brand = spec.get("brand") or {}
+    t, accent, on_accent = _colors(spec["seed"], brand.get("theme"))
     img = Image.new("RGBA", (W, H), si._hex(t["bg"]))
     d = ImageDraw.Draw(img)
+    _brand_mark(img, d, si, t, brand, logo_png)
     y = _tag(d, si, spec["tag"], accent) + 50
     bottom = _footer(d, si, t, accent, spec["footer"])
+    if brand.get("powered_by", True):
+        _powered_by(img, d, si, t)
     kind, data = spec["kind"], spec["data"]
 
     if kind == "problem":
@@ -207,14 +257,19 @@ COLLECTION = "touch_visuals"
 
 
 async def ensure_visual(db, bucket, t: Dict[str, Any], w: Dict[str, Any],
-                        kit: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-    """The stored card for this touch, rendering it if it's missing or out of date."""
+                        kit: Optional[Dict[str, Any]] = None,
+                        brand: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """The stored card for this touch, rendering it if it's missing or out of date
+    (content, date or the owner's brand kit changed)."""
     if TOUCH_ASSET.get(t.get("touch_num")) is None:
         return None
     if kit is None:
         from ai import load_kit
         kit = await load_kit(w["id"])
-    spec = card_spec(t["touch_num"], kit, w)
+    owner = t.get("owner_id") or w.get("owner_id") or ""
+    if brand is None:
+        brand = await brand_kit.resolve(db, owner)
+    spec = card_spec(t["touch_num"], kit, w, brand)
     if not spec:
         return None
     h = spec_hash(spec)
@@ -222,7 +277,9 @@ async def ensure_visual(db, bucket, t: Dict[str, Any], w: Dict[str, Any],
     if row and row.get("hash") == h:
         return row
     try:
-        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_card, spec)
+        logo = await brand_kit.logo_png(db, owner) if spec["brand"]["logo_hash"] else None
+        fonts = await brand_kit.font_paths_async(spec["brand"]["font"])
+        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_card, spec, logo, fonts)
     except Exception as e:  # noqa: BLE001
         logger.error(f"touch card {t['id']} ({spec['kind']}) failed: {e}", exc_info=True)
         return row

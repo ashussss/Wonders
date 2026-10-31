@@ -22,6 +22,7 @@ import pseo
 # Growth Engine — isolated module, own queue + collections + /api/growth routes
 from growth_engine.routes import router as growth_router
 from billing import router as billing_router
+from routes_brand import router as brand_router
 from growth_engine import scheduler as growth_scheduler
 from datetime import datetime, timedelta, timezone
 
@@ -83,6 +84,7 @@ app.include_router(gsc_router)
 app.include_router(social_router)
 app.include_router(growth_router)
 app.include_router(billing_router)
+app.include_router(brand_router)
 
 
 @app.get("/api/")

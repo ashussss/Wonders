@@ -4,6 +4,7 @@ Pure Pillow, no AI call: fast, free, consistent brand. The theme and motif are p
 slug so every post keeps the same look each time it is regenerated.
 """
 
+import contextvars
 import hashlib
 import io
 import os
@@ -45,7 +46,18 @@ def _ensure_fonts():
                 pass
 
 
+# A customer's brand font for the current render: {"bold"|"semi"|"reg": ttf path}.
+# Set by touch_visuals.render_card around one card; everything else keeps Poppins.
+FONT_OVERRIDE: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar("font_override", default=None)
+
+
 def _font(kind: str, size: int):
+    override = (FONT_OVERRIDE.get() or {}).get(kind)
+    if override:
+        try:
+            return ImageFont.truetype(override, size)
+        except Exception:
+            pass
     _ensure_fonts()
     for path in [os.path.join(FONT_DIR, FONTS[kind])] + FALLBACKS[kind]:
         try:
