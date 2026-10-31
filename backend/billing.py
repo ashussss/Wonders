@@ -92,10 +92,19 @@ async def _access_token() -> str:
         raise HTTPException(503, "Payments are not set up yet. Please contact support.")
     if _token_cache["token"] and _token_cache["env"] == _env() and _token_cache["exp"] > time.time() + 60:
         return _token_cache["token"]
-    async with httpx.AsyncClient(timeout=20) as c:
-        r = await c.post(f"{_api_base()}/v1/oauth2/token",
-                         auth=(os.environ["PAYPAL_CLIENT_ID"], os.environ["PAYPAL_CLIENT_SECRET"]),
-                         data={"grant_type": "client_credentials"})
+    # Keys pasted into a dashboard often pick up spaces or quotes.
+    client_id = os.environ["PAYPAL_CLIENT_ID"].strip().strip('"\'')
+    secret = os.environ["PAYPAL_CLIENT_SECRET"].strip().strip('"\'')
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_api_base()}/v1/oauth2/token", auth=(client_id, secret),
+                             data={"grant_type": "client_credentials"})
+    except httpx.HTTPError as e:
+        logger.error("paypal token request failed: %s", e)
+        raise HTTPException(502, "Could not reach PayPal. Please try again.")
+    if r.status_code in (401, 403):
+        logger.error("paypal rejected the %s keys: %s %s", _env(), r.status_code, r.text[:300])
+        raise HTTPException(503, "Payments are not set up correctly yet. Please contact support.")
     if r.status_code != 200:
         logger.error("paypal token failed: %s %s", r.status_code, r.text[:300])
         raise HTTPException(502, "Could not reach PayPal. Please try again.")
