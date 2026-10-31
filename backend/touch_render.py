@@ -112,3 +112,17 @@ def render(text: str, w: Dict[str, Any], channel: str,
         text = _GREETING.sub("", text)
     text = _PLACEHOLDER.sub(lambda m: vals.get(m.group(1).lower(), ""), text)
     return clean(text, channel)
+
+
+def link_labels(w: Dict[str, Any], cta_label: str = "") -> Dict[str, str]:
+    """Button text for the links an email may put on a line of their own.
+
+    The host's own CTA wording (brand kit) is used for the join link."""
+    out: Dict[str, str] = {}
+    reg = registration_url(w)
+    out[reg] = cta_label or "Save my seat"
+    if w.get("recording_url"):
+        out[w["recording_url"]] = "Watch the recording"
+    if w.get("join_link"):
+        out[w["join_link"]] = cta_label or "Join the session"
+    return out

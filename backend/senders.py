@@ -19,13 +19,31 @@ class DeliveryResult(dict):
 
 
 
+def _brand_signature(brand: Optional[Dict[str, Any]]) -> str:
+    """The customer's logo under the sign-off, linked to their site, and the small
+    Powered by line. No banner: the email still reads as a note from the host."""
+    b = brand or {}
+    out = ""
+    if b.get("logo_url"):
+        img = (f'<img src="{html.escape(b["logo_url"])}" alt="{html.escape(b.get("name") or "")}" height="36" '
+               f'style="display:block;height:36px;width:auto;max-width:180px;border:0;margin:20px 0 0;">')
+        out += (f'<a href="{html.escape(b["website"])}" style="text-decoration:none;">{img}</a>'
+                if b.get("website") else img)
+    if b.get("powered_by", True):
+        from brand_kit import POWERED_BY, POWERED_BY_URL
+        out += (f'<p style="color:#9ca3af;font-size:11px;margin:28px 0 0;">'
+                f'<a href="{POWERED_BY_URL}" style="color:#9ca3af;text-decoration:none;">{POWERED_BY}</a></p>')
+    return out
+
+
 def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI",
-                     unsubscribe_url: str = "") -> str:
+                     unsubscribe_url: str = "", brand: Optional[Dict[str, Any]] = None) -> str:
     """Wrap the body in a plain, letter-style email.
 
-    Deliberately no banner, logo or coloured header: a reminder that looks like a
-    note from the host lands in the main inbox and gets opened; one that looks like
-    a newsletter goes to Promotions and doesn't.
+    Deliberately no banner or coloured header: a reminder that looks like a note from
+    the host lands in the main inbox and gets opened; one that looks like a newsletter
+    goes to Promotions and doesn't. The host's brand shows in the link and button
+    colour and a small logo under the sign-off.
     """
     html_body = body.replace("\n", "<br>")
     unsub_html = ""
@@ -43,6 +61,7 @@ def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI"
 <body style="margin:0;padding:0;background:#ffffff;">
   <div style="max-width:560px;padding:24px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.6;color:#111827;">
     {html_body}
+    {_brand_signature(brand)}
     {unsub_html}
   </div>
 </body>
@@ -52,19 +71,40 @@ def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI"
 _URL = re.compile(r"https?://[^\s<>\"]+[^\s<>\".,;:!?)]")
 
 
-def text_to_email_html(text: str, image_url: Optional[str] = None) -> str:
+def text_to_email_html(text: str, image_url: Optional[str] = None,
+                       brand: Optional[Dict[str, Any]] = None,
+                       link_labels: Optional[Dict[str, str]] = None) -> str:
     """Escape plain text and make its links clickable. A long calendar link reads as a label.
 
+    A known link (join, registration, recording) on a line of its own becomes one
+    button in the host's brand colour, with a label like "Join the session".
     An image (the touch's card) goes in just before the sign-off paragraph, where it
     reads as part of the note rather than a newsletter banner.
     """
+    b = brand or {}
+    link_color = b.get("link_color") or "#2563eb"
+    button_color = b.get("button_color") or link_color
+    labels = link_labels or {}
+
     def _link(m: "re.Match[str]") -> str:
         url = m.group(0)
         label = "Add it to your calendar" if "calendar.google.com" in url else url
-        return f'<a href="{url}" style="color:#2563eb;">{label}</a>'
+        return f'<a href="{url}" style="color:{link_color};">{label}</a>'
+
+    def _button(url: str, label: str) -> str:
+        from brand_kit import readable_on
+        return (f'<a href="{url}" style="display:inline-block;background:{button_color};color:{readable_on(button_color)};'
+                f'padding:12px 22px;border-radius:8px;font-weight:600;text-decoration:none;margin:4px 0;">'
+                f'{html.escape(label)}</a>')
+
+    def _line(ln: str) -> str:
+        bare = ln.strip()
+        if bare in labels and _URL.fullmatch(bare):
+            return _button(html.escape(bare), labels[bare])
+        return _URL.sub(_link, html.escape(ln, quote=False))
 
     def _html(t: str) -> str:
-        return _URL.sub(_link, html.escape(t, quote=False)).replace("\n", "<br>")
+        return "<br>".join(_line(ln) for ln in t.split("\n"))
 
     if not image_url:
         return _html(text)
@@ -510,12 +550,17 @@ CHANNEL_ALIASES = {"linkedin_page": "linkedin", "facebook_page": "facebook"}
 # Dispatcher: takes channel name + the body/subject and routes to the right provider.
 async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[str], to_phone: Optional[str],
                    subject: str, body: str, ics_bytes: Optional[bytes] = None,
-                   image_url: Optional[str] = None) -> DeliveryResult:
+                   image_url: Optional[str] = None,
+                   link_labels: Optional[Dict[str, str]] = None) -> DeliveryResult:
+    """settings["_brand"] (brand_kit.resolve) styles emails in the host's brand."""
     channel = CHANNEL_ALIASES.get(channel, channel)
     if channel == "email":
         if not to_email:
             return DeliveryResult(False, "email", "No recipient email")
-        return await send_email(settings, to_email, subject, text_to_email_html(body, image_url), ics_bytes=ics_bytes)
+        brand = settings.get("_brand")
+        html_doc = build_email_html(text_to_email_html(body, image_url, brand, link_labels), subject=subject,
+                                    brand=brand)
+        return await send_email(settings, to_email, subject, html_doc, ics_bytes=ics_bytes)
     if channel == "facebook":
         return await post_facebook_page(settings, body, image_url=image_url)
     if channel == "instagram":

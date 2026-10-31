@@ -17,7 +17,8 @@ from integrations import circle_sync_members, circle_diagnose, linkedin_list_eve
 from image_gen import generate_webinar_social_image
 from showup_score import render_showup_score
 from crypto_utils import decrypt_settings
-from touch_render import PERSONAL_CHANNELS, render
+from touch_render import PERSONAL_CHANNELS, link_labels, render
+import brand_kit
 import touch_visuals
 
 logger = logging.getLogger("showup.delivery")
@@ -27,7 +28,9 @@ router = APIRouter(prefix="/api")
 
 async def _user_settings_decrypted(user_id: str) -> Dict[str, Any]:
     s = await db.settings.find_one({"owner_id": user_id}, {"_id": 0}) or {}
-    return await _with_user_oauth(user_id, decrypt_settings(s))
+    merged = await _with_user_oauth(user_id, decrypt_settings(s))
+    merged["_brand"] = await brand_kit.resolve(db, user_id)     # the host's brand kit, for emails
+    return merged
 
 
 async def _with_user_oauth(user_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -176,7 +179,8 @@ async def generate_adhoc(wid: str, payload: Dict[str, Any], user=Depends(get_use
     with_image = bool(payload.get("with_image", True))
 
     # Generate text copy
-    text_data = await _gen_adhoc(w, channel=audience, with_poll=with_poll, custom_brief=custom_brief)
+    text_data = await _gen_adhoc(w, channel=audience, with_poll=with_poll, custom_brief=custom_brief,
+                                 voice=await brand_kit.voice_brief(db, user["id"]))
 
     # Normalise: backend returns "content", frontend expects "post_text"
     # It's copied and pasted by hand, so fill the placeholders now.
@@ -420,13 +424,16 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     delivery_log: List[Dict[str, Any]] = []
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
     regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
+    brand = await brand_kit.resolve(db, w.get("owner_id") or t.get("owner_id") or "", public_backend_url)
+    settings = {**settings, "_brand": brand}
+    labels = link_labels(w, brand.get("cta_label") or "")
 
     # The touch's card (tips, case study, poll, checklist...) goes with every channel.
     card_url = None
     if public_backend_url and touch_visuals.has_visual(t["touch_num"]):
         try:
             card_url = touch_visuals.visual_url(
-                public_backend_url, await touch_visuals.ensure_visual(db, social_images_fs, t, w))
+                public_backend_url, await touch_visuals.ensure_visual(db, social_images_fs, t, w, brand=brand))
         except Exception as e:  # noqa: BLE001
             logger.warning(f"touch card for {t['id']} unavailable: {e}")
     ig_image_url = card_url
@@ -457,7 +464,8 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
                 res = await send_dispatch(ch, settings,
                                            to_email=r.get("email"), to_phone=r.get("phone"),
                                            subject=render(subject, w, ch, r), body=render(body, w, ch, r),
-                                           ics_bytes=ics_bytes if ch == "email" else None, image_url=card_url)
+                                           ics_bytes=ics_bytes if ch == "email" else None, image_url=card_url,
+                                           link_labels=labels)
                 delivery_log.append({"channel": ch, "recipient": r.get("email") or r.get("phone"),
                                       "ok": res.get("ok"), "detail": res.get("detail")})
         else:
@@ -488,7 +496,7 @@ DEFAULT_CONFIRMATION = {
         "subject": "You're in: {{webinar_title}}",
         "body": ("Hi {{first_name}},\n\n"
                  "You're registered for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}.\n\n"
-                 "Your link to join: {{join_link}}\n\n"
+                 "Your link to join:\n{{join_link}}\n\n"
                  "Put it in your calendar now so it doesn't get buried: {{calendar_link}}\n\n"
                  "One favour: hit reply and tell me the one question you want answered. "
                  "I'll do my best to cover it live.\n\n"
@@ -512,7 +520,8 @@ async def send_confirmation(wid: str, reg_id: str) -> Dict[str, Any]:
     t1 = await db.touches.find_one({"webinar_id": wid, "touch_num": 1}, {"_id": 0}) or {}
     if t1 and not (t1.get("ai_copy") or {}).get("channels"):
         from ai import generate_touch_copy
-        copy = await generate_touch_copy(w, 1, t1.get("channels") or ["email"])
+        copy = await generate_touch_copy(w, 1, t1.get("channels") or ["email"],
+                                         custom_instructions=await brand_kit.voice_brief(db, w["owner_id"]))
         await db.touches.update_one({"id": t1["id"], "webinar_id": wid}, {"$set": {"ai_copy": copy}})
         t1["ai_copy"] = copy
     approved = t1.get("approval_status") == "approved"
@@ -533,7 +542,8 @@ async def send_confirmation(wid: str, reg_id: str) -> Dict[str, Any]:
         res = await send_dispatch(ch, settings, to_email=reg.get("email"), to_phone=reg.get("phone"),
                                   subject=render(c.get("subject") or "You're in: {{webinar_title}}", w, ch, reg),
                                   body=render(c["body"], w, ch, reg),
-                                  ics_bytes=build_ics(w) if ch == "email" else None)
+                                  ics_bytes=build_ics(w) if ch == "email" else None,
+                                  link_labels=link_labels(w, (settings.get("_brand") or {}).get("cta_label") or ""))
         log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
     ok = any(x["ok"] for x in log)
     await db.registrants.update_one({"id": reg_id}, {"$set": {
@@ -782,10 +792,12 @@ async def _send_each(settings: Dict[str, Any], w: Dict[str, Any], regs: List[Dic
                      subject: str, body: str, whatsapp: str = "") -> int:
     """Personalised email (and WhatsApp when a template is given) to each registrant."""
     sent = 0
+    labels = link_labels(w, (settings.get("_brand") or {}).get("cta_label") or "")
     for reg in regs:
         if reg.get("email"):
             res = await send_dispatch("email", settings, to_email=reg["email"], to_phone=None,
-                                      subject=render(subject, w, "email", reg), body=render(body, w, "email", reg))
+                                      subject=render(subject, w, "email", reg), body=render(body, w, "email", reg),
+                                      link_labels=labels)
             sent += bool(res.get("ok"))
         if whatsapp and reg.get("phone"):
             await send_dispatch("whatsapp", settings, to_email=None, to_phone=reg["phone"],

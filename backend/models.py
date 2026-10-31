@@ -161,3 +161,17 @@ class BlogPostPatch(BaseModel):
     solution_framework: Optional[str] = None
     actionable_takeaways: Optional[List[str]] = None
     case_studies: Optional[List[Dict]] = None
+
+
+class BrandKitIn(BaseModel):
+    business_name: Optional[str] = None
+    website: Optional[str] = None
+    primary_color: Optional[str] = None
+    background_color: Optional[str] = None
+    text_color: Optional[str] = None
+    font: Optional[str] = None
+    tone: Optional[str] = None
+    voice_sample: Optional[str] = None
+    audience: Optional[str] = None
+    cta_label: Optional[str] = None
+    hide_powered_by: Optional[bool] = None
