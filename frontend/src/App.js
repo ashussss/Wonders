@@ -13,6 +13,7 @@ import Schedule from "@/pages/Schedule";
 import Settings from "@/pages/Settings";
 import Integrations from "@/pages/Integrations";
 import Billing from "@/pages/Billing";
+import Checkout from "@/pages/Checkout";
 import GrowthReview from "@/pages/GrowthReview";
 import LinkBuilding from "@/pages/LinkBuilding";
 import ContentLibrary from "@/pages/ContentLibrary";
@@ -54,6 +55,8 @@ export default function App() {
               <Route path="/register" element={<Register />} />
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route path="/checkout/:plan" element={<Checkout />} />
               <Route path="/about" element={<About />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/blog" element={<Blog />} />

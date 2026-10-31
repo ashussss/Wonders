@@ -299,3 +299,52 @@ def test_webhook_rejected_without_webhook_id(env, monkeypatch):
     _, _, client = env
     monkeypatch.delenv("PAYPAL_WEBHOOK_ID")
     assert _webhook(client, "BILLING.SUBSCRIPTION.ACTIVATED", {"id": "I-1"}, "E1").status_code == 400
+
+
+# ── one-step checkout ────────────────────────────────────────────────────────
+@pytest.fixture
+def checkout_env(env, monkeypatch):
+    fake_db, pp, client = env
+    import routes_auth
+    monkeypatch.setattr(routes_auth, "db", fake_db)
+    monkeypatch.setattr(billing, "create_user", routes_auth.create_user)
+    return fake_db, pp, client
+
+
+def test_checkout_new_email_creates_account_and_paypal_link(checkout_env):
+    fake_db, pp, client = checkout_env
+    r = client.post("/api/billing/checkout", json={"plan": "growth", "email": "New@Host.com", "password": "longpass1"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["approve_url"].startswith("https://paypal.test/approve/") and body["token"]
+    new = next(u for u in fake_db.users.docs if u["email"] == "new@host.com")
+    assert new["name"] == "new" and new["password"] != "longpass1"
+    assert pp.subs[body["subscription_id"]]["custom_id"] == new["id"]
+    assert fake_db.settings.docs[0]["owner_id"] == new["id"]
+
+
+def test_checkout_existing_email_needs_right_password(checkout_env):
+    fake_db, _, client = checkout_env
+    from auth_utils import hash_pw
+    fake_db.users.docs[0]["password"] = hash_pw("rightpass")
+    bad = client.post("/api/billing/checkout", json={"plan": "starter", "email": "a@b.com", "password": "wrong"})
+    assert bad.status_code == 401
+    ok = client.post("/api/billing/checkout", json={"plan": "starter", "email": "a@b.com", "password": "rightpass"})
+    assert ok.status_code == 200, ok.text
+    assert len(fake_db.users.docs) == 1
+
+
+def test_checkout_validates_input(checkout_env):
+    fake_db, _, client = checkout_env
+    assert client.post("/api/billing/checkout", json={"plan": "gold", "email": "x@y.com", "password": "longpass1"}).status_code == 400
+    assert client.post("/api/billing/checkout", json={"plan": "growth", "email": "nope", "password": "longpass1"}).status_code == 400
+    assert client.post("/api/billing/checkout", json={"plan": "growth", "email": "x@y.com", "password": "short"}).status_code == 400
+    assert len(fake_db.users.docs) == 1
+
+
+def test_checkout_does_not_create_account_when_payments_off(checkout_env, monkeypatch):
+    fake_db, _, client = checkout_env
+    monkeypatch.delenv("PAYPAL_CLIENT_ID")
+    r = client.post("/api/billing/checkout", json={"plan": "growth", "email": "x@y.com", "password": "longpass1"})
+    assert r.status_code == 503
+    assert len(fake_db.users.docs) == 1

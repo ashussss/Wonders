@@ -13,15 +13,14 @@ router = APIRouter(prefix="/api/auth")
 limiter = Limiter(key_func=get_remote_address)
 
 
-@router.post("/register")
-@limiter.limit("5/minute")
-async def register(request: Request, data: UserSignup):
-    existing = await db.users.find_one({"email": data.email.lower()})
-    if existing:
+async def create_user(email: str, name: str, password: str) -> dict:
+    """Insert a user with default settings. Raises 400 if the email is taken."""
+    email = email.lower()
+    if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     uid = str(uuid.uuid4())
-    user = {"id": uid, "email": data.email.lower(), "name": data.name,
-            "password": hash_pw(data.password), "created_at": now_iso()}
+    user = {"id": uid, "email": email, "name": name,
+            "password": hash_pw(password), "created_at": now_iso()}
     await db.users.insert_one(user)
     await db.settings.insert_one({
         "owner_id": uid,
@@ -29,7 +28,14 @@ async def register(request: Request, data: UserSignup):
         "default_channels": {str(t["num"]): t["default_channels"] for t in TOUCH_DEFS},
         "per_touch_auto_send": {str(t["num"]): False for t in TOUCH_DEFS},
     })
-    return {"token": make_token(uid), "user": {"id": uid, "email": user["email"], "name": user["name"], "role": "user"}}
+    return user
+
+
+@router.post("/register")
+@limiter.limit("5/minute")
+async def register(request: Request, data: UserSignup):
+    user = await create_user(data.email, data.name, data.password)
+    return {"token": make_token(user["id"]), "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": "user"}}
 
 
 @router.post("/login")
