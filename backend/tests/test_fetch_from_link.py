@@ -39,3 +39,24 @@ def test_ambiguous_fuzzy_match_returns_none():
 def test_match_by_record_url():
     recs = [{"id": 7, "name": "Other", "slug": "x", "url": "https://c.circle.so/c/live/spring-kickoff"}]
     assert match_circle_record(recs, "https://c.circle.so/c/live/spring-kickoff")["id"] == 7
+
+
+# ── Circle "Pick Event" list ─────────────────────────────────────────────
+from integrations import upcoming_circle_events
+
+NOW = "2026-10-31T12:00:00"
+
+
+def test_picker_drops_news_posts_and_past_events():
+    recs = [
+        {"id": 1, "name": "DfE pondered launching in-house MIS", "slug": "dfe-mis"},  # news post, no start
+        {"id": 2, "name": "Old webinar", "starts_at": "2026-10-01T17:00:00Z"},
+        {"id": 3, "name": "School Business Manager (UK) Portal Walkthrough & Live Demo",
+         "slug": "portal-walkthrough", "starts_at": "2026-11-07T17:00:00.000Z", "space_id": 9},
+        {"id": 4, "name": "HR clinic", "event_setting": {"starts_at": "2026-11-03T10:00:00Z"}, "url": "https://x/c/e/hr"},
+    ]
+    spaces = {9: {"name": "Events & Webinars", "url": "https://schoolbusinessmanager.uk/c/events-webinar-calendar"}}
+    out = upcoming_circle_events(recs, NOW, spaces)
+    assert [e["id"] for e in out] == [4, 3]
+    assert out[1]["url"] == "https://schoolbusinessmanager.uk/c/events-webinar-calendar/portal-walkthrough"
+    assert out[1]["space_name"] == "Events & Webinars"

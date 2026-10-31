@@ -64,8 +64,10 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
     setLoadingCircle(true);
     try {
       const r = await api.get("/circle/upcoming-events");
-      setCircleEvents(r.data.events || []);
+      const evs = r.data.events || [];
+      setCircleEvents(evs);
       setShowCirclePicker(true);
+      if (!evs.length) toast.info("No upcoming events found in your Circle event spaces");
     } catch(e) {
       toast.error("Could not load Circle events — check API key in Settings");
     } finally { setLoadingCircle(false); }
@@ -235,7 +237,7 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
                         {ev.cover_image_url && <img src={ev.cover_image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />}
                         <div className="min-w-0">
                           <div className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{ev.name}</div>
-                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{ev.published_at?.slice(0,10)}</div>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{ev.starts_at ? new Date(ev.starts_at).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : ""}{ev.space_name ? ` · ${ev.space_name}` : ""}</div>
                         </div>
                       </button>
                     ))}
