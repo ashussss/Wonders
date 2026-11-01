@@ -242,3 +242,28 @@ def test_voice_brief_goes_into_the_copy_prompt(monkeypatch):
     monkeypatch.setattr(ai, "_call_llm", fake_llm)
     asyncio.run(ai.generate_touch_copy(W, 3, ["linkedin"], custom_instructions=brief, kit=ai.normalize_kit(RAW_KIT)))
     assert "BRAND VOICE" in prompts[0] and "a bit cheeky" in prompts[0]
+
+
+# ── taglines ─────────────────────────────────────────────────────────────────
+
+def test_tagline_is_editable_and_trimmed():
+    out = bk.clean_fields({"tagline": "  Move   better, hurt less  " + "x" * 200})
+    assert out["tagline"].startswith("Move better, hurt less") and len(out["tagline"]) == 90
+
+
+def test_card_shows_customer_tagline_and_showup_line():
+    kit = ai.normalize_kit(RAW_KIT)
+    with_tag = tv.card_spec(5, kit, W, {**BRAND, "tagline": "Move better, hurt less"})
+    without = tv.card_spec(5, kit, W, BRAND)
+    assert tv.spec_hash(with_tag) != tv.spec_hash(without)          # stored cards get redrawn
+    assert tv.render_card(with_tag, bk.normalise_logo(_png())) != tv.render_card(without, bk.normalise_logo(_png()))
+    assert bk.POWERED_BY_LINE == "Powered by ShowUp AI · Turn registrants into attendees"
+
+
+def test_email_shows_tagline_and_showup_line():
+    brand = {"logo_url": "https://api.x/l.png", "name": "Acme", "tagline": "Move better & hurt less", "powered_by": True}
+    html = senders.build_email_html("Hi", "s", brand=brand)
+    assert "Move better &amp; hurt less" in html
+    assert "Turn registrants into attendees" in html
+    hidden = senders.build_email_html("Hi", "s", brand={**brand, "powered_by": False})
+    assert "Turn registrants into attendees" not in hidden and "Move better" in hidden

@@ -174,4 +174,5 @@ class BrandKitIn(BaseModel):
     voice_sample: Optional[str] = None
     audience: Optional[str] = None
     cta_label: Optional[str] = None
+    tagline: Optional[str] = None
     hide_powered_by: Optional[bool] = None
