@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart3, BookOpen, CalendarDays, CreditCard, Inbox, LayoutDashboard, Link2, LogOut, Mail, Menu, Moon, Plug, Send, Settings, Star, Sun, X, Zap } from "@/components/Icons";
+import { BarChart3, BookOpen, CalendarDays, CreditCard, Inbox, LayoutDashboard, Link2, LogOut, Mail, Menu, Moon, Plug, Send, Settings, Sparkles, Star, Sun, X, Zap } from "@/components/Icons";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/app/schedule",   label: "Schedule",      icon: CalendarDays,    testId: "nav-schedule" },
   { to: "/app/analytics",  label: "Analytics",     icon: BarChart3,       testId: "nav-analytics" },
   { to: "/app/email",       label: "Email Stats",   icon: Mail,            testId: "nav-email" },
+  { to: "/app/brand",      label: "Brand Kit",     icon: Sparkles,        testId: "nav-brand" },
   { to: "/app/settings",   label: "Settings",      icon: Settings,             testId: "nav-settings" },
   { to: "/app/integrations", label: "Integrations", icon: Plug,               testId: "nav-integrations" },
   { to: "/app/billing",    label: "Billing",       icon: CreditCard,      testId: "nav-billing" },

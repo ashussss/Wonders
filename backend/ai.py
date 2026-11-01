@@ -184,7 +184,8 @@ EMAIL RULES:
 - Subject: 3 to 7 words, lowercase except names, like a person typed it. No clickbait, no ALL CAPS, no emojis.
 - Body: 40 to 110 words, or up to 170 when the message teaches something (tips, a case study, a checklist,
   takeaways). Start with "Hi {{first_name}}," on its own line. Short paragraphs, one idea each. Lists are fine.
-- Exactly one call to action. For pre-event emails that is the join link: {{join_link}}.
+- Exactly one call to action. For pre-event emails that is the join link: {{join_link}}, on a line of its
+  own (it is shown as a button in the host's brand colour). After the event, {{recording_link}} on its own line.
 - Placeholders you may use: {{first_name}}, {{webinar_title}}, {{webinar_date}}, {{webinar_time}},
   {{join_link}}, {{calendar_link}}, {{recording_link}}, {{speaker}}. Never write a real link or date yourself.
 - Sign off with just {{speaker}} on the last line.
@@ -230,11 +231,11 @@ BANNED_PHRASES = (
 FALLBACK_COPY = {
     "confirmation": ("you're in: {{webinar_title}}",
                      "Hi {{first_name}},\n\nYou're registered for {{webinar_title}} on {{webinar_date}} at {{webinar_time}}.\n\n"
-                     "Your link to join: {{join_link}}\n\nPut it in your calendar now so it doesn't get buried: {{calendar_link}}\n\n"
+                     "Your link to join:\n{{join_link}}\n\nPut it in your calendar now so it doesn't get buried: {{calendar_link}}\n\n"
                      "Hit reply and tell me the one question you want answered. I'll try to cover it live.\n\n{{speaker}}"),
     "day_before": ("this time tomorrow",
                    "Hi {{first_name}},\n\nQuick one: {{webinar_title}} is tomorrow at {{webinar_time}}.\n\n"
-                   "Here's your link so you don't have to dig for it: {{join_link}}\n\n"
+                   "Here's your link so you don't have to dig for it:\n{{join_link}}\n\n"
                    "If there's something you want me to cover, reply and tell me.\n\n{{speaker}}"),
     "one_hour": ("we start in an hour",
                  "Hi {{first_name}},\n\nWe start in an hour.\n\n{{join_link}}\n\nSee you there,\n{{speaker}}"),
@@ -252,7 +253,7 @@ FALLBACK_COPY = {
 }
 _DEFAULT_FALLBACK = ("{{webinar_title}} on {{webinar_date}}",
                      "Hi {{first_name}},\n\nA reminder that {{webinar_title}} is on {{webinar_date}} at {{webinar_time}}.\n\n"
-                     "Your link to join: {{join_link}}\n\n{{speaker}}")
+                     "Your link to join:\n{{join_link}}\n\n{{speaker}}")
 _SOCIAL_FALLBACK = ("{{webinar_title}}\n\n{{webinar_date}}, {{webinar_time}}.\n\n"
                     "Save your spot: {{join_link}}\n\nWhat's the one question you'd want answered on this? Tell me below.")
 
@@ -300,7 +301,6 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
         f"WHAT IT'S ABOUT: {(webinar.get('description') or '')[:600]}",
         f"KEY TOPICS / OUTCOMES: {webinar.get('key_topics')}" if webinar.get('key_topics') else "",
         f"HOST'S SPECIAL INSTRUCTIONS (follow exactly): {webinar.get('custom_context')}" if webinar.get('custom_context') else "",
-        f"BRAND RULES: {custom_instructions}" if custom_instructions else "",
     ] if line)
 
     share = (f"CONTENT TO SHARE IN THIS MESSAGE (this is the point of the message, so a reader gets real value "
@@ -315,7 +315,7 @@ JOB: {context}
 
 {share}CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
 {VOICE_RULES}
-{rules}
+{custom_instructions + chr(10) if custom_instructions else ""}{rules}
 Write 2 variants of the same message:
 - "safe": warm and professional.
 - "casual": more relaxed and direct, like a quick note.
@@ -537,12 +537,14 @@ async def load_kit(webinar_id: str) -> dict:
 
 
 async def generate_adhoc_post(webinar: dict, channel: str = "linkedin", prompt: str = "",
-                               audience: str = "", with_poll: bool = False, custom_brief: str = "") -> dict:
+                               audience: str = "", with_poll: bool = False, custom_brief: str = "",
+                               voice: str = "") -> dict:
     brief = custom_brief or f"Webinar: {webinar.get('title', '')}. Audience: {webinar.get('target_audience', '')}."
 
     user_msg = f"""{brief}
 Channel: {CHANNEL_RULES.get(channel, channel.upper())}
 {VOICE_RULES}
+{voice}
 {SOCIAL_RULES}
 
 Return ONLY valid JSON:

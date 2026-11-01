@@ -134,7 +134,7 @@ export default function Settings() {
       </Group>
 
       <Group title="Brand Voice &amp; AI Instructions">
-        <Banner>These instructions are injected into every AI generation. Set your tone once — applies to all webinars and all touches.</Banner>
+        <Banner>These instructions are injected into every AI generation. Set your tone once — applies to all webinars and all touches. Your logo, colours, font and writing sample live in the <Link to="/app/brand" className="underline font-semibold">Brand Kit</Link>; when both are set, the Brand Kit tone wins.</Banner>
         <Row label="Brand Tone">
           <select value={s.brand_tone||"professional"} onChange={e=>set("brand_tone",e.target.value)} className="input">
             <option value="professional">Professional — formal, authoritative, trust-building</option>

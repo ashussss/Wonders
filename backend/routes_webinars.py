@@ -14,6 +14,7 @@ from billing import require_webinar_quota
 from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnetPatch
 from config import TOUCH_DEFS
 import touch_visuals
+import brand_kit
 from ai import (generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule,
                 touch_reasoning, kit_from_lead_magnets)
 
@@ -62,20 +63,8 @@ async def _bg_generate_all(webinar_id: str):
 
         touches = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0}).to_list(50)
 
-        # Get user settings for brand tone
-        settings = await db.settings.find_one({"owner_id": w["owner_id"]}, {"_id": 0}) or {}
-        brand_instructions = []
-        if settings.get("brand_tone"):
-            brand_instructions.append(f"Tone: {settings['brand_tone']}")
-        if settings.get("brand_language"):
-            brand_instructions.append(f"Language: {settings['brand_language']}")
-        if settings.get("brand_audience"):
-            brand_instructions.append(f"Audience: {settings['brand_audience']}")
-        if settings.get("brand_always_include"):
-            brand_instructions.append(f"Always include: {settings['brand_always_include']}")
-        if settings.get("brand_banned_phrases"):
-            brand_instructions.append(f"Never use these phrases: {settings['brand_banned_phrases']}")
-        global_instructions = "\n".join(brand_instructions)
+        # The host's brand voice (Brand Kit, plus the older Settings brand fields)
+        global_instructions = await brand_kit.voice_brief(db, w["owner_id"])
 
         async def _gen_one(t):
             try:
@@ -286,7 +275,8 @@ async def _backfill_touches(wid: str, owner_id: str) -> None:
                                         {"$setOnInsert": t}, upsert=True)
         if not r.upserted_id:
             continue
-        copy = await generate_touch_copy(w, tdef["num"], channels)
+        copy = await generate_touch_copy(w, tdef["num"], channels,
+                                         custom_instructions=await brand_kit.voice_brief(db, owner_id))
         await db.touches.update_one({"id": t["id"], "owner_id": owner_id}, {"$set": {"ai_copy": copy}})
 
 
@@ -355,7 +345,8 @@ async def patch_touch(tid: str, data: TouchPatch, user=Depends(get_user)):
         if not t:
             raise HTTPException(404)
         w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": user["id"]}, {"_id": 0})
-        copy = await generate_touch_copy(w, t["touch_num"], upd["channels"])
+        copy = await generate_touch_copy(w, t["touch_num"], upd["channels"],
+                                         custom_instructions=await brand_kit.voice_brief(db, user["id"]))
         await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": {"ai_copy": copy}})
     return {"ok": True}
 
@@ -368,7 +359,8 @@ async def regen_touch(tid: str, user=Depends(get_user)):
     w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": user["id"]}, {"_id": 0})
     if not w:
         raise HTTPException(404)
-    copy = await generate_touch_copy(w, t["touch_num"], t["channels"], kit=await _ensure_kit(w))
+    copy = await generate_touch_copy(w, t["touch_num"], t["channels"], kit=await _ensure_kit(w),
+                                     custom_instructions=await brand_kit.voice_brief(db, user["id"]))
     await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": {"ai_copy": copy, "approval_status": "pending"}})
     return {"ok": True, "copy": copy}
 
@@ -443,10 +435,12 @@ async def regen_all_touches(wid: str, user=Depends(get_user)):
     if not touches:
         raise HTTPException(404, "No touches found for this webinar")
     kit = await _ensure_kit(w)
+    voice = await brand_kit.voice_brief(db, user["id"])
 
     async def regen_one(t):
         try:
-            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]), kit=kit)
+            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]), kit=kit,
+                                              custom_instructions=voice)
             await db.touches.update_one(
                 {"id": t["id"], "owner_id": user["id"]},
                 {"$set": {"ai_copy": copy, "approval_status": "pending"}}

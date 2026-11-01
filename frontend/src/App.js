@@ -11,6 +11,7 @@ import ApprovalQueue from "@/pages/ApprovalQueue";
 import Analytics from "@/pages/Analytics";
 import Schedule from "@/pages/Schedule";
 import Settings from "@/pages/Settings";
+import BrandKit from "@/pages/BrandKit";
 import Integrations from "@/pages/Integrations";
 import Billing from "@/pages/Billing";
 import Checkout from "@/pages/Checkout";
@@ -71,6 +72,7 @@ export default function App() {
                 <Route path="/app/analytics" element={<Analytics />} />
                 <Route path="/app/schedule" element={<Schedule />} />
                 <Route path="/app/settings" element={<Settings />} />
+                <Route path="/app/brand" element={<BrandKit />} />
                 <Route path="/app/integrations" element={<Integrations />} />
                 <Route path="/app/billing" element={<Billing />} />
                 <Route path="/app/growth" element={<GrowthReview />} />

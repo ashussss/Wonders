@@ -158,7 +158,8 @@ class _Bucket:
 def test_delivery_sends_the_card_everywhere(monkeypatch):
     fake, bucket, sent = _DB(), _Bucket(), []
 
-    async def fake_dispatch(ch, settings, to_email=None, to_phone=None, subject="", body="", ics_bytes=None, image_url=None):
+    async def fake_dispatch(ch, settings, to_email=None, to_phone=None, subject="", body="", ics_bytes=None, image_url=None,
+                            link_labels=None):
         sent.append((ch, image_url))
         return {"ok": True}
 
