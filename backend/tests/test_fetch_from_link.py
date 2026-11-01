@@ -60,3 +60,94 @@ def test_picker_drops_news_posts_and_past_events():
     assert [e["id"] for e in out] == [4, 3]
     assert out[1]["url"] == "https://schoolbusinessmanager.uk/c/events-webinar-calendar/portal-walkthrough"
     assert out[1]["space_name"] == "Events & Webinars"
+
+
+# ── Fetching one event from a Circle link ────────────────────────────────────
+import asyncio
+import integrations
+from integrations import fill_from_circle_event, is_circle_space_page, _clean_text
+
+
+def test_clean_text_decodes_entities_and_tags():
+    assert _clean_text("Events &amp; Webinars") == "Events & Webinars"
+    assert _clean_text("<p>Hi&nbsp;<b>there</b></p>") == "Hi there"
+
+
+def test_space_page_is_detected():
+    assert is_circle_space_page({"description": "Explore Events &amp; Webinars space in School Business Manager (UK)"})
+    assert not is_circle_space_page({"description": "Join Richard for a budget session"})
+
+
+def test_fill_from_v2_event_record():
+    ev = {"name": "Budget &amp; Planning", "body": "<p>Plan the year</p>", "starts_at": "2026-11-20T10:00:00Z",
+          "ends_at": "2026-11-20T11:00:00Z", "cover_image_url": "https://img/c.png",
+          "virtual_location_url": "https://zoom.us/j/1", "host": {"name": "Richard Clarke"}}
+    r = fill_from_circle_event({}, ev, "https://x/c/events-webinars/budget")
+    assert r["title"] == "Budget & Planning"
+    assert r["description"] == "Plan the year"
+    assert r["starts_at"] == "2026-11-20T10:00:00Z"
+    assert r["cover_image_url"] == "https://img/c.png"
+    assert r["join_link"] == "https://zoom.us/j/1"
+    assert r["speaker"] == "Richard Clarke"
+
+
+class _Resp:
+    def __init__(self, status, data):
+        self.status_code, self._data = status, data
+
+    def json(self):
+        return self._data
+
+
+class _FakeCircle:
+    """Admin v2 only: one event space with two events; v1 is gone (404)."""
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, headers=None, params=None):
+        params = params or {}
+        if params.get("page", 1) > 1:
+            return _Resp(200, {"records": []})
+        if url.endswith("/api/admin/v2/spaces"):
+            return _Resp(200, {"records": [{"id": 9, "slug": "events-webinars", "name": "Events & Webinars", "space_type": "event"},
+                                           {"id": 8, "slug": "news", "space_type": "basic"}]})
+        if url.endswith("/api/admin/v2/events"):
+            return _Resp(200, {"records": [
+                {"id": 1, "name": "Ofsted Prep", "slug": "ofsted-prep", "starts_at": "2026-12-01T09:00:00Z"},
+                {"id": 2, "name": "Budget Planning", "slug": "budget-planning", "starts_at": "2026-11-20T10:00:00Z",
+                 "cover_image_url": "https://img/budget.png"},
+            ]})
+        return _Resp(404, {})
+
+
+def test_fetch_uses_admin_v2_events(monkeypatch):
+    monkeypatch.setattr(integrations.httpx, "AsyncClient", _FakeCircle)
+    r = asyncio.run(integrations.fetch_circle_event(
+        "https://schoolbusinessmanager.uk/c/events-webinars/budget-planning", "tok"))
+    assert not r.get("error")
+    assert r["title"] == "Budget Planning"
+    assert r["starts_at"] == "2026-11-20T10:00:00Z"
+    assert r["cover_image_url"] == "https://img/budget.png"
+
+
+def test_space_page_scrape_does_not_fill_title_or_banner(monkeypatch):
+    async def no_event(url, key, settings=None):
+        return {"title": "", "description": "", "starts_at": "", "cover_image_url": "",
+                "error": "Couldn't find this exact event in your Circle community."}
+
+    async def space_page(url):
+        return {"title": "Events & Webinars", "description": "Explore Events & Webinars space in SBM (UK)",
+                "cover_image_url": "https://img/calendar.jpg", "starts_at": ""}
+
+    monkeypatch.setattr(integrations, "fetch_circle_event", no_event)
+    monkeypatch.setattr(integrations, "scrape_and_extract", space_page)
+    r = asyncio.run(integrations.fetch_webinar_from_url("https://x.circle.so/c/events-webinars/foo",
+                                                        {"circle_api_key": "k"}))
+    assert r["title"] == "" and r["cover_image_url"] == ""
+    assert r["error"]
