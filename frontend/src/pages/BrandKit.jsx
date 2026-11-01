@@ -48,7 +48,7 @@ export default function BrandKit() {
     setBusy("save");
     try {
       const fields = ["business_name", "website", "primary_color", "background_color", "text_color", "font",
-        "tone", "voice_sample", "audience", "cta_label", "hide_powered_by"];
+        "tone", "voice_sample", "audience", "cta_label", "tagline", "hide_powered_by"];
       const body = Object.fromEntries(fields.map(f => [f, k[f] ?? (f === "hide_powered_by" ? false : "")]));
       after((await api.patch("/brand-kit", body)).data, "Brand kit saved. New cards and emails use it.");
     } catch (e) { err(e, "Couldn't save"); } finally { setBusy(""); }
@@ -107,6 +107,9 @@ export default function BrandKit() {
           <Group title="Look">
             <Row label="Business name">
               <input data-testid="brand-name" value={k.business_name || ""} onChange={e => set("business_name", e.target.value)} className="input" placeholder="Acme Physio" />
+            </Row>
+            <Row label="Tagline">
+              <input data-testid="brand-tagline" maxLength={90} value={k.tagline || ""} onChange={e => set("tagline", e.target.value)} className="input" placeholder="Move better, hurt less" />
             </Row>
             <div>
               <Label>Logo</Label>

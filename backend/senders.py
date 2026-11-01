@@ -29,10 +29,12 @@ def _brand_signature(brand: Optional[Dict[str, Any]]) -> str:
                f'style="display:block;height:36px;width:auto;max-width:180px;border:0;margin:20px 0 0;">')
         out += (f'<a href="{html.escape(b["website"])}" style="text-decoration:none;">{img}</a>'
                 if b.get("website") else img)
+    if b.get("tagline"):
+        out += (f'<p style="color:#6b7280;font-size:13px;margin:6px 0 0;">{html.escape(b["tagline"])}</p>')
     if b.get("powered_by", True):
-        from brand_kit import POWERED_BY, POWERED_BY_URL
+        from brand_kit import POWERED_BY_LINE, POWERED_BY_URL
         out += (f'<p style="color:#9ca3af;font-size:11px;margin:28px 0 0;">'
-                f'<a href="{POWERED_BY_URL}" style="color:#9ca3af;text-decoration:none;">{POWERED_BY}</a></p>')
+                f'<a href="{POWERED_BY_URL}" style="color:#9ca3af;text-decoration:none;">{POWERED_BY_LINE}</a></p>')
     return out
 
 

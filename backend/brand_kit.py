@@ -31,11 +31,13 @@ COLLECTION = "brand_kits"
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 LOGO_MAX = 600                     # px, longest side, after normalising
 POWERED_BY = "Powered by ShowUp AI"
+SHOWUP_TAGLINE = "Turn registrants into attendees"
+POWERED_BY_LINE = f"{POWERED_BY} · {SHOWUP_TAGLINE}"
 POWERED_BY_URL = "https://showupai.live/?utm_source=powered_by"
 
 # Fields the customer edits. Everything else in the document is managed here.
 EDITABLE = ("business_name", "website", "primary_color", "background_color", "text_color", "font",
-            "tone", "voice_sample", "audience", "cta_label", "hide_powered_by")
+            "tone", "voice_sample", "audience", "cta_label", "tagline", "hide_powered_by")
 
 
 # ── colour helpers ───────────────────────────────────────────────────────────
@@ -171,7 +173,7 @@ def clean_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
             if v and not re.match(r"^https?://", v, re.I):
                 v = "https://" + v
         else:
-            limit = {"voice_sample": 3000, "tone": 600, "audience": 300}.get(k, 80)
+            limit = {"voice_sample": 3000, "tone": 600, "audience": 300, "tagline": 90}.get(k, 80)
             v = re.sub(r"[ \t]+", " ", str(v)).strip()[:limit]
         out[k] = v
     return out
@@ -236,6 +238,7 @@ async def resolve(db, owner_id: str, base_url: str = "") -> Dict[str, Any]:
         "logo_hash": kit.get("logo_hash") or "",
         "logo_url": f"{base}{path}" if path and base else "",
         "cta_label": kit.get("cta_label") or "",
+        "tagline": kit.get("tagline") or "",
         "link_color": email_link_color(kit),
         "button_color": (theme(kit) or {}).get("accent") if theme(kit) else "",
         "powered_by": not hide,
@@ -247,7 +250,8 @@ def card_brand(brand: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """The part of the brand that changes how a card looks (goes into the card's hash)."""
     b = brand or {}
     return {"theme": b.get("theme"), "font": b.get("font") or "", "logo_hash": b.get("logo_hash") or "",
-            "name": b.get("name") or "", "powered_by": b.get("powered_by", True)}
+            "name": b.get("name") or "", "tagline": b.get("tagline") or "",
+            "powered_by": b.get("powered_by", True)}
 
 
 async def logo_png(db, owner_id: str) -> Optional[bytes]:
@@ -518,9 +522,11 @@ async def _describe_voice(name: str, excerpt: str) -> Dict[str, str]:
             "(formality, energy, typical words, sentence length). Plain words.\n"
             '"audience": who they sell to, in under 15 words.\n'
             '"cta_label": the 2 to 5 word button text this business would use to get someone to sign up '
-            "for their free live session, in their style.", max_tokens=400)
+            "for their free live session, in their style.\n"
+            '"tagline": the business\'s own short tagline or slogan from the text, under 8 words; '
+            "empty if the text has none.", max_tokens=400)
         data = json.loads(raw)
-        return {k: str(data.get(k) or "").strip()[:300] for k in ("tone", "audience", "cta_label") if data.get(k)}
+        return {k: str(data.get(k) or "").strip()[:300] for k in ("tone", "audience", "cta_label", "tagline") if data.get(k)}
     except Exception as e:  # noqa: BLE001
         logger.info(f"voice description skipped: {e}")
         return {}

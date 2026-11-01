@@ -153,27 +153,35 @@ def _panel(d, si, t, label, text, top, bottom, label_color, fill, text_kind="sem
 
 
 def _brand_mark(img, d, si, t, brand: Dict[str, Any], logo_png: Optional[bytes]):
-    """The customer's logo (or name) in the top-right corner."""
+    """The customer's logo (or name) in the top-right corner, their tagline under it."""
     from PIL import Image
+    bottom = 0
+    drawn = False
+    tagline = (brand.get("tagline") or "").strip()
     if logo_png:
         try:
             logo = Image.open(io.BytesIO(logo_png)).convert("RGBA")
-            logo.thumbnail((300, 76))
+            logo.thumbnail((300, 60 if tagline else 76))
             img.alpha_composite(logo, (W - PAD - logo.width, PAD + 25 - logo.height // 2))
-            return
+            bottom = PAD + 25 + (logo.height + 1) // 2
+            drawn = True
         except Exception as e:  # noqa: BLE001
             logger.warning(f"brand logo unusable: {e}")
     name = (brand.get("name") or "").strip()
-    if name:
+    if not drawn and name:
         f, _ = si._fit(d, name, "bold", 380, 50, 32, 20, max_lines=1)
         d.text((W - PAD, PAD + 25), name, font=f, fill=si._hex(t["fg"]), anchor="rm")
+        bottom = PAD + 45
+    if tagline and bottom:
+        f, _ = si._fit(d, tagline, "semi", 420, 30, 20, 15, max_lines=1)
+        d.text((W - PAD, bottom + 6), tagline, font=f, fill=si._hex(t["muted"]), anchor="ra")
 
 
 def _powered_by(img, d, si, t):
     """Small 'Powered by ShowUp AI' with the ShowUp icon, bottom right, under the footer."""
     from blog_cover import _logo
     f = si._font("semi", 20)
-    text = brand_kit.POWERED_BY
+    text = brand_kit.POWERED_BY_LINE
     tw = int(d.textlength(text, font=f))
     y = H - 40
     x = W - PAD - tw
