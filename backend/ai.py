@@ -34,99 +34,99 @@ except Exception as e:
     logger.error(f"Groq init error: {e}")
     groq_client = None
 
+# One webinar asks for ~40 pieces of copy at once (11 touches x channels + the kit).
+# Firing them all together hit the free-tier rate limits, and every 429 then waited
+# 15-30s before retrying, so a webinar took minutes. A shared limit keeps the calls
+# under the quota, a cooldown sends calls straight to Groq while Gemini is rate
+# limited, and a timeout stops one hung call from holding up the rest.
+LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "6"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
+GEMINI_COOLDOWN = 60.0
+_llm_sem: Optional[asyncio.Semaphore] = None
+_gemini_blocked_until = 0.0
+
+
+def _sem() -> asyncio.Semaphore:
+    global _llm_sem
+    if _llm_sem is None:
+        _llm_sem = asyncio.Semaphore(LLM_CONCURRENCY)
+    return _llm_sem
+
+
+def _is_rate_limit(ex: Exception) -> bool:
+    s = str(ex)
+    return "429" in s or "RESOURCE_EXHAUSTED" in s or "rate limit" in s.lower()
+
+
+def _clean_json(text: str) -> str:
+    if "```" in text:
+        for part in text.split("```"):
+            p = part.strip()
+            if p.startswith("json"): text = p[4:].strip(); break
+            elif "{" in p: text = p; break
+    s, e = text.find("{"), text.rfind("}") + 1
+    return text[s:e] if s != -1 else "{}"
+
+
+async def _run_blocking(fn) -> str:
+    loop = asyncio.get_running_loop()
+    return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=LLM_TIMEOUT)
+
+
 async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
-    """Call LLM — Gemini primary, Groq fallback on rate limit."""
-    
-    def _clean_json(text):
-        if "```" in text:
-            for part in text.split("```"):
-                p = part.strip()
-                if p.startswith("json"): text = p[4:].strip(); break
-                elif "{" in p: text = p; break
-        s, e = text.find("{"), text.rfind("}") + 1
-        return text[s:e] if s != -1 else "{}"
+    """Call LLM — Gemini primary, Groq fallback on rate limit, error or timeout."""
+    global _gemini_blocked_until
+    import time
+    async with _sem():
+        if gemini_client and time.monotonic() >= _gemini_blocked_until:
+            for attempt in range(2):
+                try:
+                    def _gemini():
+                        r = gemini_client.models.generate_content(
+                            model=GEMINI_MODEL,
+                            contents=prompt,
+                            config=genai_types.GenerateContentConfig(
+                                max_output_tokens=min(max_tokens, 2000), temperature=0.7))
+                        return r.text.strip()
+                    started = time.monotonic()
+                    text = await _run_blocking(_gemini)
+                    logger.info(f"Gemini OK: {len(text)} chars in {time.monotonic() - started:.1f}s")
+                    return _clean_json(text)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Gemini timed out after {LLM_TIMEOUT:.0f}s — trying Groq")
+                    break
+                except Exception as ex:
+                    if _is_rate_limit(ex):
+                        _gemini_blocked_until = time.monotonic() + GEMINI_COOLDOWN
+                        logger.info(f"Gemini rate limited — using Groq for {GEMINI_COOLDOWN:.0f}s")
+                        break
+                    logger.error(f"Gemini failed: {ex}")
 
-    # Try Gemini first
-    if gemini_client:
-        for attempt in range(2):
-            try:
-                def _gemini():
-                    r = gemini_client.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            max_output_tokens=min(max_tokens, 2000), temperature=0.7))
-                    logger.info(f"Gemini OK: {len(r.text)} chars")
-                    return r.text.strip()
-                loop = asyncio.get_event_loop()
-                text = await loop.run_in_executor(None, _gemini)
-                return _clean_json(text)
-            except Exception as ex:
-                if "429" in str(ex) and attempt < 1:
-                    logger.info("Gemini rate limit — trying Groq fallback")
-                    break  # fall through to Groq
-                logger.error(f"Gemini failed: {ex}")
-
-    # Groq fallback
-    if groq_client:
-        for attempt in range(3):
-            try:
-                def _groq():
-                    r = groq_client.chat.completions.create(
-                        model=GROQ_MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=min(max_tokens, 2000), temperature=0.7)
-                    logger.info(f"Groq OK: {len(r.choices[0].message.content)} chars")
-                    return r.choices[0].message.content.strip()
-                loop = asyncio.get_event_loop()
-                text = await loop.run_in_executor(None, _groq)
-                return _clean_json(text)
-            except Exception as ex:
-                if "429" in str(ex) and attempt < 2:
-                    await asyncio.sleep(15 * (attempt + 1))
-                    continue
-                logger.error(f"Groq failed: {ex}")
-                break
+        if groq_client:
+            for attempt in range(3):
+                try:
+                    def _groq():
+                        r = groq_client.chat.completions.create(
+                            model=GROQ_MODEL,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=min(max_tokens, 2000), temperature=0.7)
+                        return r.choices[0].message.content.strip()
+                    started = time.monotonic()
+                    text = await _run_blocking(_groq)
+                    logger.info(f"Groq OK: {len(text)} chars in {time.monotonic() - started:.1f}s")
+                    return _clean_json(text)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Groq timed out after {LLM_TIMEOUT:.0f}s")
+                    break
+                except Exception as ex:
+                    if _is_rate_limit(ex) and attempt < 2:
+                        await asyncio.sleep(5 * (attempt + 1))
+                        continue
+                    logger.error(f"Groq failed: {ex}")
+                    break
 
     logger.error("Both Gemini and Groq failed")
     return "{}"
-
-    def _sync_call():
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=min(max_tokens, 400),
-            temperature=0.7,
-        )
-        text = response.choices[0].message.content.strip()
-        logger.info(f"Groq OK: {len(text)} chars")
-        return text
-
-    try:
-        loop = asyncio.get_event_loop()
-        text = await loop.run_in_executor(None, _sync_call)
-
-        # Clean JSON
-        if "```" in text:
-            for part in text.split("```"):
-                p = part.strip()
-                if p.startswith("json"):
-                    text = p[4:].strip()
-                    break
-                elif "{" in p:
-                    text = p
-                    break
-
-        s = text.find("{")
-        e = text.rfind("}") + 1
-        if s == -1:
-            logger.error(f"No JSON: {text[:100]}")
-            return "{}"
-        return text[s:e]
-
-    except Exception as ex:
-        logger.error(f"Groq failed: {ex}")
-        return "{}"
 
 
 # What each touch in config.TOUCH_DEFS has to do. Keyed by touch number, so the copy
