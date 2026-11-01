@@ -116,7 +116,9 @@ async def generate_social_image(wid: str, payload: Dict[str, Any] = Body(default
         raise HTTPException(404, "Webinar not found")
     img_type = (payload or {}).get("image_type") or "carousel"
     try:
-        result = await generate_webinar_social_image(wid, w["title"], w.get("target_audience",""), w.get("starts_at",""), touch_type=img_type)
+        from image_gen import brand_context
+        result = await generate_webinar_social_image(wid, w["title"], w.get("target_audience",""), w.get("starts_at",""),
+                                                     touch_type=img_type, brand=await brand_context(db, w))
     except Exception as e:
         logger.error(f"Image generation exception: {e}")
         raise HTTPException(500, f"Image generation failed: {str(e)}")
@@ -212,7 +214,9 @@ async def generate_adhoc(wid: str, payload: Dict[str, Any], user=Depends(get_use
                 lines = [l.strip() for l in post_text.split("\n") if l.strip() and len(l.strip()) > 10]
                 extra["points"] = lines[:5] if lines else [post_text[:80]]
 
-            result = await generate_webinar_social_image(wid, w["title"], w.get("target_audience",""), w.get("starts_at",""), touch_type=img_type, extra=extra)
+            from image_gen import brand_context
+            result = await generate_webinar_social_image(wid, w["title"], w.get("target_audience",""), w.get("starts_at",""),
+                                                         touch_type=img_type, extra=extra, brand=await brand_context(db, w))
             if result:
                 image_bytes, mime = result
                 prev = await db.adhoc_posts.find_one({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0})
@@ -888,8 +892,9 @@ async def generate_carousel(wid: str, payload: Dict[str, Any] = Body(default={})
     if not w:
         raise HTTPException(404)
     
-    from image_gen import make_carousel_preview, make_slide
+    from image_gen import make_carousel_preview, make_slide, brand_context
     import asyncio, zipfile, io, base64
+    brand = await brand_context(db, w)
     
     groq_key = os.environ.get("GROQ_API_KEY", "")
     slides_content = []
@@ -918,10 +923,10 @@ Return ONLY JSON: {{"slides": [{{"heading": "max 40 chars", "body": "max 120 cha
     
     if not slides_content:
         slides_content = [
-            {"heading": "The Problem", "body": "70% of webinar registrants never show up to the live event."},
-            {"heading": "Root Cause", "body": "People lose the reason to care between registration and the event."},
-            {"heading": "The Fix", "body": "Send value not reminders — insight, poll, case study, join link."},
-            {"heading": "The Result", "body": "Attendance jumps from 31% to 62%+ with right 8-touch sequence."},
+            {"heading": "Why it matters", "body": "What changes for you once this is sorted."},
+            {"heading": "Where it goes wrong", "body": "The mistake most people make, and how to spot it early."},
+            {"heading": "What works instead", "body": "A simple approach you can use straight away."},
+            {"heading": "Go further, live", "body": "We walk through it step by step in the session."},
         ]
     
     total = len(slides_content) + 2
@@ -932,17 +937,17 @@ Return ONLY JSON: {{"slides": [{{"heading": "max 40 chars", "body": "max 120 cha
     cover = await loop.run_in_executor(None, make_slide, 0, total, 
                                         w.get('title',''), 
                                         f"For {w.get('target_audience','')}" if w.get('target_audience') else "Swipe →",
-                                        True, False)
+                                        True, False, brand)
     all_slides.append(("slide_01_cover.png", cover))
     
     # Content slides
     for i, s in enumerate(slides_content):
         slide = await loop.run_in_executor(None, make_slide, i+1, total,
-                                           s["heading"], s["body"], False, False)
+                                           s["heading"], s["body"], False, False, brand)
         all_slides.append((f"slide_{i+2:02d}.png", slide))
-    
+
     # CTA
-    cta = await loop.run_in_executor(None, make_slide, total-1, total, "", "", False, True)
+    cta = await loop.run_in_executor(None, make_slide, total-1, total, "", "", False, True, brand)
     all_slides.append((f"slide_{total:02d}_cta.png", cta))
     
     # Pack ZIP
