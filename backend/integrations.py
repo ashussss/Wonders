@@ -227,6 +227,42 @@ def match_circle_record(records: List[Dict[str, Any]], url: str) -> Dict[str, An
     return best
 
 
+def _clean_text(text: Any) -> str:
+    """Plain text from Circle/HTML strings: tags stripped, &amp; and friends decoded."""
+    import html as _html
+    if isinstance(text, dict):
+        text = text.get("body") or text.get("html") or text.get("text") or ""
+    text = _re.sub(r"<[^>]+>", " ", str(text or ""))
+    return _re.sub(r"\s+", " ", _html.unescape(text)).strip()
+
+
+def fill_from_circle_event(result: dict, ev: dict, url: str) -> dict:
+    """Copy an admin v2 event record into the fetch result."""
+    setting = ev.get("event_setting") or ev.get("event_setting_attributes") or {}
+    pick = lambda *keys: next((src[k] for src in (ev, setting) for k in keys if src.get(k)), "")
+    result["title"] = _clean_text(ev.get("name") or ev.get("title"))
+    result["description"] = _clean_text(pick("body_plain_text", "description", "body"))[:1000]
+    result["starts_at"] = str(pick("starts_at", "start_at", "start_time", "event_date"))
+    result["ends_at"] = str(pick("ends_at", "end_at", "end_time"))
+    result["cover_image_url"] = ev.get("cover_image_url") or ev.get("cover_image") or ""
+    join = pick("virtual_location_url", "location_url", "meeting_url", "zoom_link")
+    result["join_link"] = join or url
+    result["location"] = _clean_text(pick("in_person_location", "location", "venue")) or join
+    host = ev.get("host") or ev.get("speaker") or ev.get("user") or ev.get("author") or {}
+    if isinstance(host, dict):
+        result["speaker"] = host.get("name") or host.get("full_name") or ""
+    elif isinstance(host, str):
+        result["speaker"] = host
+    return result
+
+
+def is_circle_space_page(scraped: dict) -> bool:
+    """True when a scraped Circle page is the space itself ("Explore Events & Webinars
+    space in ..."), not one event, so its title and banner must not be used."""
+    desc = _clean_text(scraped.get("description"))
+    return bool(_re.match(r"^explore .+ space in ", desc, _re.IGNORECASE))
+
+
 async def _circle_list(client, base: str, path: str, headers: dict, params: dict, key: str, pages: int = 5) -> tuple[int, list]:
     """Read up to `pages` pages of a Circle list endpoint. Returns (first status, records)."""
     records, status = [], 0
@@ -342,6 +378,24 @@ async def fetch_circle_event(url: str, api_token: str, settings: dict = None) ->
             for scheme in ("Bearer", "Token"):
                 headers = {"Authorization": f"{scheme} {api_token}", "Accept": "application/json"}
                 try:
+                    # ── METHOD 0: admin v2 events in the event spaces (same source as the picker)
+                    st, spaces = await _circle_list(client, base, "/api/admin/v2/spaces", headers, {"per_page": 100}, "records")
+                    if st == 200:
+                        event_spaces = {sp.get("id"): sp for sp in spaces if sp.get("space_type") == "event"}
+                        v2_events: list = []
+                        for sid, sp in event_spaces.items():
+                            _, recs = await _circle_list(client, base, "/api/admin/v2/events", headers,
+                                                         {"per_page": 100, "space_id": sid}, "records")
+                            for r in recs:
+                                r.setdefault("space_id", sid)
+                                r.setdefault("space", {"slug": sp.get("slug"), "name": sp.get("name")})
+                            v2_events.extend(recs)
+                        best = match_circle_record(v2_events, url)
+                        if best:
+                            fill_from_circle_event(result, best, url)
+                            logger.info(f"✓ Circle v2 event: title={result['title']}, starts={result['starts_at']}")
+                            return result
+
                     # ── METHOD 1: v1 events API ──────────────────────────
                     params = {"per_page": 100}
                     if space_id:
@@ -570,6 +624,9 @@ async def scrape_and_extract(url: str) -> dict:
                 result["join_link"] = m.group(0)
                 break
         
+        for k in ("title", "description"):
+            result[k] = _clean_text(result.get(k))
+
         # If basic scraping got title, good
         if result["title"]:
             logger.info(f"Scraped: title={result['title'][:50]}, date={result['starts_at']}")
@@ -647,6 +704,8 @@ async def fetch_webinar_from_url(url: str, settings: dict) -> dict:
             # Try scraping as fallback
             scraped = await scrape_and_extract(url)
             scraped["platform"] = "circle"
+            if is_circle_space_page(scraped):
+                scraped.update(title="", description="", cover_image_url="")
             if not scraped.get("title"):
                 scraped["error"] = "Circle API key not configured — add in Settings, or fill manually"
             return scraped
@@ -655,7 +714,7 @@ async def fetch_webinar_from_url(url: str, settings: dict) -> dict:
             # If Circle API didn't get title, try scraping
             if not result.get("title"):
                 scraped = await scrape_and_extract(url)
-                if scraped.get("title"):
+                if scraped.get("title") and not is_circle_space_page(scraped):
                     result["title"] = scraped["title"]
                     result["description"] = result.get("description") or scraped.get("description", "")
                     result["starts_at"] = result.get("starts_at") or scraped.get("starts_at", "")
@@ -664,6 +723,8 @@ async def fetch_webinar_from_url(url: str, settings: dict) -> dict:
         except Exception as e:
             scraped = await scrape_and_extract(url)
             scraped["platform"] = "circle"
+            if is_circle_space_page(scraped):
+                scraped.update(title="", description="", cover_image_url="")
             return scraped
 
     elif platform == "zoom":
