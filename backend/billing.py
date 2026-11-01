@@ -92,10 +92,19 @@ async def _access_token() -> str:
         raise HTTPException(503, "Payments are not set up yet. Please contact support.")
     if _token_cache["token"] and _token_cache["env"] == _env() and _token_cache["exp"] > time.time() + 60:
         return _token_cache["token"]
-    async with httpx.AsyncClient(timeout=20) as c:
-        r = await c.post(f"{_api_base()}/v1/oauth2/token",
-                         auth=(os.environ["PAYPAL_CLIENT_ID"], os.environ["PAYPAL_CLIENT_SECRET"]),
-                         data={"grant_type": "client_credentials"})
+    # Keys pasted into a dashboard often pick up spaces or quotes.
+    client_id = os.environ["PAYPAL_CLIENT_ID"].strip().strip('"\'')
+    secret = os.environ["PAYPAL_CLIENT_SECRET"].strip().strip('"\'')
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_api_base()}/v1/oauth2/token", auth=(client_id, secret),
+                             data={"grant_type": "client_credentials"})
+    except httpx.HTTPError as e:
+        logger.error("paypal token request failed: %s", e)
+        raise HTTPException(502, "Could not reach PayPal. Please try again.")
+    if r.status_code in (401, 403):
+        logger.error("paypal rejected the %s keys: %s %s", _env(), r.status_code, r.text[:300])
+        raise HTTPException(503, "Payments are not set up correctly yet. Please contact support.")
     if r.status_code != 200:
         logger.error("paypal token failed: %s %s", r.status_code, r.text[:300])
         raise HTTPException(502, "Could not reach PayPal. Please try again.")
@@ -433,3 +442,35 @@ async def admin_setup_plans(user=Depends(get_user)):
         raise HTTPException(403, "Admin only")
     return {"env": _env(), "plans": await setup_plans(),
             "webhook_url": os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/") + "/api/billing/webhook"}
+
+
+@router.get("/admin/check")
+async def admin_check(user=Depends(get_user)):
+    """Admin-only: can the server log in to PayPal with the keys on Render, and why not."""
+    if user.get("role") not in ADMIN_ROLES:
+        raise HTTPException(403, "Admin only")
+    cid = os.environ.get("PAYPAL_CLIENT_ID", "").strip().strip('"\'')
+    out = {"env": _env(), "api": _api_base(), "configured": configured(),
+           "client_id_hint": f"{cid[:4]}…{cid[-4:]}" if len(cid) > 8 else None,
+           "webhook_id_set": bool(os.environ.get("PAYPAL_WEBHOOK_ID")),
+           "plans": await plan_ids()}
+    if not configured():
+        return {**out, "ok": False, "problem": "PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is missing on Render."}
+    secret = os.environ["PAYPAL_CLIENT_SECRET"].strip().strip('"\'')
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_api_base()}/v1/oauth2/token", auth=(cid, secret),
+                             data={"grant_type": "client_credentials"})
+    except httpx.HTTPError as e:
+        return {**out, "ok": False, "problem": f"Network error reaching PayPal: {e}"}
+    if r.status_code == 200:
+        return {**out, "ok": True}
+    try:
+        err = r.json()
+    except ValueError:
+        err = {"raw": r.text[:300]}
+    hint = None
+    if err.get("error") == "invalid_client":
+        hint = (f"PayPal does not recognise these keys in {_env()} mode. Copy both keys from the "
+                f"{'Live' if _env() == 'live' else 'Sandbox'} tab of the same app, or change PAYPAL_ENV.")
+    return {**out, "ok": False, "status": r.status_code, "paypal_error": err, "problem": hint}
