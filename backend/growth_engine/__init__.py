@@ -48,8 +48,7 @@ APPROVAL_MODE = _flag("GROWTH_APPROVAL_MODE", "true")
 GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 
 # ── Posting plan ─────────────────────────────────────────────────────────────
-# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06): one blog
-# post every morning, then one other type in the afternoon. That is above the
+# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06). That is above the
 # commonly cited B2B guidance (about one LinkedIn post per weekday, one Facebook post
 # a day, 3-5 Instagram feed posts a week), so the two posts are six hours apart and
 # never share a visual format.
@@ -59,15 +58,19 @@ GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 # Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
 # A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
 DEFAULT_WEEKLY_PLAN = (
-    # 14 posts a week across 9 visual templates; no template runs twice in a row and
+    # 14 posts a week across all 10 visual templates; no template runs twice in a row and
     # the colour theme rotates per post (see queue.theme_index).
-    "mon=blog:carousel,mon=engagement:poll,"
-    "tue=blog:myth_fact,tue=pain_point:timeline,"
-    "wed=blog:infographic,wed=engagement:hot_take,"
+    # 2026-11-02 (Ashu): more webinar-topic posts. Five a week come from the topic library
+    # (show-up best practices, webinar lead gen, how big B2B teams run webinars, trends,
+    # follow-up), four promote a blog post, three start a conversation, one compares
+    # approaches and one reacts to industry news.
+    "mon=pain_point:carousel,mon=engagement:hot_take,"
+    "tue=blog:infographic,tue=pain_point:stat_card,"
+    "wed=pain_point:timeline,wed=engagement:poll,"
     "thu=blog:carousel,thu=competitor:comparison,"
-    "fri=blog:checklist,fri=engagement:quote,"
-    "sat=blog:timeline,sat=engagement:poll,"
-    "sun=blog:myth_fact,sun=news:infographic"
+    "fri=pain_point:checklist,fri=news:infographic,"
+    "sat=blog:myth_fact,sat=pain_point:carousel,"
+    "sun=blog:checklist,sun=engagement:quote"
 )
 GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 

@@ -29,6 +29,7 @@ from . import (
     SITE_URL,
     VISUAL_FORMATS,
 )
+from . import topic_library
 from .content_engine import build_campaign
 from .models import CampaignDraft, CampaignKind
 
@@ -153,83 +154,54 @@ async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
     return doc
 
 
-# ── original (no external source) campaigns ──────────────────────────────────
-
-PAIN_ANGLES = [
-    "The reminder sequence nobody sends because it takes too long",
-    "Why registrants go quiet after the confirmation email",
-    "The 3 days before your webinar are where attendance is won or lost",
-    "Registration numbers are vanity metrics without a show-up rate",
-    "Calendar invites are the cheapest attendance lever nobody uses",
-    "The post-event no-show follow-up most hosts never write",
-]
-
-ENGAGEMENT_ANGLES = [
-    "A question the whole audience argues about",
-    "An unpopular opinion about webinar follow-up",
-    "A number the industry gets wrong",
-    "The most common mistake new event hosts make",
-]
-
-
-# Used when there is no published alternative/vs article to build from. These
-# compare APPROACHES, never named products, so nothing about a competitor is invented.
-COMPETITOR_ANGLES = [
-    "Your webinar platform's built-in reminder emails vs a multi-channel reminder sequence",
-    "Manual reminder emails from your marketing tool vs an automated pre-event sequence",
-    "Email-only reminders vs email plus LinkedIn, WhatsApp and calendar",
-    "Sending the replay to everyone vs a separate follow-up for attendees and no-shows",
-]
+# ── original (no external source) campaigns ──────────────────────────────
+# Briefs, pillars, sourced facts and hook styles live in topic_library.py.
+# These names stay for anything importing the old pools.
+PAIN_ANGLES = [t["brief"] for t in topic_library.TOPICS]
+ENGAGEMENT_ANGLES = [t["brief"] for t in topic_library.ENGAGEMENT_TOPICS]
+COMPETITOR_ANGLES = list(topic_library.COMPARISON_TOPICS)
 
 
 def _pick_angle(pool: List[str], seed: str) -> str:
-    """Rotate through ``pool`` across days and within a day.
-
-    ``seed`` is "YYYY-MM-DD-n". The day's ordinal shifts the start each day and
-    ``n`` steps within the day, so two campaigns on one day differ and the same
-    slot gets a different angle tomorrow. Unparseable seeds fall back to a hash.
-    """
-    day, _, n = seed.rpartition("-")
-    try:
-        idx = datetime.fromisoformat(day).date().toordinal() * 2 + int(n)
-    except ValueError:
-        idx = sum(seed.encode())
-    return pool[idx % len(pool)]
+    """Rotate through ``pool`` across days and within a day (seed "YYYY-MM-DD-n")."""
+    return pool[topic_library._index(seed) % len(pool)]
 
 
 async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: Any) -> Optional[CampaignDraft]:
-    """pain_point = webinar/event-marketing lead-gen. engagement = conversation.
+    """pain_point = a webinar insight from the topic library (attendance, lead gen,
+    big-team playbooks, trends, follow-up). engagement = conversation starter.
     competitor = approach-vs-approach comparison (no named products).
-
-    All three are ORIGINAL content (no blog, no news): the model picks the angle, so
-    we deliberately seed it with a rotating set of real, defensible pain points
-    rather than asking it to invent a topic from nothing.
     """
+    need_fact = overrides.get("visual_format") == "stat_card"
+    facts: List[str] = []
     if kind == "pain_point":
-        angle = _pick_angle(PAIN_ANGLES, seed)
+        topic = topic_library.pick_topic(seed, need_fact=need_fact)
+        facts = topic["facts"]
         hint = (
-            "ORIGINAL lead-gen campaign. The pain point is fixed by the brief below; write to it directly. "
-            "The reader is an event host who is losing registrants. Make it practical and specific, "
-            "not inspirational. Give away the fix, then point to showupai.live as the way to run it "
-            "on autopilot. "
-            f"Brief pain point: {angle}"
+            "ORIGINAL webinar insight post. Write to the brief directly. The reader is a B2B marketer or "
+            "founder who runs webinars and wants more people to show up and more pipeline from them. "
+            "Make it practical and specific, give the fix away in full, then point to showupai.live as "
+            "the way to run the reminders on autopilot.\n"
+            f"{topic_library.PILLAR_HINTS[topic['pillar']]}\n"
+            f"Brief: {topic['brief']}"
         )
     elif kind == "competitor":
-        angle = _pick_angle(COMPETITOR_ANGLES, seed)
         hint = (
-            "ORIGINAL comparison campaign for someone choosing how to run webinar reminders. "
+            "ORIGINAL comparison campaign for someone choosing how to run their webinars. "
             "Compare the two approaches in the brief honestly: where the usual way is fine, and "
             "where it breaks. Do NOT name any company or product other than ShowUpAI. "
-            f"Brief: {angle}"
+            f"Brief: {topic_library.pick_comparison(seed)}"
         )
     else:
-        angle = _pick_angle(ENGAGEMENT_ANGLES, seed)
+        topic = topic_library.pick_engagement(seed, need_fact=need_fact)
+        facts = topic["facts"]
         hint = (
             "ORIGINAL engagement campaign designed to start a conversation, not to sell. "
             "Take a clear side, then ask a real question people will answer in the comments. "
-            "No pitch in the caption. "
-            f"Brief: {angle}"
+            "No pitch in the caption beyond the showupai.live line. "
+            f"Brief: {topic['brief']}"
         )
+    hint += "\nHOOK STYLE: " + topic_library.pick_hook(seed, bool(facts))
 
     return await build_campaign(
         kind,
@@ -240,10 +212,7 @@ async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: An
         source_type="original",
         link_url=f"{SITE_URL}/blog",
         link_title="ShowUpAI blog",
-        fact_block=(
-            "SOURCED FACTS: none. Do not state any statistic or study finding. "
-            "Write practical, experience-based advice only."
-        ),
+        fact_block=topic_library.fact_block(facts),
         seed=f"{kind}:{seed}",
         angle_hint=hint,
         **overrides,

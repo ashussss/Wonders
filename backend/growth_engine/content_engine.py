@@ -61,6 +61,10 @@ VOICE (applies to every platform):
 - Make the reader feel seen: name the exact moment they live through (the empty Zoom room at
   minute five, the replay nobody watches, the reminder sent the day before).
 - One idea per post. Cut every line that does not serve it.
+- Make it worth saving: give the reader something they can copy today (exact reminder wording,
+  a send-time schedule, a checklist, a before/after). Saves and long reads beat likes on every feed.
+- When you use a sourced number, name the report in plain words in the caption. Never round it
+  into something bigger, never apply it to a different situation.
 - No emojis. No decorative symbols or arrows. No em dashes. Plain "1." "2." "3." for lists.
 - Banned words and phrases: in today's, fast-paced, landscape, dive in, let's dive, delve,
   game-changer, game changer, unlock, elevate, leverage, harness, supercharge, seamless,
@@ -75,10 +79,12 @@ VOICE (applies to every platform):
 PLATFORM_RULES = """
 PLATFORM COPY RULES (LinkedIn and Meta best practice; return each as a separate object):
 - linkedin: 700-1300 characters. Line 1 is the hook, under 12 words, alone on its line, and
-  must make someone click "see more". Line 2 adds tension or a stake. Then the substance as
+  must make someone click "see more". Line 2 adds tension or a stake. Lines 1-2 together stay
+  under 150 characters (that is all LinkedIn shows before "see more"). Then the substance as
   short lines or a plain numbered list. Close the body with a one-line takeaway worth saving.
   If the visual is a carousel, say what they get by swiping. Always one plain line pointing to showupai.live (domain only, no https, no
-  "link in bio"). Then the question and the comment ask. Exactly 3 hashtags on the last line.
+  "link in bio"). Then the question and the comment ask. 1-2 specific hashtags on the last line (more no longer
+  helps reach on LinkedIn).
 - facebook: 150-450 characters. Hook line, 2-4 short lines, one line mentioning showupai.live,
   the question and the comment ask. 0-2 hashtags.
 - instagram: 400-1100 characters. Hook in the first 125 characters. Short lines. Ask them
@@ -474,7 +480,7 @@ CAMPAIGN TYPE: {kind}
 
 SOURCE TITLE: {source_title or "(none — original idea, invent a specific topic in the webinar/event-marketing space)"}
 SOURCE URL: {source_url or "(none)"}
-SOURCE EXCERNS/BODY (excerpt):
+SOURCE BODY (excerpt):
 {(source_body or "(none)")[:6000]}
 {fact_block}
 
