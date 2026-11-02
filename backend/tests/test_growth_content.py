@@ -21,9 +21,10 @@ def test_default_plan_is_two_posts_a_day_on_every_platform():
     assert all(items[0]["format"] != items[1]["format"] for items in plan.values())
     kinds = [x["kind"] for items in plan.values() for x in items]
     assert {"pain_point", "blog", "news", "competitor", "engagement"} <= set(kinds)
-    # a blog post every day, first slot
-    assert all(items[0]["kind"] == "blog" for items in plan.values())
-    assert sum(1 for items in plan.values() for x in items if x["format"] == "poll") == 2
+    # webinar-topic posts lead the mix; blogs still go out four times a week
+    assert sum(1 for x in kinds if x == "pain_point") == 5
+    assert sum(1 for x in kinds if x == "blog") == 4
+    assert sum(1 for items in plan.values() for x in items if x["format"] == "poll") == 1
 
 
 def test_plan_skips_bad_entries_and_falls_back():
