@@ -21,7 +21,7 @@ const STATUSES = [
   ["", "All"],
 ];
 
-const KIND_LABEL = { blog: "Blog", news: "News", pain_point: "Pain point", engagement: "Engagement", competitor: "Competitor" };
+const KIND_LABEL = { blog: "Blog", news: "News", pain_point: "Webinar insight", engagement: "Engagement", competitor: "Competitor" };
 
 const card = { background: "var(--bg-card)", border: "1px solid var(--border)" };
 const muted = { color: "var(--text-muted)" };
