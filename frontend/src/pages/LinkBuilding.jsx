@@ -25,7 +25,7 @@ const STATUSES = [
 ];
 
 const CATEGORY_LABEL = {
-  launch: "Launch", directory: "Directory", publishing: "Publishing", pr: "Expert quotes",
+  launch: "Launch", directory: "Directory", ai_directory: "AI directory", publishing: "Publishing", pr: "Expert quotes",
   community: "Community", guest_post: "Guest post",
 };
 
