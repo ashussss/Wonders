@@ -117,8 +117,8 @@ def register() -> None:
     # Scoring is cheap; twice a day is plenty for a list that changes slowly.
     scheduler.add_job(run_prospect_refresh, "cron", hour=3, minute=15, id="growth-prospect-refresh",
                       replace_existing=True, misfire_grace_time=3 * 3600, coalesce=True)
-    # Link building: Monday 03:00 UTC drafts, Sunday 05:00 UTC checks live links.
-    scheduler.add_job(run_links_weekly, "cron", day_of_week="mon", hour=3, minute=0, id="growth-links-weekly",
+    # Link building: Wednesday 07:30 UTC (13:00 IST) drafts, Sunday 05:00 UTC checks live links.
+    scheduler.add_job(run_links_weekly, "cron", day_of_week="wed", hour=7, minute=30, id="growth-links-weekly",
                       replace_existing=True, misfire_grace_time=24 * 3600, coalesce=True)
     scheduler.add_job(run_links_verify, "cron", day_of_week="sun", hour=5, minute=0, id="growth-links-verify",
                       replace_existing=True, misfire_grace_time=24 * 3600, coalesce=True)

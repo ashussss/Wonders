@@ -4,10 +4,10 @@ Why: by Nov 2026 the blog had ~150 indexed posts but ~30 impressions a month. Wr
 anything; the posts Google already tests (shows on page 1-4) are the cheapest wins. Every step here is free.
 
 Jobs (registered in server.py):
-1. sync()      Mon 04:00 UTC. Pull the last 28 days of page+query rows from the Search Console API (service account
+1. sync()      Wed 07:30 UTC (13:00 IST). Pull the last 28 days of page+query rows from the Search Console API (service account
                in GSC_SERVICE_ACCOUNT_BASE64, added as a user on the property) and store per-post totals and top
                queries on blog_posts.gsc. Full rows go to seo_gsc_rows for later analysis.
-2. refresh()   Daily 05:00 UTC. Rewrite up to SEO_REFRESH_PER_DAY published posts that Google shows at average
+2. refresh()   Daily 07:45 UTC. Rewrite up to SEO_REFRESH_PER_DAY published posts that Google shows at average
                position 5-40, steering the rewrite to the queries people actually typed. The old version is backed
                up to blog_posts_backup; a rewrite that fails the normal quality gate is thrown away. Slug and
                publish date are kept, so links and rankings carry over.
