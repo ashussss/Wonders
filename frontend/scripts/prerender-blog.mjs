@@ -250,6 +250,7 @@ ${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
         crumbs([["Free tools", `${SITE}/tools`], [t.name, url]]), faqLd(t.faq)] },
     }, `${SEO_NAV}<main><article><h1>${esc(t.title)}</h1><div class="qa"><p>${esc(t.intro)}</p></div>
 <p>The interactive tool loads in your browser. Free, no sign-up. You can also embed it on your own website: copy the embed code on this page.</p>
+${key !== "webinar-title-generator" ? `<h2>Free 11-touch attendance plan</h2><p>After the calculation, enter your webinar date to get a dated reminder plan (what to send, on which channel, and when) and a calendar file (.ics) with every touch.</p><ol>${S.PLAN_TOUCHES.map((t) => `<li><strong>${esc(t.title)}</strong> (${esc(t.channel)}): ${esc(t.tip)}</li>`).join("")}</ol>` : ""}
 <h2>How it works</h2><ul>${t.how.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>
 ${key === "webinar-no-show-calculator" ? `<h2>Published attendance benchmarks</h2><ul>${S.BENCHMARKS.map((b) => `<li>${esc(b.source)} (${b.year}): ${b.rate}%, ${esc(b.note)}</li>`).join("")}</ul>` : ""}
 ${faqHtml(t.faq)}
