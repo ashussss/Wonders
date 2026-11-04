@@ -19,6 +19,7 @@ from routes_blog import publish_due
 from routes_social import router as social_router
 import social
 import pseo
+import seo_autopilot
 # Growth Engine — isolated module, own queue + collections + /api/growth routes
 from growth_engine.routes import router as growth_router
 from billing import router as billing_router
@@ -49,6 +50,12 @@ async def lifespan(_app: FastAPI):
                       run_date=datetime.now(timezone.utc) + timedelta(minutes=2))
     # 12:00, 15:00 and 18:00 IST, so a failed catch-up gets two more chances the same day
     scheduler.add_job(pseo.catch_up, "cron", hour="6,9,12", minute=30, id="pseo-catch-up-daily",
+                      replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
+    # SEO autopilot: weekly Search Console sync (Mon 09:30 IST), daily rewrite of striking-distance posts
+    # (10:30 IST) so the rewrite uses this week's numbers. Both are no-ops until GSC_SERVICE_ACCOUNT_BASE64 is set.
+    scheduler.add_job(seo_autopilot.sync, "cron", day_of_week="mon", hour=4, minute=0, id="seo-autopilot-sync",
+                      replace_existing=True, misfire_grace_time=12 * 3600, coalesce=True)
+    scheduler.add_job(seo_autopilot.refresh, "cron", hour=5, minute=0, id="seo-autopilot-refresh",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     # Growth Engine: own daily draft job + own dispatch tick (approval-gated)
     growth_scheduler.register()
