@@ -61,3 +61,15 @@ def test_harvest_skips_brand_one_word_and_covered_topics():
     existing = ["webinarjam alternatives", "Webinar CTA Examples That Convert"]
     assert sa.harvest_keywords(rows, existing, 10) == ["webinarjam mailchimp integration"]
     assert sa.harvest_keywords(rows, [], 1) == ["webinarjam alternatives"]
+
+
+def test_key_can_be_pasted_as_json_or_base64(monkeypatch):
+    import base64
+    monkeypatch.delenv("GSC_SERVICE_ACCOUNT_BASE64", raising=False)
+    monkeypatch.delenv("GSC_SERVICE_ACCOUNT_JSON", raising=False)
+    assert not sa.configured()
+    monkeypatch.setenv("GSC_SERVICE_ACCOUNT_JSON", ' {"type": "service_account"} ')
+    assert sa.configured() and sa._raw_key().startswith("{")
+    monkeypatch.delenv("GSC_SERVICE_ACCOUNT_JSON")
+    monkeypatch.setenv("GSC_SERVICE_ACCOUNT_BASE64", base64.b64encode(b"{}").decode())
+    assert sa.configured()

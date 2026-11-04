@@ -44,12 +44,17 @@ SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
 STATE_ID = "seo_autopilot"
 
 
+def _raw_key() -> str:
+    """The service account key: GSC_SERVICE_ACCOUNT_BASE64, or GSC_SERVICE_ACCOUNT_JSON (the file pasted as is)."""
+    return (os.environ.get("GSC_SERVICE_ACCOUNT_BASE64", "") or os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "")).strip()
+
+
 def _credentials():
-    raw = os.environ.get("GSC_SERVICE_ACCOUNT_BASE64", "").strip()
+    raw = _raw_key()
     if not raw:
         return None
     try:
-        info = json.loads(base64.b64decode(raw).decode("utf-8"))
+        info = json.loads(raw if raw.startswith("{") else base64.b64decode(raw).decode("utf-8"))
         from google.oauth2 import service_account
         return service_account.Credentials.from_service_account_info(info, scopes=[SCOPE])
     except Exception as e:
@@ -58,7 +63,7 @@ def _credentials():
 
 
 def configured() -> bool:
-    return bool(os.environ.get("GSC_SERVICE_ACCOUNT_BASE64", "").strip())
+    return bool(_raw_key())
 
 
 def _token(creds) -> str:
@@ -175,7 +180,7 @@ async def _state(**kw):
 async def sync() -> dict:
     """Weekly: store Search Console numbers on each post and queue keywords from real queries."""
     if not configured():
-        await _state(sync={"at": pseo.now_iso(), "ok": False, "error": "GSC_SERVICE_ACCOUNT_BASE64 not set"})
+        await _state(sync={"at": pseo.now_iso(), "ok": False, "error": "GSC_SERVICE_ACCOUNT_JSON / _BASE64 not set"})
         return {"ok": False, "error": "not configured"}
     try:
         rows = await fetch_rows()
