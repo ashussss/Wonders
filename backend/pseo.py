@@ -982,7 +982,7 @@ async def find_overlap(keyword: str) -> dict | None:
 
 
 async def generate_post(keyword: str, intent: str = "informational", slug: str | None = None,
-                        save: bool = True) -> dict:
+                        save: bool = True, search_queries: list | None = None) -> dict:
     """Generate one long-form draft and save it to blog_posts (unpublished unless auto-publish)."""
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
@@ -994,6 +994,12 @@ async def generate_post(keyword: str, intent: str = "informational", slug: str |
         f"The author's own first-hand notes on this topic (weave them in, attributed to the author's experience):\n{notes}\n"
         if notes else ""
     )
+    if search_queries:  # SEO autopilot refresh: real Google Search Console queries this page already shows for
+        notes_block += (
+            "Google already shows this article for these real searches. Answer each one directly and early, and "
+            "use the exact wording in a heading or the first paragraph where it reads naturally:\n"
+            + "\n".join(f"- {q}" for q in search_queries[:8]) + "\n"
+        )
     pubs = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "title": 1}).sort(
         "published_at", -1).to_list(30)
     related = "\n".join(f"- {p['title']} - {SITE_URL}/blog/{p['slug']}" for p in pubs) or "(none yet)"

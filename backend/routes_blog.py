@@ -332,6 +332,27 @@ async def seo_pipeline_status():
     return await pseo.pipeline_status()
 
 
+@router.get("/seo/autopilot-status")
+async def seo_autopilot_status():
+    """Public, content-free: last Search Console sync, last refresh run, top posts by impressions."""
+    import seo_autopilot
+    return await seo_autopilot.status()
+
+
+@router.post("/seo/autopilot/run")
+async def seo_autopilot_run(request: Request, payload: dict = Body(default={})):
+    """Run the autopilot now: {"step": "sync" | "refresh" | "both", "limit": n}."""
+    _require_key(request)
+    import seo_autopilot
+    step = payload.get("step") or "both"
+    out = {}
+    if step in ("sync", "both"):
+        out["sync"] = await seo_autopilot.sync()
+    if step in ("refresh", "both"):
+        out["refresh"] = await seo_autopilot.refresh(payload.get("limit"))
+    return out
+
+
 @router.get("/seo/drafts")
 async def seo_drafts(request: Request):
     """List unpublished drafts for review (full content included)."""
