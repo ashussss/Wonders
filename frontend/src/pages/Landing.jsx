@@ -47,7 +47,7 @@ const FEATURES = [
   { icon: Mail, title: "Every channel, one place", body: "Email, LinkedIn, WhatsApp, Circle.so, Facebook, Instagram. One approval, delivered everywhere. No copy-pasting between tools.", color: "text-orange-400" },
   { icon: BarChart3, title: "Know what actually worked", body: "Track opens, attendance, and conversions by channel. See which touch moved the needle. Get better every single webinar.", color: "text-orange-400" },
   { icon: Clock, title: "30 seconds to set up", body: "Paste your webinar link. AI generates your entire 11-touch campaign. You approve. It runs on schedule. That's it.", color: "text-orange-400" },
-  { icon: TrendingUp, title: "31% → 62%+ attendance", body: "The industry average is 31%. ShowUpAI users consistently hit 62%+. The gap isn't your content — it's your follow-through.", color: "text-orange-400" },
+  { icon: TrendingUp, title: "Value-led reminders, not spam", body: "One marketer took attendance from 30% to 62% by changing what their reminders said, not how many they sent (WebinarGeek). ShowUpAI builds that kind of sequence for every webinar.", color: "text-orange-400" },
   { icon: Users, title: "Works with any platform", body: "Zoom, Teams, Meet, Circle.so, Eventbrite, Luma — paste any link and ShowUpAI auto-fills your webinar details and imports attendees.", color: "text-orange-400" },
 ];
 
@@ -232,7 +232,7 @@ export default function Landing() {
 
           <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
             className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed mb-10">
-            You spent weeks building your webinar. 65% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
+            You spent weeks building your webinar. 40–60% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
           </motion.p>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }}
@@ -250,13 +250,16 @@ export default function Landing() {
           {/* Stats row */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }}
             className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
-            {[["62%+","avg. attendance rate"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
+            {[["7","channels, email to WhatsApp"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
               <div key={label} className="text-center p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
                 <div className="text-3xl sm:text-4xl font-bold text-white mb-1" style={{ fontFamily: "Outfit" }}>{num}</div>
                 <div className="text-xs text-gray-500 leading-tight">{label}</div>
               </div>
             ))}
           </motion.div>
+          <p className="mt-4 text-[11px] text-gray-500 max-w-2xl mx-auto">
+            No-show range from published platform averages: ON24 60% attendance (2025), Livestorm 51.3%, Demio 38% (2022).
+          </p>
         </div>
 
         {/* Scroll indicator */}

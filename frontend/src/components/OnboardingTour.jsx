@@ -43,7 +43,7 @@ const STEPS = [
   {
     id: "done",
     title: "You're ready! 🎉",
-    body: "Create your first webinar and watch your attendance climb from 31% to 62%+. Need help? The tour is always available from the menu.",
+    body: "Create your first webinar and watch your attendance climb. Need help? The tour is always available from the menu.",
     target: null,
     position: "center",
   },

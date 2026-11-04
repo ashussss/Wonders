@@ -17,7 +17,7 @@ const ROLES = [
 ];
 
 const SOCIAL_PROOF = [
-  { stat: "62%+", label: "Average attendance rate" },
+  { stat: "7", label: "Reminder channels" },
   { stat: "8", label: "AI-written touches per webinar" },
   { stat: "6", label: "Channels automated" },
 ];
@@ -244,7 +244,7 @@ export default function Waitlist() {
                       style={{ background: "#EA580C" }}>
                       Copy referral link
                     </button>
-                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUpAI — AI that makes people actually show up to your webinar. 62%+ attendance rate. Check it out: https://showupai.live/waitlist")}`}
+                    <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent("Just joined the waitlist for ShowUpAI — AI that makes people actually show up to your webinar. Check it out: https://showupai.live/waitlist")}`}
                       target="_blank" rel="noreferrer"
                       className="flex-1 text-xs py-2 rounded-lg font-semibold text-white text-center transition-colors"
                       style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)" }}>
