@@ -226,3 +226,11 @@ def test_catalog_has_free_ai_directories_and_no_badge_swaps():
     for c in le.CATALOG:
         text = (c["link"] + " " + c["requirements"]).lower()
         assert "badge required" not in text and "reciprocal" not in text, c["key"]
+
+
+def test_high_authority_review_sites_come_first():
+    first = {c["key"] for c in le.CATALOG if c["priority"] == 1}
+    for key in ("g2", "capterra", "trustradius", "sourceforge"):
+        assert key in first, key
+    keys = [c["key"] for c in le.CATALOG]
+    assert len(keys) == len(set(keys))
