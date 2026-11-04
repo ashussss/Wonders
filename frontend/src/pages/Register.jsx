@@ -9,7 +9,7 @@ import StarField from "@/components/StarField";
 const PERKS = [
   "8 AI-written touches per webinar",
   "6 channels — email, LinkedIn, WhatsApp & more",
-  "62%+ average attendance rate",
+  "Reminders on 7 channels, email to WhatsApp",
   "Free 14-day trial, no card required",
 ];
 

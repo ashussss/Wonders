@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import StarField from "@/components/StarField";
 
 const STATS = [
-  { icon: TrendingUp, value: "62%", label: "avg attendance rate" },
+  { icon: TrendingUp, value: "7", label: "reminder channels" },
   { icon: Zap, value: "8", label: "AI-orchestrated touches" },
   { icon: Users, value: "6", label: "channels per touch" },
 ];

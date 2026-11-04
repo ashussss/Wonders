@@ -43,6 +43,11 @@ Benchmarks differ because each reflects one vendor's customers.
 - [About](https://showupai.live/about): what ShowUpAI is, why it exists, who builds it
 - [Blog](https://showupai.live/blog): number-backed guides on webinar attendance, reminders and no-shows
 - [What is ShowUpAI? Features](https://showupai.live/blog/what-is-showupai-features): every feature explained
+- [How to increase webinar attendance (complete guide)](https://showupai.live/webinar-attendance): benchmarks, why registrants no-show, the 11-touch timeline, channels, copy examples
+- [Webinar no-show calculator](https://showupai.live/tools/webinar-no-show-calculator): free; show-up rate, no-show cost, benchmark comparison
+- [Webinar ROI calculator](https://showupai.live/tools/webinar-roi-calculator): free; cost per attendee, customers, revenue, ROI
+- [Webinar title generator](https://showupai.live/tools/webinar-title-generator): free; 12 title ideas from topic, audience and outcome
+- [Comparisons](https://showupai.live/compare): ShowUpAI vs Zoom Webinars, Demio, Livestorm, WebinarJam, ON24, GoTo Webinar, ActiveCampaign, Buffer
 - [RSS feed](https://showupai.live/rss.xml)
 - [Start a free trial](https://showupai.live/waitlist)
 

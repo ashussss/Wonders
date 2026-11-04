@@ -24,30 +24,114 @@ Allow: /
 Disallow: /app/
 Disallow: /api/
 
-# AI / LLM crawlers — explicitly welcome
+# AI / LLM crawlers and AI search agents: explicitly welcome (OAI-SearchBot = ChatGPT search, Claude-SearchBot = Claude search,
+# Perplexity-User = Perplexity answers). Same rules as everyone else: public pages yes, app and API no.
 User-agent: GPTBot
 Allow: /
 Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: OAI-SearchBot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 User-agent: ChatGPT-User
 Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: ClaudeBot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: Claude-SearchBot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: Claude-User
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 User-agent: Claude-Web
 Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 User-agent: anthropic-ai
 Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 User-agent: PerplexityBot
 Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
-User-agent: YouBot
+User-agent: Perplexity-User
 Allow: /
-
-User-agent: cohere-ai
-Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 User-agent: Google-Extended
 Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: Applebot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: Applebot-Extended
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: DuckAssistBot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: meta-externalagent
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: YouBot
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: cohere-ai
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
+
+User-agent: MistralAI-User
+Allow: /
+Allow: /llms.txt
+Disallow: /app/
+Disallow: /api/
 
 Sitemap: https://showupai.live/sitemap.xml

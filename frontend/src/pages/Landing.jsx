@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
+import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
 // Palette: near-black #05050F, orange #EA580C, electric accent #FF6B35
@@ -46,7 +47,7 @@ const FEATURES = [
   { icon: Mail, title: "Every channel, one place", body: "Email, LinkedIn, WhatsApp, Circle.so, Facebook, Instagram. One approval, delivered everywhere. No copy-pasting between tools.", color: "text-orange-400" },
   { icon: BarChart3, title: "Know what actually worked", body: "Track opens, attendance, and conversions by channel. See which touch moved the needle. Get better every single webinar.", color: "text-orange-400" },
   { icon: Clock, title: "30 seconds to set up", body: "Paste your webinar link. AI generates your entire 11-touch campaign. You approve. It runs on schedule. That's it.", color: "text-orange-400" },
-  { icon: TrendingUp, title: "31% → 62%+ attendance", body: "The industry average is 31%. ShowUpAI users consistently hit 62%+. The gap isn't your content — it's your follow-through.", color: "text-orange-400" },
+  { icon: TrendingUp, title: "Value-led reminders, not spam", body: "One marketer took attendance from 30% to 62% by changing what their reminders said, not how many they sent (WebinarGeek). ShowUpAI builds that kind of sequence for every webinar.", color: "text-orange-400" },
   { icon: Users, title: "Works with any platform", body: "Zoom, Teams, Meet, Circle.so, Eventbrite, Luma — paste any link and ShowUpAI auto-fills your webinar details and imports attendees.", color: "text-orange-400" },
 ];
 
@@ -104,11 +105,12 @@ function Nav() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-8">
-          {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
+          {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"]].map(([href,label]) => (
             <a key={href} href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</a>
           ))}
           <Link to="/blog" className="text-sm text-gray-400 hover:text-white transition-colors">Blog</Link>
-          <Link to="/privacy" className="text-sm text-gray-400 hover:text-white transition-colors">Privacy</Link>
+          <NavMenu label="Free tools" to="/tools" items={MENU_TOOLS} allLabel="All free tools" />
+          <NavMenu label="Compare" to="/compare" items={MENU_COMPARE} allLabel="All comparisons" />
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -128,11 +130,16 @@ function Nav() {
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-            className="md:hidden bg-[#08080F] border-b border-white/[0.06] px-6 py-4 flex flex-col gap-4">
+            className="md:hidden bg-[#08080F] border-b border-white/[0.06] px-6 py-4 flex flex-col gap-3 max-h-[80vh] overflow-y-auto">
             {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
               <a key={href} href={href} onClick={() => setOpen(false)} className="text-gray-300 py-1">{label}</a>
             ))}
             <Link to="/blog" onClick={() => setOpen(false)} className="text-gray-300 py-1">Blog</Link>
+            <Link to="/webinar-attendance" onClick={() => setOpen(false)} className="text-gray-300 py-1">Webinar attendance guide</Link>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-500 pt-2">Free tools</div>
+            {MENU_TOOLS.map(([to, label]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="text-gray-300 py-1 pl-3">{label}</Link>)}
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-500 pt-2">Compare</div>
+            {MENU_COMPARE.map(([to, label]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="text-gray-300 py-1 pl-3">ShowUpAI {label}</Link>)}
             <Link to="/privacy" onClick={() => setOpen(false)} className="text-gray-300 py-1">Privacy</Link>
             <div className="flex gap-3 pt-2 border-t border-white/[0.06]">
               <Link to="/login" className="flex-1 text-center py-2 text-gray-400 border border-white/[0.1] rounded-lg text-sm">Sign in</Link>
@@ -142,6 +149,25 @@ function Nav() {
         )}
       </AnimatePresence>
     </header>
+  );
+}
+
+// Hover / focus dropdown for the desktop nav
+function NavMenu({ label, to, items, allLabel }) {
+  return (
+    <div className="relative group">
+      <Link to={to} className="text-sm text-gray-400 hover:text-white transition-colors inline-flex items-center gap-1">
+        {label} <ChevronDown size={14} />
+      </Link>
+      <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block group-focus-within:block z-50">
+        <div className="min-w-[240px] rounded-xl border border-white/10 bg-[#0B0B16] p-2 shadow-2xl">
+          {items.map(([href, text]) => (
+            <Link key={href} to={href} className="block px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-white/5 hover:text-white">{text}</Link>
+          ))}
+          <Link to={to} className="block px-3 py-2 mt-1 border-t border-white/10 text-sm text-orange-400 hover:text-orange-300">{allLabel} →</Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -206,7 +232,7 @@ export default function Landing() {
 
           <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
             className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed mb-10">
-            You spent weeks building your webinar. 65% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
+            You spent weeks building your webinar. 40–60% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
           </motion.p>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }}
@@ -224,13 +250,16 @@ export default function Landing() {
           {/* Stats row */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }}
             className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
-            {[["62%+","avg. attendance rate"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
+            {[["7","channels, email to WhatsApp"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
               <div key={label} className="text-center p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
                 <div className="text-3xl sm:text-4xl font-bold text-white mb-1" style={{ fontFamily: "Outfit" }}>{num}</div>
                 <div className="text-xs text-gray-500 leading-tight">{label}</div>
               </div>
             ))}
           </motion.div>
+          <p className="mt-4 text-[11px] text-gray-500 max-w-2xl mx-auto">
+            No-show range from published platform averages: ON24 60% attendance (2025), Livestorm 51.3%, Demio 38% (2022).
+          </p>
         </div>
 
         {/* Scroll indicator */}
@@ -320,6 +349,9 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {/* ── FREE TOOLS ── */}
+      <FreeToolsSection />
 
       {/* ── SOCIAL PROOF ── */}
       <section className="py-24 px-6 relative overflow-hidden">
@@ -444,11 +476,14 @@ export default function Landing() {
             </div>
             <span className="font-bold text-white text-sm" style={{ fontFamily: "Outfit" }}>ShowUp<span className="text-orange-500">AI</span></span>
           </div>
-          <div className="flex gap-6 text-sm text-gray-400">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-gray-400">
             <a href="#features" className="hover:text-gray-400 transition-colors">Features</a>
             <a href="#pricing" className="hover:text-gray-400 transition-colors">Pricing</a>
             <Link to="/about" className="hover:text-gray-400 transition-colors">About</Link>
             <Link to="/blog" className="hover:text-gray-400 transition-colors">Blog</Link>
+            <Link to="/webinar-attendance" className="hover:text-gray-400 transition-colors">Attendance guide</Link>
+            <Link to="/tools" className="hover:text-gray-400 transition-colors">Free tools</Link>
+            <Link to="/compare" className="hover:text-gray-400 transition-colors">Compare</Link>
             <Link to="/privacy" className="hover:text-gray-400 transition-colors">Privacy</Link>
             <Link to="/login" className="hover:text-gray-400 transition-colors">Sign in</Link>
           </div>
