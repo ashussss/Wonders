@@ -1475,8 +1475,19 @@ async def seed_content_posts() -> int:
     return added
 
 
+# Static SEO pages prerendered by frontend/scripts/prerender-blog.mjs from frontend/src/lib/seoPages.js.
+# Keep in step with COMPARE and TOOLS there (tests/test_seo_pages_sitemap.py checks it).
+SEO_PAGES = [
+    "/webinar-attendance", "/compare", "/tools",
+    "/compare/zoom", "/compare/demio", "/compare/livestorm", "/compare/webinarjam", "/compare/on24",
+    "/compare/gotowebinar", "/compare/activecampaign", "/compare/buffer",
+    "/tools/webinar-no-show-calculator", "/tools/webinar-roi-calculator", "/tools/webinar-title-generator",
+]
+
+
 async def build_sitemap() -> str:
     static = [("/", "1.0", "weekly"), ("/blog", "0.8", "daily"), ("/about", "0.6", "monthly"), ("/waitlist", "0.7", "monthly"), ("/privacy", "0.3", "yearly")]
+    static += [(p, "0.8", "monthly") for p in SEO_PAGES]
     urls = [
         f"<url><loc>{SITE_URL}{p}</loc><changefreq>{f}</changefreq><priority>{pr}</priority></url>"
         for p, pr, f in static

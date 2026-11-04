@@ -122,7 +122,7 @@ function homeHtml(graph, posts) {
   const app = graph.find((n) => n["@type"] === "SoftwareApplication") || {};
   const faq = (graph.find((n) => n["@type"] === "FAQPage") || {}).mainEntity || [];
   const offers = ((app.offers || {}).offers) || [];
-  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a> · <a href="/waitlist">Start free trial</a></p></header>
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/about">About</a> · <a href="/waitlist">Start free trial</a></p></header>
 <main>
 <h1>Make people actually show up for your webinar</h1>
 <p class="hero-description">${esc(app.description || "")}</p>
@@ -133,6 +133,10 @@ function homeHtml(graph, posts) {
 <ol><li>Registration confirmation + calendar invite (on registration)</li><li>Awareness post (21 days before)</li><li>Newsletter / insight (19 days before)</li><li>Engagement poll (14 days before)</li><li>Case study (10 days before)</li><li>Infographic teaser (8 days before)</li><li>Urgency message (5 days before)</li><li>Final warm-up (1 day before)</li><li>Join link (1 hour before)</li><li>Thank-you for attendees (after the event)</li><li>No-show follow-up (2 days after)</li></ol>
 <h2>Features</h2>
 <ul>${(app.featureList || []).map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+<h2>Free webinar tools</h2>
+<ul><li><a href="/tools/webinar-no-show-calculator">Webinar no-show calculator</a></li><li><a href="/tools/webinar-roi-calculator">Webinar ROI calculator</a></li><li><a href="/tools/webinar-title-generator">Webinar title generator</a></li></ul>
+<h2>Compare ShowUpAI</h2>
+<p><a href="/compare/zoom">vs Zoom Webinars</a> · <a href="/compare/demio">vs Demio</a> · <a href="/compare/livestorm">vs Livestorm</a> · <a href="/compare/webinarjam">vs WebinarJam</a> · <a href="/compare/on24">vs ON24</a> · <a href="/compare/gotowebinar">vs GoTo Webinar</a> · <a href="/compare/activecampaign">vs ActiveCampaign</a> · <a href="/compare/buffer">vs Buffer</a></p>
 <h2>Pricing</h2>
 <ul>${offers.map((o) => `<li><strong>${esc(o.name)}</strong>: $${esc(o.price)}/month. ${esc(o.description)}</li>`).join("")}</ul>
 <h2>Frequently asked questions</h2>
@@ -185,6 +189,104 @@ async function writeSitemap() {
     await new Promise((res) => setTimeout(res, 5000));
   }
   console.log("[prerender] no static sitemap, /sitemap.xml stays proxied to Render");
+}
+
+// Compare pages, free tools and the pillar guide (content in src/lib/seoPages.js, shared with the React pages)
+const SEO_NAV = `<header><p><a href="/">ShowUpAI</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/blog">Blog</a> · <a href="/waitlist">Start free trial</a></p></header>`;
+const faqLd = (items) => ({ "@type": "FAQPage", mainEntity: items.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) });
+const faqHtml = (items) => `<h2>Frequently asked questions</h2>${items.map(([q, a]) => `<h3>${esc(q)}</h3><p>${esc(a)}</p>`).join("")}`;
+const crumbs = (items) => ({ "@type": "BreadcrumbList", itemListElement: items.map(([name, url], i) => ({ "@type": "ListItem", position: i + 1, name, item: url })) });
+
+async function writeSeoPages(shell, list) {
+  const S = await loadLib("seoPages");
+  const md = await loadMarkdown();
+  const out = (rel, head, html) => {
+    const file = path.join(BUILD, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, withRoot(setHead(shell, { image: `${SITE}/og-image.png`, type: "website", ...head }), html));
+  };
+  const cta = `<p><a href="/waitlist">Start your 14-day free trial of ShowUpAI</a> (no card required)</p>`;
+  let n = 0;
+
+  for (const [key, c] of Object.entries(S.COMPARE)) {
+    const url = `${SITE}/compare/${key}`;
+    const faq = S.compareFaq(c);
+    const rows = S.COMPARE_ROWS.map(([k, label]) => `<tr><td>${esc(label)}</td><td>${esc(S.SHOWUP[k])}</td><td>${esc(c.them[k])}</td></tr>`).join("");
+    const others = Object.entries(S.COMPARE).filter(([k]) => k !== key).map(([k, v]) => `<li><a href="/compare/${k}">ShowUpAI vs ${esc(v.name)}</a></li>`).join("");
+    out(`compare/${key}.html`, {
+      title: `${c.title} | ShowUpAI`, description: c.description, url,
+      jsonld: { "@context": "https://schema.org", "@graph": [
+        { "@type": "WebPage", "@id": `${url}#webpage`, url, name: c.title, description: c.description,
+          about: [{ "@id": `${SITE}/#software` }, { "@type": "SoftwareApplication", name: c.name }], isPartOf: { "@id": `${SITE}/#website` } },
+        crumbs([["Compare", `${SITE}/compare`], [`ShowUpAI vs ${c.name}`, url]]), faqLd(faq)] },
+    }, `${SEO_NAV}<main><article><h1>${esc(c.title)}</h1>
+<div class="qa"><p><strong>Short answer:</strong> ${esc(c.name)} is a ${esc(c.kind)}. ShowUpAI is webinar attendance software that works alongside it. ${esc(c.together)}</p></div>
+<p>${esc(c.intro)}</p>
+<h2>ShowUpAI vs ${esc(c.name)} at a glance</h2>
+<table><thead><tr><th>Feature</th><th>ShowUpAI</th><th>${esc(c.name)}</th></tr></thead><tbody>${rows}</tbody></table>
+<h2>Choose ${esc(c.name)} if</h2><p>${esc(c.chooseThem)}</p>
+<h2>Choose ShowUpAI if</h2><p>${esc(c.chooseUs)}</p>
+<h2>Using ${esc(c.name)} and ShowUpAI together</h2><p>${esc(c.together)}</p>
+${faqHtml(faq)}
+<p>Read next: <a href="/webinar-attendance">How to increase webinar attendance</a> · <a href="/tools/webinar-no-show-calculator">Webinar no-show calculator</a></p>
+${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
+    n++;
+  }
+  out("compare.html", { title: `${S.COMPARE_INDEX.title} | ShowUpAI`, description: S.COMPARE_INDEX.description, url: `${SITE}/compare`,
+    jsonld: { "@context": "https://schema.org", "@type": "CollectionPage", url: `${SITE}/compare`, name: S.COMPARE_INDEX.title,
+      hasPart: Object.entries(S.COMPARE).map(([k, v]) => ({ "@type": "WebPage", name: `ShowUpAI vs ${v.name}`, url: `${SITE}/compare/${k}` })) } },
+    `${SEO_NAV}<main><h1>${esc(S.COMPARE_INDEX.title)}</h1><p>ShowUpAI doesn't host webinars. It works alongside your webinar platform and handles what happens between registration and start time.</p>
+<ul>${Object.entries(S.COMPARE).map(([k, v]) => `<li><a href="/compare/${k}">ShowUpAI vs ${esc(v.name)}</a>: ${esc(v.description)}</li>`).join("")}</ul>${cta}</main>`);
+
+  for (const [key, t] of Object.entries(S.TOOLS)) {
+    const url = `${SITE}/tools/${key}`;
+    const others = Object.entries(S.TOOLS).filter(([k]) => k !== key).map(([k, v]) => `<li><a href="/tools/${k}">${esc(v.name)}</a></li>`).join("");
+    out(`tools/${key}.html`, {
+      title: `${t.title} | ShowUpAI`, description: t.description, url,
+      jsonld: { "@context": "https://schema.org", "@graph": [
+        { "@type": "WebApplication", "@id": `${url}#app`, name: t.name, url, description: t.description, applicationCategory: "BusinessApplication",
+          operatingSystem: "Web", isAccessibleForFree: true, offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+          publisher: { "@id": `${SITE}/#organization` } },
+        crumbs([["Free tools", `${SITE}/tools`], [t.name, url]]), faqLd(t.faq)] },
+    }, `${SEO_NAV}<main><article><h1>${esc(t.title)}</h1><div class="qa"><p>${esc(t.intro)}</p></div>
+<p>The interactive tool loads in your browser. Free, no sign-up. You can also embed it on your own website: copy the embed code on this page.</p>
+<h2>How it works</h2><ul>${t.how.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>
+${key === "webinar-no-show-calculator" ? `<h2>Published attendance benchmarks</h2><ul>${S.BENCHMARKS.map((b) => `<li>${esc(b.source)} (${b.year}): ${b.rate}%, ${esc(b.note)}</li>`).join("")}</ul>` : ""}
+${faqHtml(t.faq)}
+<p>Read next: <a href="/webinar-attendance">How to increase webinar attendance</a></p>${cta}
+<h2>More free tools</h2><ul>${others}</ul></article></main>`);
+    // /embed/<tool>: bare widget for iframes on other sites. noindex, canonical to the full tool page.
+    fs.mkdirSync(path.join(BUILD, "embed"), { recursive: true });
+    fs.writeFileSync(path.join(BUILD, "embed", `${key}.html`), setHead(shell, {
+      title: `${t.name} | ShowUpAI`, description: t.description, url, type: "website", robots: "noindex, follow" }));
+    n++;
+  }
+  out("tools.html", { title: `${S.TOOLS_INDEX.title} | ShowUpAI`, description: S.TOOLS_INDEX.description, url: `${SITE}/tools`,
+    jsonld: { "@context": "https://schema.org", "@type": "CollectionPage", url: `${SITE}/tools`, name: "Free webinar tools",
+      hasPart: Object.entries(S.TOOLS).map(([k, v]) => ({ "@type": "WebApplication", name: v.name, url: `${SITE}/tools/${k}` })) } },
+    `${SEO_NAV}<main><h1>Free webinar tools</h1><p>${esc(S.TOOLS_INDEX.description)}</p>
+<ul>${Object.entries(S.TOOLS).map(([k, v]) => `<li><a href="/tools/${k}">${esc(v.name)}</a>: ${esc(v.description)}</li>`).join("")}</ul>${cta}</main>`);
+
+  const G = S.GUIDE;
+  const gurl = `${SITE}/${G.slug}`;
+  const cluster = (Array.isArray(list) ? list : []).filter((p) => G.clusterWords.some((w) => (p.slug || "").includes(w))).slice(0, 20);
+  const toc = md.tocFrom(G.markdown);
+  out(`${G.slug}.html`, {
+    title: G.seoTitle, description: G.description, url: gurl, type: "article",
+    jsonld: { "@context": "https://schema.org", "@graph": [
+      { "@type": "Article", headline: G.title, description: G.description, url: gurl, mainEntityOfPage: gurl, image: `${SITE}/og-image.png`,
+        datePublished: "2026-11-04", dateModified: G.updated, author: { "@type": "Person", name: "Ashutosh Kumar Singh", url: `${SITE}/about` },
+        publisher: { "@id": `${SITE}/#organization` } },
+      crumbs([["Webinar attendance guide", gurl]]), faqLd(G.faq)] },
+  }, `${SEO_NAV}<main><article><h1>${esc(G.title)}</h1><p>By Ashutosh Kumar Singh · Updated <time datetime="${G.updated}">${G.updated}</time></p>
+<div class="qa"><p><strong>Quick answer:</strong> ${esc(G.faq[0][1])}</p></div>
+${toc.length >= 3 ? `<nav aria-label="Table of contents"><p><strong>In this guide</strong></p><ol>${toc.map((t) => `<li><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join("")}</ol></nav>` : ""}
+${bodyHtml(md, G.markdown)}
+${faqHtml(G.faq)}
+${cluster.length ? `<h2>More on webinar attendance</h2><ul>${cluster.map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></li>`).join("")}</ul>` : ""}
+${cta}</article></main>`);
+  n++;
+  console.log(`[prerender] wrote ${n} compare/tool/guide pages + indexes`);
 }
 
 async function main() {
@@ -262,6 +364,12 @@ ${bodyHtml(md, PRIVACY_MD)}</main>`));
   }
   console.log("[prerender] wrote homepage + about + waitlist + privacy + login + register + app-shell + spa");
 
+  try {
+    await writeSeoPages(shell, list);
+  } catch (e) {
+    console.log("[prerender] compare/tools/guide pages skipped:", e.message);
+  }
+
   if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
   const md = await loadMarkdown();
   const posts = [];
@@ -303,6 +411,7 @@ ${faqs.length ? `<h2>Frequently asked questions</h2>${faqs.map((f) => `<h3>${esc
 ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p.author_bio || "")}</p></aside>` : ""}
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
+<p>Free tools: <a href="/tools/webinar-no-show-calculator">no-show calculator</a> · <a href="/tools/webinar-roi-calculator">ROI calculator</a> · <a href="/tools/webinar-title-generator">title generator</a>. Full guide: <a href="/webinar-attendance">how to increase webinar attendance</a>.</p>
 <p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
     const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);

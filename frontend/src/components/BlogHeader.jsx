@@ -14,9 +14,13 @@ export default function BlogHeader() {
           ShowUp<span className="text-orange-600">AI</span>
         </span>
       </Link>
+      <div className="flex items-center gap-4">
+      <Link to="/webinar-attendance" className="hidden sm:inline text-sm text-gray-400 hover:text-orange-500">Attendance guide</Link>
+      <Link to="/tools" className="hidden sm:inline text-sm text-gray-400 hover:text-orange-500">Free tools</Link>
       <Link to="/waitlist" className="px-4 py-1.5 rounded-full bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold transition-colors">
         Get more attendees
       </Link>
+      </div>
     </div>
   );
 }

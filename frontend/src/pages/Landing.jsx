@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
+import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
 // Palette: near-black #05050F, orange #EA580C, electric accent #FF6B35
@@ -104,11 +105,12 @@ function Nav() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-8">
-          {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
+          {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"]].map(([href,label]) => (
             <a key={href} href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</a>
           ))}
           <Link to="/blog" className="text-sm text-gray-400 hover:text-white transition-colors">Blog</Link>
-          <Link to="/privacy" className="text-sm text-gray-400 hover:text-white transition-colors">Privacy</Link>
+          <NavMenu label="Free tools" to="/tools" items={MENU_TOOLS} allLabel="All free tools" />
+          <NavMenu label="Compare" to="/compare" items={MENU_COMPARE} allLabel="All comparisons" />
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -128,11 +130,16 @@ function Nav() {
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-            className="md:hidden bg-[#08080F] border-b border-white/[0.06] px-6 py-4 flex flex-col gap-4">
+            className="md:hidden bg-[#08080F] border-b border-white/[0.06] px-6 py-4 flex flex-col gap-3 max-h-[80vh] overflow-y-auto">
             {[["#features","Features"],["#how","How it works"],["#pricing","Pricing"],["#about","About"]].map(([href,label]) => (
               <a key={href} href={href} onClick={() => setOpen(false)} className="text-gray-300 py-1">{label}</a>
             ))}
             <Link to="/blog" onClick={() => setOpen(false)} className="text-gray-300 py-1">Blog</Link>
+            <Link to="/webinar-attendance" onClick={() => setOpen(false)} className="text-gray-300 py-1">Webinar attendance guide</Link>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-500 pt-2">Free tools</div>
+            {MENU_TOOLS.map(([to, label]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="text-gray-300 py-1 pl-3">{label}</Link>)}
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-500 pt-2">Compare</div>
+            {MENU_COMPARE.map(([to, label]) => <Link key={to} to={to} onClick={() => setOpen(false)} className="text-gray-300 py-1 pl-3">ShowUpAI {label}</Link>)}
             <Link to="/privacy" onClick={() => setOpen(false)} className="text-gray-300 py-1">Privacy</Link>
             <div className="flex gap-3 pt-2 border-t border-white/[0.06]">
               <Link to="/login" className="flex-1 text-center py-2 text-gray-400 border border-white/[0.1] rounded-lg text-sm">Sign in</Link>
@@ -142,6 +149,25 @@ function Nav() {
         )}
       </AnimatePresence>
     </header>
+  );
+}
+
+// Hover / focus dropdown for the desktop nav
+function NavMenu({ label, to, items, allLabel }) {
+  return (
+    <div className="relative group">
+      <Link to={to} className="text-sm text-gray-400 hover:text-white transition-colors inline-flex items-center gap-1">
+        {label} <ChevronDown size={14} />
+      </Link>
+      <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block group-focus-within:block z-50">
+        <div className="min-w-[240px] rounded-xl border border-white/10 bg-[#0B0B16] p-2 shadow-2xl">
+          {items.map(([href, text]) => (
+            <Link key={href} to={href} className="block px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-white/5 hover:text-white">{text}</Link>
+          ))}
+          <Link to={to} className="block px-3 py-2 mt-1 border-t border-white/10 text-sm text-orange-400 hover:text-orange-300">{allLabel} →</Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -321,6 +347,9 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ── FREE TOOLS ── */}
+      <FreeToolsSection />
+
       {/* ── SOCIAL PROOF ── */}
       <section className="py-24 px-6 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-orange-950/10 to-transparent pointer-events-none" />
@@ -444,11 +473,14 @@ export default function Landing() {
             </div>
             <span className="font-bold text-white text-sm" style={{ fontFamily: "Outfit" }}>ShowUp<span className="text-orange-500">AI</span></span>
           </div>
-          <div className="flex gap-6 text-sm text-gray-400">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-gray-400">
             <a href="#features" className="hover:text-gray-400 transition-colors">Features</a>
             <a href="#pricing" className="hover:text-gray-400 transition-colors">Pricing</a>
             <Link to="/about" className="hover:text-gray-400 transition-colors">About</Link>
             <Link to="/blog" className="hover:text-gray-400 transition-colors">Blog</Link>
+            <Link to="/webinar-attendance" className="hover:text-gray-400 transition-colors">Attendance guide</Link>
+            <Link to="/tools" className="hover:text-gray-400 transition-colors">Free tools</Link>
+            <Link to="/compare" className="hover:text-gray-400 transition-colors">Compare</Link>
             <Link to="/privacy" className="hover:text-gray-400 transition-colors">Privacy</Link>
             <Link to="/login" className="hover:text-gray-400 transition-colors">Sign in</Link>
           </div>

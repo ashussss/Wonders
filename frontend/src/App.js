@@ -26,7 +26,7 @@ import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
-import Compare from "@/pages/Compare";
+import Compare, { CompareIndex, ToolPage, ToolsIndex, Guide, EmbedTool } from "@/pages/Compare";
 import About from "@/pages/About";
 import Privacy from "@/pages/Privacy";
 import BlogPost from "@/pages/BlogPost";
@@ -62,7 +62,12 @@ export default function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/:slug" element={<BlogPost />} />
+              <Route path="/compare" element={<CompareIndex />} />
               <Route path="/compare/:competitor" element={<Compare />} />
+              <Route path="/tools" element={<ToolsIndex />} />
+              <Route path="/tools/:tool" element={<ToolPage />} />
+              <Route path="/webinar-attendance" element={<Guide />} />
+              <Route path="/embed/:tool" element={<EmbedTool />} />
 
               {/* Protected app */}
               <Route element={<Protected><Layout /></Protected>}>
