@@ -51,11 +51,11 @@ async def lifespan(_app: FastAPI):
     # 12:00, 15:00 and 18:00 IST, so a failed catch-up gets two more chances the same day
     scheduler.add_job(pseo.catch_up, "cron", hour="6,9,12", minute=30, id="pseo-catch-up-daily",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
-    # SEO autopilot: weekly Search Console sync (Mon 09:30 IST), daily rewrite of striking-distance posts
-    # (10:30 IST) so the rewrite uses this week's numbers. Both are no-ops until GSC_SERVICE_ACCOUNT_BASE64 is set.
-    scheduler.add_job(seo_autopilot.sync, "cron", day_of_week="mon", hour=4, minute=0, id="seo-autopilot-sync",
+    # SEO autopilot: weekly Search Console sync (Wed 13:00 IST), daily rewrite of striking-distance posts
+    # (13:15 IST, after the sync) so the rewrite uses this week's numbers. No-ops until the GSC key is set.
+    scheduler.add_job(seo_autopilot.sync, "cron", day_of_week="wed", hour=7, minute=30, id="seo-autopilot-sync",
                       replace_existing=True, misfire_grace_time=12 * 3600, coalesce=True)
-    scheduler.add_job(seo_autopilot.refresh, "cron", hour=5, minute=0, id="seo-autopilot-refresh",
+    scheduler.add_job(seo_autopilot.refresh, "cron", hour=7, minute=45, id="seo-autopilot-refresh",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
     # Growth Engine: own daily draft job + own dispatch tick (approval-gated)
     growth_scheduler.register()

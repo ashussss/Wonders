@@ -357,7 +357,7 @@ export default function LinkBuilding() {
         <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin" style={muted} /></div>
       ) : !data?.items?.length ? (
         <div className="rounded-2xl p-8 text-center text-sm" style={{ ...card, ...muted }}>
-          Nothing here. Site drafts arrive every Monday and answer drafts every day, or use the buttons above.
+          Nothing here. Site drafts arrive every Wednesday and answer drafts every day, or use the buttons above.
         </div>
       ) : (
         <div className="space-y-4">
