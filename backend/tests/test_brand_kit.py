@@ -267,3 +267,68 @@ def test_email_shows_tagline_and_showup_line():
     assert "Turn registrants into attendees" in html
     hidden = senders.build_email_html("Hi", "s", brand={**brand, "powered_by": False})
     assert "Turn registrants into attendees" not in hidden and "Move better" in hidden
+
+
+CIRCLE_SITE = """<!doctype html><html><head>
+<title>Home Page-Avatar | School Business Manager (UK)</title>
+<meta property="og:site_name" content="School Business Manager (UK)">
+<meta name="msapplication-TileImage" content="https://assets-v2.circle.so/tile">
+<meta property="og:image" content="https://assets-v2.circle.so/banner">
+</head><body><div id="react-root"></div></body></html>"""
+
+
+def test_browser_built_site_gives_logo_and_colour_from_tile_image(monkeypatch):
+    """Circle/Wix-style pages put almost nothing in their HTML: the logo comes from the
+    Windows tile image and the brand colour from the logo. The www host refusing us is
+    retried without www."""
+    calls = []
+    pages = {"https://schoolbm.example/": (CIRCLE_SITE.encode(), "text/html"),
+             "https://assets-v2.circle.so/tile": (_png(200, 200, (40, 70, 160, 255)), "image/png")}
+
+    async def fake_get(client, url, limit):
+        calls.append(url)
+        if url.startswith("https://www."):
+            raise bk.SiteError("the site answered 403", 403)
+        if url not in pages:
+            raise bk.SiteError("the site answered 404", 404)
+        body, ctype = pages[url]
+        return url, body, ctype
+
+    async def no_voice(name, excerpt):
+        return {}
+
+    monkeypatch.setattr(bk, "_get", fake_get)
+    monkeypatch.setattr(bk, "_describe_voice", no_voice)
+    out = asyncio.run(bk.extract_from_website("https://www.schoolbm.example/"))
+    assert calls[0] == "https://www.schoolbm.example/" and calls[1] == "https://schoolbm.example/"
+    assert out["business_name"] == "School Business Manager (UK)"
+    assert out["logo_png"].startswith(b"\x89PNG")
+    assert bk.contrast(out["primary_color"], "#2846A0") < 1.1       # the logo's blue
+
+
+def test_wide_share_image_is_not_used_as_logo(monkeypatch):
+    html = CIRCLE_SITE.replace('<meta name="msapplication-TileImage" content="https://assets-v2.circle.so/tile">', "")
+    pages = {"https://x.example/": (html.encode(), "text/html"),
+             "https://assets-v2.circle.so/banner": (_png(1200, 630), "image/png")}
+
+    async def fake_get(client, url, limit):
+        if url not in pages:
+            raise bk.SiteError("the site answered 404", 404)
+        return url, pages[url][0], pages[url][1]
+
+    async def no_voice(name, excerpt):
+        return {}
+
+    monkeypatch.setattr(bk, "_get", fake_get)
+    monkeypatch.setattr(bk, "_describe_voice", no_voice)
+    out = asyncio.run(bk.extract_from_website("https://x.example/"))
+    assert "logo_png" not in out and "primary_color" not in out
+
+
+def test_blocked_site_says_why(monkeypatch):
+    async def fake_get(client, url, limit):
+        raise bk.SiteError("the site answered 403", 403)
+
+    monkeypatch.setattr(bk, "_get", fake_get)
+    with pytest.raises(bk.SiteError, match="blocks automatic visitors"):
+        asyncio.run(bk.extract_from_website("https://blocked.example/"))
