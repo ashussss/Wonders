@@ -7,6 +7,7 @@ import { parseMarkdown, splitInline, headingId } from "@/lib/markdown";
 import { api } from "@/lib/api";
 import {
   SITE, COMPARE, COMPARE_ROWS, SHOWUP, compareFaq, TOOLS, titleIdeas, GUIDE, BENCHMARKS, COMPARE_INDEX, TOOLS_INDEX,
+  buildPlan, planToIcs, planToText,
 } from "@/lib/seoPages";
 
 function setMeta(name, content, attr = "name") {
@@ -182,6 +183,85 @@ function Stat({ label, value }) {
   return <div className="rounded-xl p-4 border border-white/10 bg-white/[0.03]"><div className="text-xs text-gray-400 mb-1">{label}</div><div className="text-2xl font-bold text-orange-400">{value}</div></div>;
 }
 
+// ── Lead magnet: email -> a dated 11-touch plan for their own webinar (+ .ics and .txt downloads) ──
+function download(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { /* ignore */ }
+}
+
+function defaultStart() {
+  const d = new Date(Date.now() + 22 * 864e5);
+  const pad = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T11:00`;
+}
+
+export function PlanMagnet({ source, context = "" }) {
+  const [name, setName] = useState(""), [email, setEmail] = useState(""), [webinar, setWebinar] = useState("");
+  const [start, setStart] = useState(defaultStart()), [website, setWebsite] = useState("");
+  const [state, setState] = useState("idle"), [err, setErr] = useState("");
+  const plan = useMemo(() => buildPlan(start), [start]);
+  const title = webinar.trim() || "My webinar";
+  const submit = async (e) => {
+    e.preventDefault();
+    if (state === "sending") return;
+    setState("sending");
+    setErr("");
+    try {
+      await api.post("/blog/subscribe", { name, email, slug: source, placement: "tool-plan", website });
+      setState("done");
+      try { localStorage.setItem("showup_subscribed", "1"); } catch (e2) { /* ignore */ }
+      try { if (window.gtag) window.gtag("event", "generate_lead", { lead_source: source }); } catch (e3) { /* ignore */ }
+    } catch (e4) {
+      setState("idle");
+      setErr(e4?.response?.data?.detail || "Something went wrong. Please try again.");
+    }
+  };
+  const fmtWhen = (d) => d ? d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "On registration";
+  if (state !== "done") return (
+    <form onSubmit={submit} className="mt-8 rounded-2xl border border-orange-500/40 p-5 sm:p-6" style={{ background: "rgba(234,88,12,0.07)" }}>
+      <h3 className="text-white text-xl font-bold mb-1">Get your free 11-touch attendance plan</h3>
+      <p className="text-gray-300 text-sm mb-4">{context} Enter your webinar date to get a dated reminder plan (what to send, where and when) and a calendar file with every touch.</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <input className={inputCls} placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} required aria-label="Your name" />
+        <input className={inputCls} type="email" placeholder="Work email" value={email} onChange={(e) => setEmail(e.target.value)} required aria-label="Work email" />
+        <input className={inputCls} placeholder="Webinar name (optional)" value={webinar} onChange={(e) => setWebinar(e.target.value)} aria-label="Webinar name" />
+        <input className={inputCls} type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required aria-label="Webinar date and time" />
+        <input type="text" value={website} onChange={(e) => setWebsite(e.target.value)} className="hidden" tabIndex={-1} autoComplete="off" aria-hidden="true" />
+      </div>
+      <button type="submit" className="mt-4 w-full sm:w-auto bg-orange-600 hover:bg-orange-500 text-white font-bold px-6 py-3 rounded-xl">
+        {state === "sending" ? "Building your plan..." : "Get my free plan"}
+      </button>
+      {err && <p className="text-red-400 text-sm mt-2" role="alert">{err}</p>}
+      <p className="text-gray-500 text-xs mt-2">Free. We'll also email you occasional webinar attendance tips. Unsubscribe any time.</p>
+    </form>
+  );
+  return (
+    <div className="mt-8 rounded-2xl border border-orange-500/40 p-5 sm:p-6" style={{ background: "rgba(234,88,12,0.07)" }} role="status">
+      <h3 className="text-white text-xl font-bold mb-1">Your attendance plan for {title}</h3>
+      <p className="text-gray-300 text-sm mb-4">Download it, add it to your calendar, and send each touch on its day.</p>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button type="button" onClick={() => download("attendance-plan.ics", planToIcs(plan, title), "text/calendar")} className="bg-orange-600 hover:bg-orange-500 text-white text-sm font-bold px-4 py-2 rounded-lg">Add the plan to my calendar (.ics)</button>
+        <button type="button" onClick={() => download("attendance-plan.txt", planToText(plan, title), "text/plain")} className="bg-white/10 hover:bg-white/20 text-white text-sm px-4 py-2 rounded-lg">Download plan (.txt)</button>
+      </div>
+      <ol className="space-y-2">{plan.map((p) => (
+        <li key={p.n} className="rounded-lg border border-white/10 px-4 py-3">
+          <div className="flex flex-wrap justify-between gap-2"><span className="text-white font-semibold">{p.n}. {p.title}</span><span className="text-orange-300 text-sm">{fmtWhen(p.at)}</span></div>
+          <div className="text-gray-400 text-sm">{p.channel}: {p.tip}</div>
+        </li>
+      ))}</ol>
+      <p className="text-gray-300 text-sm mt-4">Don't want to write 11 messages? <a href={`${SITE}/waitlist`} target="_top" className="text-orange-400 underline">ShowUpAI writes and sends them for you</a>. 14-day free trial.</p>
+    </div>
+  );
+}
+
 function NoShowCalculator() {
   const [reg, setReg] = useState(200), [att, setAtt] = useState(70), [leadPct, setLeadPct] = useState(20), [value, setValue] = useState(100);
   const r = num(reg), a = Math.min(num(att), r);
@@ -206,6 +286,7 @@ function NoShowCalculator() {
       <ul className="text-sm text-gray-400 list-disc pl-5">{BENCHMARKS.map((b) => (
         <li key={b.source}>{b.source} ({b.year}): {b.rate}%, {b.note}. You are {show >= b.rate ? "above" : "below"} it.</li>
       ))}</ul>
+      <PlanMagnet source="webinar-no-show-calculator" context={`You're losing about $${fmt(lost)} to no-shows on this webinar.`} />
     </div>
   );
 }
@@ -234,6 +315,7 @@ function RoiCalculator() {
         <Stat label="Cost per attendee" value={attendees ? `$${fmt(num(cost) / attendees, 2)}` : "–"} />
         <Stat label="Revenue at +10 pts show-up" value={`$${fmt(revenue10)}`} />
       </div>
+      <PlanMagnet source="webinar-roi-calculator" context={`Raising show-up by 10 points would add about $${fmt(revenue10 - revenue)} in revenue.`} />
     </div>
   );
 }
