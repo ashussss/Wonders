@@ -92,8 +92,12 @@ async def extract_brand(payload: Dict[str, Any] = Body(...), user=Depends(get_us
         found = await brand_kit.extract_from_website(url)
     except brand_kit.UnsafeURL as e:
         raise HTTPException(400, str(e))
+    except brand_kit.SiteError as e:
+        logger.warning(f"brand extract failed for {url}: {e}")
+        raise HTTPException(400, f"We couldn't read that website: {e}. Upload your logo and pick your colours "
+                                 "below instead, it takes a minute.")
     except Exception as e:  # noqa: BLE001
-        logger.info(f"brand extract failed for {url}: {e}")
+        logger.warning(f"brand extract failed for {url}: {e!r}", exc_info=True)
         raise HTTPException(400, "We couldn't read that website. Check the address, or fill the kit in by hand.")
     logo = found.pop("logo_png", None)
     fields = brand_kit.clean_fields(found)

@@ -395,21 +395,58 @@ def _check_public(url: str) -> None:
 
 async def _get(client, url: str, limit: int) -> Tuple[str, bytes, str]:
     """GET with a public-host check on every redirect hop. Returns (final_url, body, content_type)."""
-    for _ in range(5):
+    for _ in range(8):
         await asyncio.get_running_loop().run_in_executor(None, _check_public, url)
         async with client.stream("GET", url) as r:
             if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                 url = urljoin(url, r.headers["location"])
                 continue
             if r.status_code >= 400:
-                raise ValueError(f"{url} answered {r.status_code}")
+                raise SiteError(f"the site answered {r.status_code}", r.status_code)
             body = b""
             async for chunk in r.aiter_bytes():
                 body += chunk
                 if len(body) > limit:
                     break
             return str(r.url), body[:limit], r.headers.get("content-type", "")
-    raise ValueError("Too many redirects")
+    raise SiteError("the site kept redirecting")
+
+
+class SiteError(ValueError):
+    """The website couldn't be read. The message is safe to show the customer."""
+
+    def __init__(self, msg: str, status: int = 0):
+        super().__init__(msg)
+        self.status = status
+
+
+def logo_color(png: bytes) -> Optional[str]:
+    """The logo's main saturated colour: the brand colour for sites that keep it out of
+    their HTML (Circle, Wix, Squarespace build pages in the browser)."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(png)).convert("RGBA")
+    img.thumbnail((96, 96))
+    raw = img.tobytes()
+    pixels = [tuple(raw[i:i + 4]) for i in range(0, len(raw), 4)]
+    counts: Dict[Tuple[int, int, int], int] = {}
+    for r, g, b, a in pixels:
+        if a < 200:
+            continue
+        key = (r // 16 * 16 + 8, g // 16 * 16 + 8, b // 16 * 16 + 8)
+        sat, light = _sat_light(_hex(key))
+        if sat < 0.3 or light < 0.15 or light > 0.85:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return None
+    best = max(counts, key=counts.get)
+    total = sum(1 for p in pixels if p[3] >= 200) or 1
+    if counts[best] < 0.03 * total:
+        return None
+    # Average the real pixels in that bucket, so the colour isn't snapped to the grid.
+    px = [(r, g, b) for r, g, b, a in pixels if a >= 200
+          and (r // 16 * 16 + 8, g // 16 * 16 + 8, b // 16 * 16 + 8) == best]
+    return _hex(tuple(sum(c[i] for c in px) / len(px) for i in range(3)))
 
 
 _COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b|#[0-9a-fA-F]{3}\b|rgba?\([^)]{5,40}\)")
@@ -470,6 +507,8 @@ def pick_font(font_links: List[str], css: str) -> str:
 
 
 def _logo_candidates(soup, base: str) -> List[str]:
+    """Likely logo URLs, best first: a header <img> named logo, then app icons, then the
+    Windows tile and share image (often the only logo a browser-built site puts in its HTML)."""
     found: List[Tuple[int, str]] = []
     for img in soup.find_all("img"):
         src = img.get("src") or img.get("data-src") or ""
@@ -486,13 +525,18 @@ def _logo_candidates(soup, base: str) -> List[str]:
             found.append((2, urljoin(base, href)))
         elif "icon" in rel:
             found.append((3, urljoin(base, href)))
+    for name, rank in (("msapplication-TileImage", 4), ("og:image", 5)):
+        tag = soup.find("meta", attrs={"name": name}) or soup.find("meta", attrs={"property": name})
+        if tag and tag.get("content"):
+            found.append((rank, urljoin(base, tag["content"].strip())))
+    found.append((6, urljoin(base, "/apple-touch-icon.png")))
     found.sort(key=lambda x: x[0])
     seen, out = set(), []
     for _, u in found:
         if u not in seen:
             seen.add(u)
             out.append(u)
-    return out[:6]
+    return out[:8]
 
 
 def voice_excerpt(soup, description: str = "") -> str:
@@ -532,6 +576,33 @@ async def _describe_voice(name: str, excerpt: str) -> Dict[str, str]:
         return {}
 
 
+async def _fetch_home(client, url: str) -> Tuple[str, bytes]:
+    """The home page, trying the address as typed, then with/without www, then http."""
+    p = urlparse(url)
+    host = p.hostname or ""
+    other = host[4:] if host.startswith("www.") else "www." + host
+    tries = [url, url.replace(host, other, 1)]
+    if p.scheme == "https":
+        tries.append(url.replace("https://", "http://", 1))
+    first: Optional[Exception] = None
+    for u in tries:
+        try:
+            final, body, ctype = await _get(client, u, 2_000_000)
+            if body.strip():
+                return final, body
+        except UnsafeURL:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"brand extract: {u} failed: {e!r}")
+            first = first or e
+    if isinstance(first, SiteError):
+        if first.status in (401, 403, 429, 503):
+            raise SiteError("that website blocks automatic visitors, so we couldn't read it", first.status)
+        raise first
+    raise SiteError("the site didn't respond in time" if "Timeout" in type(first).__name__
+                    else "we couldn't connect to it")
+
+
 async def extract_from_website(url: str) -> Dict[str, Any]:
     """Read name, logo, colours, font and voice from a website. Missing pieces are left out."""
     import httpx
@@ -540,9 +611,14 @@ async def extract_from_website(url: str) -> Dict[str, Any]:
     url = url.strip()
     if not re.match(r"^https?://", url, re.I):
         url = "https://" + url
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ShowUpAI-BrandKit/1.0; +https://showupai.live)"}
-    async with httpx.AsyncClient(timeout=12, headers=headers, follow_redirects=False) as client:
-        final, body, _ = await _get(client, url, 2_000_000)
+    # A normal browser's headers: many hosts (Cloudflare, Circle, Wix) turn away unknown bots.
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                             "Chrome/130.0.0.0 Safari/537.36",
+               "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+               "Accept-Language": "en-GB,en;q=0.9"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10), headers=headers,
+                                 follow_redirects=False) as client:
+        final, body = await _fetch_home(client, url)
         soup = BeautifulSoup(body.decode("utf-8", "ignore"), "html.parser")
 
         def meta(*names):
@@ -578,6 +654,7 @@ async def extract_from_website(url: str) -> Dict[str, Any]:
             font_links.append(m.group(1))
 
         logo = None
+        og_image = urljoin(final, meta("og:image")) if meta("og:image") else "\0"
         for cand in _logo_candidates(soup, final):
             if cand.lower().split("?")[0].endswith(".svg"):
                 continue                       # Pillow can't draw SVG; a PNG/icon comes next
@@ -587,7 +664,9 @@ async def extract_from_website(url: str) -> Dict[str, Any]:
                     continue
                 png = await asyncio.get_running_loop().run_in_executor(None, normalise_logo, data)
                 from PIL import Image
-                if min(Image.open(io.BytesIO(png)).size) >= 48:
+                w_, h_ = Image.open(io.BytesIO(png)).size
+                # A wide share image (1200x630 banner) is a photo, not a logo.
+                if min(w_, h_) >= 48 and (not cand.startswith(og_image) or max(w_, h_) / min(w_, h_) <= 1.6):
                     logo = png
                     break
             except Exception as e:  # noqa: BLE001
@@ -597,6 +676,10 @@ async def extract_from_website(url: str) -> Dict[str, Any]:
     if name:
         out["business_name"] = name.strip()[:80]
     out.update(pick_colors(meta("theme-color", "msapplication-TileColor"), css, inline))
+    if "primary_color" not in out and logo:
+        c = logo_color(logo)
+        if c:
+            out["primary_color"] = c
     font = pick_font(font_links, css)
     if font:
         out["font"] = font
