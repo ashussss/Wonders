@@ -122,11 +122,11 @@ function homeHtml(graph, posts) {
   const app = graph.find((n) => n["@type"] === "SoftwareApplication") || {};
   const faq = (graph.find((n) => n["@type"] === "FAQPage") || {}).mainEntity || [];
   const offers = ((app.offers || {}).offers) || [];
-  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/about">About</a> · <a href="/waitlist">Start free trial</a></p></header>
+  return `<header><p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/about">About</a> · <a href="/register">Start free trial</a></p></header>
 <main>
 <h1>Make people actually show up for your webinar</h1>
 <p class="hero-description">${esc(app.description || "")}</p>
-<p><a href="/waitlist">Start your 14-day free trial</a> (no card required)</p>
+<p><a href="/register">Start your 14-day free trial</a> (no card required)</p>
 <h2>How ShowUpAI works</h2>
 <ol><li>Add your webinar (paste the event URL or enter the details).</li><li>ShowUpAI builds an 11-touch send plan and writes the copy for every channel, in two variants.</li><li>You review, edit and approve. Nothing sends without approval.</li><li>Approved touches go out on schedule; see attendance by channel afterwards.</li></ol>
 <h2>The 11-touch sequence</h2>
@@ -155,7 +155,7 @@ function aboutHtml() {
 <h2>Why we built it</h2><p>Running webinars for B2B and education communities, we kept seeing a good topic, a good speaker, plenty of registrations and a mostly empty room. The difference was what happened between sign-up and start time. ShowUpAI automates that part.</p>
 <h2>Who's behind it</h2><p>ShowUpAI is built by Ashutosh Kumar Singh, a B2B marketer with 13+ years across SEO, content, demand generation and events.</p>
 <h2>Facts</h2><ul><li>Product: webinar attendance software (web app)</li><li>Website: <a href="https://showupai.live">showupai.live</a></li><li>Launched: 2026</li><li>Plans: Starter $29/month, Growth $79/month, Agency $199/month; 14-day free trial, no card required</li><li>Contact: <a href="mailto:hello@showupai.live">hello@showupai.live</a></li></ul>
-<p><a href="/waitlist">Increase my attendance</a> · <a href="/blog">Read the blog</a></p></main>`;
+<p><a href="/register">Increase my attendance</a> · <a href="/blog">Read the blog</a></p></main>`;
 }
 
 function waitlistHtml() {
@@ -192,7 +192,7 @@ async function writeSitemap() {
 }
 
 // Compare pages, free tools and the pillar guide (content in src/lib/seoPages.js, shared with the React pages)
-const SEO_NAV = `<header><p><a href="/">ShowUpAI</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/blog">Blog</a> · <a href="/waitlist">Start free trial</a></p></header>`;
+const SEO_NAV = `<header><p><a href="/">ShowUpAI</a> · <a href="/webinar-attendance">Webinar attendance guide</a> · <a href="/tools">Free tools</a> · <a href="/compare">Compare</a> · <a href="/blog">Blog</a> · <a href="/register">Start free trial</a></p></header>`;
 const faqLd = (items) => ({ "@type": "FAQPage", mainEntity: items.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) });
 const faqHtml = (items) => `<h2>Frequently asked questions</h2>${items.map(([q, a]) => `<h3>${esc(q)}</h3><p>${esc(a)}</p>`).join("")}`;
 const crumbs = (items) => ({ "@type": "BreadcrumbList", itemListElement: items.map(([name, url], i) => ({ "@type": "ListItem", position: i + 1, name, item: url })) });
@@ -205,7 +205,7 @@ async function writeSeoPages(shell, list) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, withRoot(setHead(shell, { image: `${SITE}/og-image.png`, type: "website", ...head }), html));
   };
-  const cta = `<p><a href="/waitlist">Start your 14-day free trial of ShowUpAI</a> (no card required)</p>`;
+  const cta = `<p><a href="/register">Start your 14-day free trial of ShowUpAI</a> (no card required)</p>`;
   let n = 0;
 
   for (const [key, c] of Object.entries(S.COMPARE)) {
@@ -250,6 +250,7 @@ ${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
         crumbs([["Free tools", `${SITE}/tools`], [t.name, url]]), faqLd(t.faq)] },
     }, `${SEO_NAV}<main><article><h1>${esc(t.title)}</h1><div class="qa"><p>${esc(t.intro)}</p></div>
 <p>The interactive tool loads in your browser. Free, no sign-up. You can also embed it on your own website: copy the embed code on this page.</p>
+${key !== "webinar-title-generator" ? `<h2>Free 11-touch attendance plan</h2><p>After the calculation, enter your webinar date to get a dated reminder plan (what to send, on which channel, and when) and a calendar file (.ics) with every touch.</p><ol>${S.PLAN_TOUCHES.map((t) => `<li><strong>${esc(t.title)}</strong> (${esc(t.channel)}): ${esc(t.tip)}</li>`).join("")}</ol>` : ""}
 <h2>How it works</h2><ul>${t.how.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>
 ${key === "webinar-no-show-calculator" ? `<h2>Published attendance benchmarks</h2><ul>${S.BENCHMARKS.map((b) => `<li>${esc(b.source)} (${b.year}): ${b.rate}%, ${esc(b.note)}</li>`).join("")}</ul>` : ""}
 ${faqHtml(t.faq)}
@@ -412,7 +413,7 @@ ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
 <p>Free tools: <a href="/tools/webinar-no-show-calculator">no-show calculator</a> · <a href="/tools/webinar-roi-calculator">ROI calculator</a> · <a href="/tools/webinar-title-generator">title generator</a>. Full guide: <a href="/webinar-attendance">how to increase webinar attendance</a>.</p>
-<p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
+<p><a href="/register">Try ShowUpAI free</a></p></article>`;
 
     const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);
     fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
