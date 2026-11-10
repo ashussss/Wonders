@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, fmtDate, API_BASE } from "@/lib/api";
 import { parseMarkdown, splitInline, headingId, tocFrom, relatedPosts } from "@/lib/markdown";
-import SubscribeBox from "@/components/SubscribeBox";
+import ReminderKit, { KitBar } from "@/components/ReminderKit";
 import BlogHeader from "@/components/BlogHeader";
 
 function setMeta(name, content, attr = "name") {
@@ -374,7 +374,7 @@ export default function BlogPostPage() {
         {looksLikeHtml(content) ? (
           <div dangerouslySetInnerHTML={{ __html: content }} />
         ) : (
-          <MarkdownBody content={content} insert={<SubscribeBox variant="inline" slug={post.slug} placement="mid-article" />} />
+          <MarkdownBody content={content} insert={<ReminderKit source={post.slug} placement="mid-article" />} />
         )}
       </article>
 
@@ -394,7 +394,7 @@ export default function BlogPostPage() {
 
       <div className="mt-10"><ShareButtons url={shareUrl} title={post.title} /></div>
 
-      <SubscribeBox variant="card" slug={post.slug} placement="end-of-post" />
+      <ReminderKit source={post.slug} placement="end-of-post" id="reminder-kit-end" />
 
       {post.author && post.author !== "ShowUpAI Team" && (
         <aside className="mt-12 p-5 border rounded-xl flex gap-4 items-start">
@@ -436,10 +436,10 @@ export default function BlogPostPage() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <Link
-            to="/waitlist"
+            to="/register"
             className="flex-1 text-center px-5 py-3 rounded-full bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity"
           >
-            Increase my attendance →
+            Start free trial →
           </Link>
           <Link
             to="/blog"
@@ -451,7 +451,7 @@ export default function BlogPostPage() {
       </section>
       <RelatedPosts current={post} />
       <ReadingProgress />
-      <SubscribeBox variant="bar" slug={post.slug} placement="sticky-bar" />
+      <KitBar />
     </motion.div>
   );
 }

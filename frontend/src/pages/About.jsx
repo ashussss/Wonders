@@ -70,7 +70,7 @@ export default function About() {
       </ul>
 
       <div className="mt-10 flex flex-col sm:flex-row gap-3">
-        <Link to="/waitlist" className="flex-1 text-center px-5 py-3 rounded-full bg-orange-600 hover:bg-orange-500 text-white font-semibold">
+        <Link to="/register" className="flex-1 text-center px-5 py-3 rounded-full bg-orange-600 hover:bg-orange-500 text-white font-semibold">
           Increase my attendance →
         </Link>
         <Link to="/blog" className="flex-1 text-center px-5 py-3 rounded-full border font-semibold hover:bg-black/5">
