@@ -240,7 +240,7 @@ def test_auto_schedule_repairs_held_draft_then_schedules(monkeypatch):
     monkeypatch.setattr(pseo, "next_publish_slot", slot)
     monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
     body = " ".join(["Plain specific advice about reminders."] * 250)
-    post = {"slug": "s", "title": "t", "meta_description": "m", "fact_check_ok": True,
+    post = {"slug": "s", "title": "Webinar reminder tips", "meta_description": "m", "fact_check_ok": True,
             "content": body + "\nTeams lose 73% of signups.", "word_count": 1300}
     assert not pseo.passes_quality_gate(post)[0]
     res = asyncio.run(pseo.auto_schedule(post))
@@ -257,7 +257,7 @@ def test_auto_schedule_records_held_reason(monkeypatch):
         return c
     monkeypatch.setattr(pseo, "style_fix", no_style)
     monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
-    post = {"slug": "s", "title": "t", "meta_description": "m", "fact_check_ok": True, "content": "short", "word_count": 1}
+    post = {"slug": "s", "title": "Webinar reminder tips", "meta_description": "m", "fact_check_ok": True, "content": "short", "word_count": 1}
     res = asyncio.run(pseo.auto_schedule(post))
     assert res["held"].startswith("too short")
     assert any(u.get("$set", {}).get("held_reason", "").startswith("too short") for _, u in coll.updates)
@@ -316,7 +316,7 @@ def test_last_resort_publishes_when_fact_check_cannot_run(monkeypatch):
     monkeypatch.setattr(pseo, "next_publish_slot", slot)
     monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
     body = " ".join(["Plain specific advice about reminders."] * 200)
-    post = {"slug": "s", "title": "t", "meta_description": "m", "word_count": 1000,
+    post = {"slug": "s", "title": "Webinar reminder tips", "meta_description": "m", "word_count": 1000,
             "content": body + "\nThis is a game-changer for teams.\nTeams lose 73% of signups."}
     assert asyncio.run(pseo.auto_schedule(dict(post)))["held"] == "fact-check did not run"
     res = asyncio.run(pseo.auto_schedule(dict(post), last_resort=True))
@@ -337,7 +337,7 @@ def test_last_resort_still_holds_thin_drafts(monkeypatch):
     monkeypatch.setattr(pseo, "fact_check", no_ai)
     monkeypatch.setattr(pseo, "style_fix", no_style)
     monkeypatch.setattr(pseo, "PSEO_AUTO_SCHEDULE", True)
-    post = {"slug": "s", "title": "t", "meta_description": "m", "content": "short", "word_count": 1}
+    post = {"slug": "s", "title": "Webinar reminder tips", "meta_description": "m", "content": "short", "word_count": 1}
     assert asyncio.run(pseo.auto_schedule(post, last_resort=True))["held"].startswith("too short")
 
 
@@ -490,3 +490,28 @@ def test_comparison_gate_allows_more_brand_mentions():
             "content": f"{b} a. {b} b. {b} c. {b} d."}
     assert not pseo.passes_quality_gate({**base, "keyword": "webinar tips"})[0]
     assert pseo.passes_quality_gate({**base, "keyword": "demio alternatives"})[0]
+
+
+def test_topic_guard_blocks_drift_and_junk_but_keeps_core_topics():
+    off = ["dynamic pricing for hybrid webinars", "integrating nfc badge data with abm platforms",
+           "integrating ai chatbots with b2b lead capture forms", "designing internal learning paths with webinars",
+           "integrating webinar attendance data with hr performance dashboards", "b2b lead scoring models",
+           'site:instagram.com "convite na dm" "whatsapp"']
+    on = ["webinar cta examples", "emails for webinar no shows", "clickmeeting alternatives", "goldcast vs on24",
+          "masterclass attendance for coaches", "circle community event attendance", "hybrid event reminder strategies"]
+    assert all(pseo.off_topic_reason(k) for k in off)
+    assert not any(pseo.off_topic_reason(k) for k in on)
+
+
+def test_seed_and_competitor_keywords_stay_on_topic():
+    allowed_off = {"internal webinar attendance for employees"}
+    off = {k for k, _ in pseo.SEED_KEYWORDS + pseo.COMPETITOR_KEYWORDS if not pseo.is_on_topic(k)}
+    assert off <= allowed_off
+
+
+def test_default_cadence_is_one_post_per_day(monkeypatch):
+    import importlib
+    monkeypatch.delenv("PSEO_POSTS_PER_DAY", raising=False)
+    monkeypatch.delenv("PSEO_MAX_PUBLISH_PER_DAY", raising=False)
+    fresh = importlib.reload(pseo)
+    assert fresh.PSEO_POSTS_PER_DAY == 1 and fresh.PSEO_MAX_PUBLISH_PER_DAY == 1
