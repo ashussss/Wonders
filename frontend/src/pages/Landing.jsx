@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
+import DemoVideo from "@/components/DemoVideo";
 import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
@@ -242,8 +243,8 @@ export default function Landing() {
               Start for free
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>
-            <a href="#how" className="inline-flex items-center justify-center gap-2 border border-white/[0.12] text-gray-300 hover:text-white hover:border-white/30 px-8 py-4 rounded-xl text-base transition-all">
-              See how it works <ChevronDown size={16} />
+            <a href="#demo" className="inline-flex items-center justify-center gap-2 border border-white/[0.12] text-gray-300 hover:text-white hover:border-white/30 px-8 py-4 rounded-xl text-base transition-all">
+              Watch the 74-sec demo <ChevronDown size={16} />
             </a>
           </motion.div>
 
@@ -268,6 +269,9 @@ export default function Landing() {
           <ChevronDown size={24} />
         </motion.div>
       </section>
+
+      {/* ── DEMO VIDEO ── */}
+      <DemoVideo />
 
       {/* ── THE GAP ── */}
       <section className="py-24 px-6 text-center relative overflow-hidden">
