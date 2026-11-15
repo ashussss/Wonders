@@ -10,6 +10,7 @@ Enhanced version with:
 
 """Blog, touches, registrants, and lead magnets endpoints — enhanced."""
 
+import logging
 import asyncio
 import uuid
 from typing import Dict, Any, List, Optional
@@ -152,6 +153,14 @@ async def publish_due() -> list:
         await pseo.seed_content_posts()
     except Exception:
         pass
+    try:  # exact on-page changes for queries Search Console shows at positions 5-40 (idempotent)
+        import keyword_boosts
+        await keyword_boosts.queue_priority_keywords()
+        boosted = await keyword_boosts.apply_all()
+        if boosted:
+            await _trigger_rebuild(f"keyword boosts: {', '.join(boosted)}"[:120])
+    except Exception as e:
+        logging.getLogger("showup.blog").warning(f"keyword boosts skipped: {e}")
     now = now_iso()
     due = await db.blog_posts.find(
         {"published": {"$ne": True}, "publish_at": {"$ne": None, "$lte": now}}, {"_id": 0, "slug": 1}
