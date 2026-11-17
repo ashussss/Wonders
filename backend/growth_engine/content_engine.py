@@ -265,6 +265,8 @@ fields that format uses:
                  readers to comment their letter (A, B, C or D) and why.
 - myth_fact:     {"format":"myth_fact","title":"<=8 words","items":[{"myth":"<=12 words, a belief hosts really hold","fact":"<=16 words, what actually works"}]}   (2-3 pairs)
 - timeline:      {"format":"timeline","title":"<=9 words","items":[{"time":"<=4 words, e.g. 7 days before","what":"<=12 words, what to send or do"}]}   (4-6 steps, in time order)
+- text_card:     {"format":"text_card","title":"the post's hook, 1-3 short sentences, <=28 words, exactly as the caption opens"}
+                 A plain text card that looks like the opening of a post. Best for story and opinion posts.
 - hot_take:      {"format":"hot_take","title":"the opinion itself, <=12 words, a clear side","subtitle":"one line on why, <=20 words"}
 Carousels are the best-performing format on LinkedIn and Instagram: prefer them for how-to.
 stat_card only when you were given a citable number.
@@ -298,7 +300,7 @@ FORMAT_PREFERENCE = {
     "pain_point": ["checklist", "comparison", "carousel", "infographic"],
     "engagement": ["quote", "poll", "hot_take", "carousel"],
     "competitor": ["comparison", "carousel", "infographic"],
-    "story": ["quote", "hot_take"],
+    "story": ["text_card", "quote", "hot_take"],
     "sell": ["checklist", "timeline", "infographic"],
 }
 
@@ -479,7 +481,7 @@ def is_renderable(spec: VisualSpec) -> bool:
         return len(spec.items) >= 2
     if f == "timeline":
         return len(spec.items) >= 3
-    if f == "hot_take":
+    if f in ("hot_take", "text_card"):
         return bool(spec.title)
     return False
 

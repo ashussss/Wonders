@@ -66,7 +66,7 @@ DEFAULT_WEEKLY_PLAN = (
     # "SEQUENCE" lead magnet), 2 story, 1 sell ("SHOW"), 1 contrarian take, 2 polls and 1
     # approach-vs-approach comparison.
     "mon=pain_point:carousel,mon=engagement:hot_take,"
-    "tue=story:quote,tue=blog:infographic,"
+    "tue=story:text_card,tue=blog:infographic,"
     "wed=pain_point:timeline,wed=engagement:poll,"
     "thu=sell:checklist,thu=blog:carousel,"
     "fri=pain_point:checklist,fri=competitor:comparison,"
@@ -160,6 +160,7 @@ VISUAL_FORMATS = (
     "myth_fact",
     "timeline",
     "hot_take",
+    "text_card",
 )
 
 __all__ = [

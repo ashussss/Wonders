@@ -94,6 +94,15 @@ def theme_index(day: str, slot: int) -> int:
     return base * 2 + slot
 
 
+def gif_style(index: int) -> str:
+    """Every other post gets a GIF version on LinkedIn, cycling the motion style; the rest
+    stay static, so the feed mixes still and moving cards."""
+    from .design import GIF_STYLES
+    if index % 2 == 0:
+        return ""
+    return GIF_STYLES[(index // 2) % len(GIF_STYLES)]
+
+
 def hold_reason(doc: Dict[str, Any]) -> str:
     """Why an auto-mode post must wait for a human instead of going out. "" = safe."""
     if (doc.get("review") or {}).get("visual_error"):
@@ -129,16 +138,19 @@ async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
         "updated_at": now_iso(),
         "asset_ids": [],
         "asset_urls": [],
+        "gif_urls": [],
         "results": {},
         "review": {"mode": "approval", "reviewed_by": None, "reviewed_at": None, "notes": ""},
         "metrics": {},
     })
 
     if render:
+        ti = theme_index(day, slot)
         assets = await ve.store_assets(db, draft.visual, seed=f"{draft.kind}:{draft.source_slug}",
-                                       theme_index=theme_index(day, slot))
+                                       theme_index=ti, gif_style=gif_style(ti))
         doc["asset_ids"] = assets.get("asset_ids") or []
         doc["asset_urls"] = assets.get("asset_urls") or []
+        doc["gif_urls"] = assets.get("gif_urls") or []
         if assets.get("error"):
             doc["review"]["visual_error"] = assets["error"]
 
@@ -562,6 +574,12 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
                 if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
                     res = await post_linkedin_poll(settings, text, (vis.get("title") or "").replace("*", ""),
                                                    [str(r).replace("*", "") for r in vis.get("rows") or []])
+                elif doc.get("gif_urls"):
+                    # Animated version first; if LinkedIn refuses the GIF, post the still card.
+                    res = await social.post_linkedin(settings, text, image_urls=doc["gif_urls"])
+                    if not res.get("ok") and imgs:
+                        logger.warning(f"linkedin gif failed, posting the still image: {res.get('detail')}")
+                        res = await social.post_linkedin(settings, text, image_urls=imgs)
                 elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:

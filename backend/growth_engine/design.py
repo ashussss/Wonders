@@ -132,6 +132,10 @@ def tokens(text: str, auto: bool = True) -> List[Tuple[str, bool]]:
             on = not on if marked else on
             continue
         for w in part.split():
+            # "*content*." -> keep the full stop on the word, not floating after a space
+            if out and re.fullmatch(r"[.,;:!?)\]'\"]+", w) and part[:1] not in (" ", "\t"):
+                out[-1] = (out[-1][0] + w, out[-1][1])
+                continue
             out.append((w, on))
     if not marked and auto:
         out = [(w, bool(_NUM.search(w))) for w, _ in out]
@@ -283,7 +287,7 @@ def footer(img, t, w=W, h=H, pad=PAD, site=True):
     f = font("bold", 32)
     d.text((pad + size + 14, y + size / 2), "ShowUp", font=f, fill=rgb(t["fg"]), anchor="lm")
     ax = pad + size + 14 + d.textlength("ShowUp", font=f)
-    d.text((ax, y + size / 2), "AI", font=f, fill=rgb("#FFFFFF" if orange else (t["accent"] if t["dark"] or t["name"] == "cream" else t["fg"])), anchor="lm")
+    d.text((ax, y + size / 2), "AI", font=f, fill=rgb("#FFFFFF" if orange else t["accent"]), anchor="lm")
     if site:
         d.text((w - pad, y + size / 2), BRAND_URL, font=font("semi", 28), fill=rgb(t["muted"]), anchor="rm")
 
@@ -633,6 +637,80 @@ def hot_take(statement: str, reason: str = "", seed: str = "") -> bytes:
     return jpeg(img)
 
 
+# ── text card (a plain "screenshot of a post" card) ─────────────────────────
+
+def text_card(text: str, name: str = "ShowUpAI", role: str = "showupai.live", seed: str = "") -> bytes:
+    """A simple text card: avatar initial, name and role, then the hook in big type.
+    It is the "simple text card" the voice guide allows; it reads like a real post."""
+    t = theme(seed or text, 1)
+    img = canvas(t)
+    d = ImageDraw.Draw(img)
+    box = (PAD - 20, PAD + 40, W - PAD + 20, H - PAD - 120)
+    card(img, box, t)
+    d = ImageDraw.Draw(img)
+    x0, y0 = box[0] + 56, box[1] + 56
+    r = 46
+    d.ellipse([x0, y0, x0 + 2 * r, y0 + 2 * r], fill=rgb(t["accent"]))
+    d.text((x0 + r, y0 + r), (plain(name)[:1] or "S").upper(), font=font("black", 50),
+           fill=rgb(t["on_accent"]), anchor="mm")
+    d.text((x0 + 2 * r + 24, y0 + r - 20), plain(name), font=font("bold", 38), fill=rgb(t["fg"]), anchor="lm")
+    d.text((x0 + 2 * r + 24, y0 + r + 22), plain(role), font=font("med", 28), fill=rgb(t["muted"]), anchor="lm")
+    inner = box[2] - box[0] - 112
+    top, limit = y0 + 2 * r + 60, box[3] - 120
+    tf, tl, tlines = fit(d, text, "bold", inner, limit - top, 84, 40, max_lines=9, lh=1.18)
+    y = top + max(0, (limit - top - tl * len(tlines)) // 2)
+    draw_rich(img, tlines, tf, x0, y, tl, t)
+    footer(img, t)
+    return jpeg(img)
+
+
+# ── animated GIF versions ────────────────────────────────────────────────────
+# A light motion pass over the finished card, so the feed sees something move without
+# it looking like AI art. The last frame is the full card and holds for a few seconds.
+
+GIF_STYLES = ("wipe_down", "wipe_right", "iris", "rise")
+
+
+def _ease(x: float) -> float:
+    return 1 - (1 - x) ** 3
+
+
+def animate(jpg: bytes, style: str = "wipe_down", frames: int = 10, hold_ms: int = 3500) -> bytes:
+    """Turn a rendered card into a looping GIF (<= 12 frames, LinkedIn-safe size)."""
+    final = Image.open(io.BytesIO(jpg)).convert("RGB")
+    w, h = final.size
+    bg_color = final.getpixel((4, 4))
+    pal = final.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
+    out_frames = []
+    for i in range(1, frames + 1):
+        k = _ease(i / frames)
+        f = Image.new("RGB", (w, h), bg_color)
+        mask = Image.new("L", (w, h), 0)
+        md = ImageDraw.Draw(mask)
+        if style == "wipe_right":
+            md.rectangle([0, 0, int(w * k), h], fill=255)
+            f.paste(final, (0, 0), mask)
+        elif style == "iris":
+            rad = int(((w ** 2 + h ** 2) ** 0.5) / 2 * k)
+            md.ellipse([w // 2 - rad, h // 2 - rad, w // 2 + rad, h // 2 + rad], fill=255)
+            f.paste(final, (0, 0), mask)
+        elif style == "rise":
+            f = Image.blend(Image.new("RGB", (w, h), bg_color), final, k)
+            off = int((1 - k) * 60)
+            f2 = Image.new("RGB", (w, h), bg_color)
+            f2.paste(f.crop((0, 0, w, h - off)), (0, off))
+            f = f2
+        else:  # wipe_down
+            md.rectangle([0, 0, w, int(h * k)], fill=255)
+            f.paste(final, (0, 0), mask)
+        out_frames.append(f.quantize(palette=pal, dither=Image.Dither.NONE))
+    durations = [70] * (len(out_frames) - 1) + [hold_ms]
+    buf = io.BytesIO()
+    out_frames[0].save(buf, "GIF", save_all=True, append_images=out_frames[1:], duration=durations,
+                       loop=0, optimize=True, disposal=1)
+    return buf.getvalue()
+
+
 __all__ = ["carousel", "infographic", "checklist", "stat_card", "quote", "comparison", "poll",
-           "myth_fact", "timeline", "hot_take", "use_theme",
+           "myth_fact", "timeline", "hot_take", "text_card", "animate", "GIF_STYLES", "use_theme",
            "tokens", "plain", "THEMES", "theme", "font"]
