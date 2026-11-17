@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import pseo
 
-from . import BRAND_NAME, FUNNEL_STAGES, GROWTH_PLATFORMS, SITE_URL, VISUAL_FORMATS
+from . import BRAND_NAME, FUNNEL_STAGES, GROWTH_LINKEDIN_VOICE, GROWTH_PLATFORMS, SITE_URL, VISUAL_FORMATS
 from .models import (
     CampaignDraft,
     CampaignKind,
@@ -33,64 +33,214 @@ from .models import (
 
 logger = logging.getLogger("showup.growth.content")
 
-# Brand + hard guardrails. Same anti-fabrication rules the blog pipeline uses:
-# we may only cite numbers that are handed to the model.
-BRAND_RULES = f"""Brand: {BRAND_NAME} ({SITE_URL}) helps webinar and event hosts get registrants to actually show up,
-using an AI-written reminder sequence across email, LinkedIn, Facebook, Instagram, WhatsApp and calendar, plus
-calendar invites. The host approves every message.
+SITE_DOMAIN_TEXT = "showupai.live"
+
+# Brand + hard guardrails. Product facts come from Ashu's master prompt (2026-11-17).
+# Same anti-fabrication rules the blog pipeline uses: only numbers handed to the model.
+BRAND_RULES = f"""Brand: {BRAND_NAME} ({SITE_DOMAIN_TEXT}). It gets more webinar registrants to actually show up live.
+How it works: the host pastes their event link (Zoom, Microsoft Teams, Google Meet or any event page). {BRAND_NAME} then
+plans up to 11 reminder touches, from 3 weeks before to 2 days after the event; writes the messages for email,
+WhatsApp, LinkedIn and calendar; creates promo posts and creatives in every platform size; sends only what the host
+approves, with the join link landing 1 hour before going live; shows who actually attended, and follows up with
+everyone who didn't.
+Tagline: "Fuller rooms. Fewer no-shows. Zero extra hours."
+Current offer: free for the first 100 webinar teams.
+Reader: people who run webinars at B2B companies (webinar managers, virtual events managers, field and event
+marketers, demand gen managers, heads of marketing) in the US, UK, Europe and Australia/New Zealand.
 
 ABSOLUTE RULES (violating these fails the campaign):
-- Never write "ShowUp.ai". Always "{BRAND_NAME}".
-- Never invent statistics, customer names, quotes, logos or study findings. Use ONLY numbers and sources provided
-  to you below. If you have no number, write a practical tip instead of a stat.
-- No hype words: unlock, game-changer, revolutionary, disrupt, seamless, cutting-edge.
-- Do not fabricate a study or attribute a number to a source that is not given.
-- Speak to one specific person, not "businesses" or "teams" in the abstract."""
+- The brand is always written "{BRAND_NAME}". Never "ShowUp AI", "ShowUp.ai" or "Showupai.Live". The website is
+  written showupai.live, lower case.
+- Never invent numbers, results, clients, quotes, studies or personal stories. Use ONLY the numbers and sources
+  provided below. To illustrate with a number you were not given, make it an obvious hypothetical
+  ("Say 400 people register..."), never a claim about a real webinar.
+- Never claim {BRAND_NAME} customers, users or results. There are none you may cite yet.
+- Do not attribute a number to a source that is not given.
+- If a line only works with a fact you were not given and cannot be made a hypothetical, cut it. As a last
+  resort keep it and end it with "[CONFIRM WITH ASHU]" so a human checks it before it goes out."""
 
-# How the copy should sound. The goal is a post a real person at ShowUpAI could have
-# written, built to get comments (reach) and clicks to the site (leads).
+# Who is speaking, per platform. LinkedIn may be Archana's personal profile; the Facebook
+# Page and Instagram account are always the brand.
+PERSONA_ARCHANA = f"""SPEAKER: Archana Singh, Growth Manager at {BRAND_NAME} (joined in 2026). Write in her first person ("I").
+The ONLY personal facts you may use: she has run 100+ webinars for audiences across the US, UK, Australia and
+New Zealand, and she joined {BRAND_NAME} in 2026. No past employers, no specific webinar results, no dated
+anecdotes, no named companies. A story is built from what she believed vs what she learned about attendance in
+general, or from what she sees teams do every week, never from an invented event.
+When she mentions {BRAND_NAME}, it is "we" ("So we built {BRAND_NAME}")."""
+
+PERSONA_BRAND = f"""SPEAKER: the {BRAND_NAME} team, writing as "we" to one webinar host ("you"). Do not write as a named person and
+do not claim personal experience (no "I've run 100 webinars"). Same tone and structure as everywhere else:
+confident, a bit cheeky, simple words."""
+
+# How the copy should sound: Lara Acosta's LinkedIn style, per Ashu's master prompt
+# (2026-11-17). Applies to every platform; PLATFORM_RULES only changes the length.
 VOICE_RULES = """
-VOICE (applies to every platform):
-- Sound like one experienced person talking to a peer. Not a brand, not a press release.
-- Assertive. Take a clear position. No hedging ("might", "could potentially", "in some cases").
-- Short sentences. Most under 12 words. One sentence per line. A blank line between ideas.
-- Concrete over clever: a specific situation, a specific step, a specific mistake.
-- The first line decides whether anyone reads on. Open with one of: a contrarian claim, a
-  costly mistake the reader is making right now, a sharp before/after, or a number you were
-  given. Never open with a question, a greeting, "Did you know", or the brand name.
-- Make the reader feel seen: name the exact moment they live through (the empty Zoom room at
-  minute five, the replay nobody watches, the reminder sent the day before).
-- One idea per post. Cut every line that does not serve it.
-- Make it worth saving: give the reader something they can copy today (exact reminder wording,
-  a send-time schedule, a checklist, a before/after). Saves and long reads beat likes on every feed.
-- When you use a sourced number, name the report in plain words in the caption. Never round it
-  into something bigger, never apply it to a different situation.
-- No emojis. No decorative symbols or arrows. No em dashes. Plain "1." "2." "3." for lists.
-- Banned words and phrases: in today's, fast-paced, landscape, dive in, let's dive, delve,
-  game-changer, game changer, unlock, elevate, leverage, harness, supercharge, seamless,
-  revolutionize, robust, navigate, realm, tapestry, embark, buckle up, level up,
-  "here's the thing", "the truth is", "it's not just X, it's Y", "let that sink in".
-- End with ONE question about this exact subject that a reader can answer from their own
-  experience in a few words (an either/or, a "which one", a "what's your number"), then ask
-  them to answer in the comments. Vary the wording; never a bare
-  "Thoughts?" or "What do you think?". The question is always the last line before hashtags.
+VOICE (Lara Acosta's style, applies to every platform):
+- Conversational, confident, a bit cheeky. Talk to ONE person. Simple words, no jargon, no corporate filler.
+- Every post is about webinar attendance. One topic, many angles.
+
+STRUCTURE of every caption:
+1. Hook in the first 1-2 lines. Use one of:
+   - a contrarian take: '"Send more reminders" is the worst webinar advice I've heard.'
+   - a specific number (a sourced one, or an obvious hypothetical): "400 registered. 140 showed up."
+   - a confession or turning point: "For years I thought the fix was more promotion."
+   - a direct call-out: "If your webinar show-up rate is under 40%, read this:"
+   Never open with a greeting, "Did you know", a hashtag or the brand name.
+2. Short lines. One idea per line, a blank line between beats. Most lines under 12 words.
+   Paragraphs of 1-3 lines at most.
+3. Rhythm through repetition: "More emails. More posts. More 'don't forget!'" and "Not because... Because...".
+4. The meat (see POST TYPE below for which shape to use).
+5. A plain, honest punchline on its own lines: "It's boring. But boring fills rooms." or
+   "That's not a content problem. That's a timing problem."
+6. ALWAYS a PS line: "PS: " followed by one question that is easy to answer in a few words in the
+   comments ("PS: Which of these 8 are you not sending right now?", "PS: What's the lowest show-up
+   rate you've ever seen? Be honest 👀"). Never a bare "Thoughts?".
+7. Optional repost line after the PS: "Save this ♻️ for your next webinar." or
+   "Repost ♻️ if you know someone whose webinar deserves a fuller room."
+8. Optional CTA block after a line containing only "---": the lead magnet or the offer, plus the
+   showupai.live line.
+
+RULES:
+- Emoji: at most 2 per caption, and only 👀 😂 or ♻️. Never emoji bullets, arrows, checkmarks, rockets
+  or decorative symbols. Plain "1." "2." "3." for lists.
+- Never use em dashes or en dashes. Use a full stop or a comma.
+- Never use: "In today's fast-paced world", game-changer, unlock, leverage, delve, elevate, seamless,
+  revolutionize, "Here's the thing:", "Let that sink in", landscape, harness, supercharge, robust,
+  navigate, realm, embark, "level up", "dive in".
+- Hashtags: none, or at most 2 at the very end. Never a block of hashtags.
+- When you use a sourced number, name the report in plain words. Never round it up or apply it to a
+  different situation.
+- Nothing should look AI-generated.
+
+REFERENCE EXAMPLES (match this tone exactly; do not copy them word for word):
+
+STORY:
+Most webinars don't fail because of the content.
+
+They fail at 9:58am.
+
+Two minutes before you go live.
+When hundreds registered.
+And the room is a third full.
+
+I've run 100+ webinars across the US, UK and ANZ.
+
+For years I thought the fix was more promotion.
+More emails. More posts. More "don't forget!"
+
+It wasn't.
+
+The people who registered already wanted to come.
+They just forgot. Or the link was buried. Or the reminder landed at the wrong time.
+
+That's not a content problem.
+That's a timing problem.
+
+PS: What's the lowest show-up rate you've ever seen? Be honest 👀
+
+EDUCATE with lead magnet:
+If your webinar show-up rate is under 40%, read this:
+
+After 100+ webinars, this is the reminder sequence I'd use if I started from zero.
+
+The quick summary? Of course:
+
+1. Instant confirmation. With a calendar link that actually works.
+2. 7 days before: what they'll walk away with.
+3. 3 days before: a speaker teaser.
+4. 1 day before: one question you'll answer live.
+5. Morning of: "today at [time]."
+6. 1 hour before: the join link. Nothing else.
+7. 10 minutes before: "we're starting."
+8. After: the replay + a reason to come live next time.
+
+It's boring. But boring fills rooms.
+
+PS: Which of these 8 are you not sending right now?
+
+Save this ♻️ for your next webinar.
+
+---
+
+Want the full sequence written for your next webinar? Comment "SEQUENCE" and I'll send it over.
+
+EDUCATE, contrarian:
+"Send more reminders" is the worst webinar advice I've heard.
+
+More reminders don't fix low attendance.
+They train people to ignore you.
+
+What actually works:
+
+1. Fewer messages, better timing.
+2. Different channels, not the same email 5 times.
+3. One clear action per message.
+4. A reason to show up live.
+
+And the biggest killer?
+
+"Don't worry, we'll send the recording."
+
+The second you say that, half the room decides to watch later.
+(They won't.)
+
+PS: Do you send the replay to everyone, or only to people who showed up?
+
+SELL:
+Every webinar I ran, I lost days to the same work.
+
+Writing reminders. Timing them.
+Making promo graphics in 6 sizes.
+Chasing no-shows after.
+
+So we built ShowUpAI.
+
+You paste your event link.
+It plans up to 11 touches, from 3 weeks before to 2 days after.
+Writes them for email, WhatsApp, LinkedIn and calendar.
+Makes the promo posts.
+Sends only what you approve.
+Then shows you who actually turned up.
+
+Fuller rooms. Fewer no-shows. Zero extra hours.
+
+For the first 100 webinar teams, it's free.
+
+Got a webinar coming up? Comment "SHOW" and I'll set it up with you.
+
+PS: What's the one part of webinar promo you'd happily never do again?
 """
 
+# The shape of "the meat" for each campaign kind.
+KIND_STRUCTURE = {
+    "pain_point": ('EDUCATE post. Hook, one line of context, then "The quick summary? Of course:" and a numbered '
+                   "list (1. 2. 3.), each item short and concrete, then the punchline and the PS question."),
+    "engagement": ("EDUCATE, contrarian post. Take a clear side people will argue with, give 3-4 numbered points on "
+                   "what actually works, a sharp twist line, then the PS question."),
+    "story": ("STORY post. What happened (or what she sees every week) > what I believed > what I learned > what "
+              "changed. Built only on the allowed facts. No pitch beyond one light mention at most. Up to 300 words."),
+    "sell": ('SELL post. The pain in 3-4 short lines > "So we built ShowUpAI." > how it works in 5-6 short lines '
+             "> the tagline > the offer (free for the first 100 webinar teams) > the comment-keyword CTA > PS."),
+    "blog": ("EDUCATE post built from our article. Hook from the article's single most useful idea, then "
+             '"The quick summary? Of course:" with 3-6 numbered takeaways the article actually states, the '
+             "punchline, the PS question, and after the --- line: \"Full breakdown on our blog:\" (the link is added "
+             "for you)."),
+    "competitor": ("EDUCATE post comparing two approaches. The usual way vs the better way as two short numbered "
+                   "lists or paired lines, honest about where the usual way is fine, then the punchline and PS."),
+    "news": ("EDUCATE post reacting to the news item. One line on what happened, then what it means for someone "
+             "running webinars next month as a short numbered list, the punchline and the PS question."),
+}
+
 PLATFORM_RULES = """
-PLATFORM COPY RULES (LinkedIn and Meta best practice; return each as a separate object):
-- linkedin: 700-1300 characters. Line 1 is the hook, under 12 words, alone on its line, and
-  must make someone click "see more". Line 2 adds tension or a stake. Lines 1-2 together stay
-  under 150 characters (that is all LinkedIn shows before "see more"). Then the substance as
-  short lines or a plain numbered list. Close the body with a one-line takeaway worth saving.
-  If the visual is a carousel, say what they get by swiping. Always one plain line pointing to showupai.live (domain only, no https, no
-  "link in bio"). Then the question and the comment ask. 1-2 specific hashtags on the last line (more no longer
-  helps reach on LinkedIn).
-- facebook: 150-450 characters. Hook line, 2-4 short lines, one line mentioning showupai.live,
-  the question and the comment ask. 0-2 hashtags.
-- instagram: 400-1100 characters. Hook in the first 125 characters. Short lines. Ask them
-  to save the post or send it to a teammate who runs webinars, one line "More at showupai.live (link in bio)",
-  then the question and the comment ask. 3-5 specific hashtags on the last line.
-- Put the hashtags inside the caption text and also list them in "hashtags".
+PLATFORM COPY (return each as a separate object; same voice and structure everywhere, only the length changes):
+- linkedin: 120-250 words (STORY posts up to 300). The hook (lines 1-2) stays under 150 characters, since
+  that is all LinkedIn shows before "see more". Include one line with the link https://showupai.live,
+  inside the CTA block after "---". 0-2 hashtags on the last line.
+- facebook: 60-150 words. Hook, the meat in short lines, the punchline, the PS question, and a
+  line with https://showupai.live. 0-2 hashtags.
+- instagram: 100-220 words. Hook in the first 125 characters. Short lines. The PS question, a save or
+  "send this to a teammate who runs webinars" line, and "More at showupai.live (link in bio)". 0-2 hashtags.
+- Put any hashtags inside the caption text and also list them in "hashtags".
 """
 
 VISUAL_RULES = """
@@ -137,6 +287,8 @@ KIND_STAGE = {
     "pain_point": "consideration",
     "engagement": "awareness",
     "competitor": "consideration",
+    "story": "awareness",
+    "sell": "conversion",
 }
 
 # Fallback visual rotation when the model returns an unknown format.
@@ -146,6 +298,8 @@ FORMAT_PREFERENCE = {
     "pain_point": ["checklist", "comparison", "carousel", "infographic"],
     "engagement": ["quote", "poll", "hot_take", "carousel"],
     "competitor": ["comparison", "carousel", "infographic"],
+    "story": ["quote", "hot_take"],
+    "sell": ["checklist", "timeline", "infographic"],
 }
 
 
@@ -164,9 +318,9 @@ def _clean(d: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for k, v in (d or {}).items():
         if isinstance(v, str):
-            out[k] = humanize(pseo.rebrand(pseo.normalize_text(v)))
+            out[k] = humanize(fix_brand(pseo.rebrand(pseo.normalize_text(v))))
         elif isinstance(v, list):
-            out[k] = [humanize(pseo.rebrand(pseo.normalize_text(x))) if isinstance(x, str)
+            out[k] = [humanize(fix_brand(pseo.rebrand(pseo.normalize_text(x)))) if isinstance(x, str)
                       else _clean(x) if isinstance(x, dict) else x for x in v]
         elif isinstance(v, dict):
             out[k] = _clean(v)
@@ -368,23 +522,47 @@ def _synthesize_spec(spec: VisualSpec, original_fmt: str) -> VisualSpec:
     return spec
 
 
-_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u20E3\u2190-\u21FF]")
-_DASH = re.compile(r"\s*[\u2014\u2013]\s*")
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️⃣←-⇿]")
+_DASH = re.compile(r"\s*[—–]\s*")
+# The only emoji the voice allows (Ashu's master prompt): 👀 😂 ♻️, at most two per caption.
+ALLOWED_EMOJI = ("\U0001F440", "\U0001F602", "♻️", "♻")
+MAX_EMOJI = 2
 
 BANNED_PHRASES = (
     "in today's", "fast-paced", "landscape", "dive in", "let's dive", "delve", "game-changer",
     "game changer", "unlock", "elevate", "leverage", "harness", "supercharge", "seamless",
-    "revolutioniz", "robust", "navigate", "realm", "tapestry", "embark", "buckle up",
+    "revolutioniz", "revolutionis", "robust", "navigate", "realm", "tapestry", "embark", "buckle up",
     "level up", "here's the thing", "the truth is", "let that sink in",
 )
 
+_BRAND_VARIANTS = re.compile(r"(?<![@/\w.])show\s?up[\s.-]?ai(?!\w)(?!\.live)", re.I)
+_DOMAIN = re.compile(r"(?<![@/\w])showupai\.live\b", re.I)
 
-def humanize(text: str) -> str:
-    """Strip the tells that make a caption read as machine-written: emojis, arrows,
-    em/en dashes and runs of blank lines. Wording problems are caught by copy_issues."""
+
+def fix_brand(text: str) -> str:
+    """'ShowUp AI' / 'Showup ai' / 'ShowUp.ai' -> 'ShowUpAI'; 'Showupai.Live' -> 'showupai.live'."""
     if not isinstance(text, str):
         return text
-    t = _EMOJI.sub("", text)
+    t = _DOMAIN.sub("showupai.live", text)
+    return _BRAND_VARIANTS.sub(BRAND_NAME, t)
+
+
+def humanize(text: str) -> str:
+    """Strip the tells that make a caption read as machine-written: emojis other than the
+    allowed 👀 😂 ♻️ (max two), arrows, em/en dashes and runs of blank lines. Wording
+    problems are caught by copy_issues."""
+    if not isinstance(text, str):
+        return text
+    kept: List[str] = []
+
+    def _keep(m: "re.Match[str]") -> str:
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+
+    t = re.sub("|".join(re.escape(e) for e in ALLOWED_EMOJI), _keep, text)
+    t = _EMOJI.sub("", t)
+    t = re.sub("\x00(\\d+)\x00", lambda m: ("♻️" if kept[int(m.group(1))].startswith("♻")
+                                            else kept[int(m.group(1))]) if int(m.group(1)) < MAX_EMOJI else "", t)
     t = _DASH.sub(", ", t)
     t = re.sub(r"[ \t]+\n", "\n", t)
     t = re.sub(r"\n{3,}", "\n\n", t)
@@ -395,15 +573,24 @@ def humanize(text: str) -> str:
 SITE_DOMAIN = "showupai.live"
 
 
-def ensure_site(caption: str) -> str:
-    """Every caption carries showupai.live once. If the model left it out, add it as
-    its own line just above the hashtag line (or at the end when there are none)."""
+SITE_LINK = "https://showupai.live"
+_BARE_DOMAIN = re.compile(r"(?<![/\w.@-])showupai\.live(?![/\w])", re.I)
+
+
+def ensure_site(caption: str, platform: str = "linkedin") -> str:
+    """Every caption carries the ShowUpAI link once (Ashu, 2026-11-17: "showup ka link bhi").
+    LinkedIn and Facebook get the clickable https://showupai.live; Instagram captions cannot
+    hold a clickable link, so they keep "showupai.live (link in bio)". If the model left it
+    out, add it as its own line just above the hashtag line (or at the end)."""
+    if platform != "instagram" and SITE_LINK not in caption.lower():
+        caption = _BARE_DOMAIN.sub(SITE_LINK, caption, count=1)
     if SITE_DOMAIN in caption.lower():
         return caption
+    line = f"Try it free: {SITE_LINK}" if platform != "instagram" else f"{SITE_DOMAIN} (link in bio)"
     lines = caption.rstrip().split("\n")
     if lines and lines[-1].strip().startswith("#"):
-        return "\n".join(lines[:-1]).rstrip() + f"\n\n{SITE_DOMAIN}\n\n" + lines[-1].strip()
-    return caption.rstrip() + f"\n\n{SITE_DOMAIN}"
+        return "\n".join(lines[:-1]).rstrip() + f"\n\n{line}\n\n" + lines[-1].strip()
+    return caption.rstrip() + f"\n\n{line}"
 
 
 def ensure_link(caption: str, url: str) -> str:
@@ -423,7 +610,18 @@ def is_blog_link(url: str) -> bool:
     return bool(url) and url.startswith(SITE_URL.rstrip("/") + "/blog/")
 
 
-def copy_issues(copy: Dict[str, PlatformCopy]) -> List[str]:
+# Word ranges per platform (the master prompt's 120-250, story up to 300). A little slack on
+# each side so a good post is not rewritten for being three words short.
+WORD_RANGE = {"linkedin": (110, 265), "facebook": (50, 170), "instagram": (90, 240)}
+STORY_MAX_WORDS = 320
+
+
+def _words(caption: str) -> int:
+    body = caption.split("\n---", 1)[0]  # the CTA block does not count toward length
+    return len(re.findall(r"[A-Za-z0-9'%$]+", body))
+
+
+def copy_issues(copy: Dict[str, PlatformCopy], kind: str = "") -> List[str]:
     """Rule checks a reviewer would otherwise do by hand. Empty list = good."""
     issues: List[str] = []
     for platform, block in copy.items():
@@ -432,11 +630,24 @@ def copy_issues(copy: Dict[str, PlatformCopy]) -> List[str]:
         hits = [p for p in BANNED_PHRASES if p in low]
         if hits:
             issues.append(f"{platform}: remove the phrases {', '.join(hits)}")
-        if "?" not in cap:
+        if not re.search(r"(?im)^\s*PS:.*\?", cap):
+            issues.append(f"{platform}: add a 'PS:' line with one easy question readers can answer in the comments")
+        elif "?" not in cap:
             issues.append(f"{platform}: end with a question that asks readers to comment")
         first = cap.strip().split("\n", 1)[0]
         if platform == "linkedin" and len(first.split()) > 14:
             issues.append("linkedin: the first line must be a hook under 12 words")
+        lo, hi = WORD_RANGE.get(platform, (0, 10_000))
+        if kind == "story":
+            hi = max(hi, STORY_MAX_WORDS) if platform == "linkedin" else hi
+        n = _words(cap)
+        if n < lo or n > hi:
+            issues.append(f"{platform}: {n} words, keep it between {lo} and {hi}")
+        tags = re.findall(r"(?<![\w&])#\w+", cap)
+        if len(tags) > 2:
+            issues.append(f"{platform}: at most 2 hashtags, at the very end")
+        if re.search(r"show\s?up[\s.]ai(?!\.live)", cap, re.I):
+            issues.append(f"{platform}: write the brand as {BRAND_NAME}")
     return issues
 
 
@@ -496,7 +707,9 @@ Strategy fields:
 - cta: what the reader should do next.
 - rationale: 1-2 sentences on why this angle suits this audience at this stage.
 
+{speaker_block(platforms)}
 {VOICE_RULES}
+POST TYPE: {KIND_STRUCTURE.get(kind, KIND_STRUCTURE["pain_point"])}
 {PLATFORM_RULES}
 {VISUAL_RULES}
 {format_line}
@@ -529,9 +742,9 @@ Return ONLY a JSON object with exactly this shape:
             logger.error(f"content_engine: AI failed for {kind}/{seed}: {e}")
             return None
         copy = _platform_copy(raw, platforms)
-        for block in copy.values():
-            block.caption = ensure_site(humanize(block.caption.replace("*", "")))
-        issues = copy_issues(copy) if copy else ["no captions returned"]
+        for plat, block in copy.items():
+            block.caption = ensure_site(humanize(fix_brand(block.caption.replace("*", ""))), plat)
+        issues = copy_issues(copy, kind) if copy else ["no captions returned"]
         if not issues:
             break
         logger.info(f"content_engine: rewrite {kind}/{seed}: {issues}")
@@ -564,6 +777,16 @@ Return ONLY a JSON object with exactly this shape:
     )
 
 
+def speaker_block(platforms: List[str]) -> str:
+    """Who writes which caption. Facebook and Instagram are always the brand page."""
+    li_archana = GROWTH_LINKEDIN_VOICE == "archana" and "linkedin" in platforms
+    if not li_archana:
+        return PERSONA_BRAND
+    return ("LINKEDIN CAPTION " + PERSONA_ARCHANA +
+            "\n\nFACEBOOK AND INSTAGRAM CAPTIONS (the brand page) " + PERSONA_BRAND +
+            "\nThe brand captions make the same point as the LinkedIn caption, rewritten in the team's voice.")
+
+
 def stage_hint_for(kind: str) -> str:
     stage = KIND_STAGE.get(kind, "awareness")
     return f"Aim for '{stage}' — {STAGE_HINTS[stage]}."
@@ -571,7 +794,8 @@ def stage_hint_for(kind: str) -> str:
 
 def source_type_default(kind: str) -> str:
     return {"blog": "blog", "news": "news", "pain_point": "original",
-            "engagement": "original", "competitor": "original"}.get(kind, "original")
+            "engagement": "original", "competitor": "original",
+            "story": "original", "sell": "original"}.get(kind, "original")
 
 
 __all__ = [
@@ -582,6 +806,8 @@ __all__ = [
     "VOICE_RULES",
     "humanize",
     "copy_issues",
+    "fix_brand",
+    "KIND_STRUCTURE",
     "ensure_site",
     "STAGE_HINTS",
     "stage_hint_for",

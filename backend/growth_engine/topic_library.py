@@ -198,14 +198,44 @@ COMPARISON_TOPICS: List[str] = [
     "Counting registrations vs counting live attendees and meetings booked",
 ]
 
-# The first line decides reach. Rotate how it opens.
+# Story posts (Archana's 4-3-2-1 "attract" slot). Each one is built only on her verified
+# facts (100+ webinars across the US, UK and ANZ; joined ShowUpAI in 2026) or on what teams
+# do every week. Never an invented event, employer, date or result.
+STORY_TOPICS: List[str] = [
+    "Most webinars don't fail on content, they fail two minutes before going live, when the room is a third full",
+    "For years I thought the fix for low attendance was more promotion. It was timing",
+    "The replay trap: the day I stopped saying 'we'll send the recording' in reminders",
+    "What 100+ webinars across the US, UK and ANZ taught me about time zones and the join link",
+    "The no-show list is where the pipeline was hiding all along",
+    "Why I joined ShowUpAI: the same reminder work, rebuilt by hand before every webinar",
+    "The mistake I see webinar teams make every week: one email, sent the day before, called a 'sequence'",
+    "What changed when the join link started landing 1 hour before, not the day before",
+]
+
+# Sell posts (1 a week). Each names one pain; the post then shows how ShowUpAI removes it.
+SELL_ANGLES: List[str] = [
+    "Days lost every webinar to writing and timing reminders by hand",
+    "Promo graphics in 6 sizes for every single webinar",
+    "Chasing no-shows after the event, one by one",
+    "The same email sent 5 times, and still a half-empty room",
+    "Reminders that never reach WhatsApp, LinkedIn or the calendar, where people actually look",
+]
+
+# Comment-keyword lead magnets Ashu approved (master prompt, 2026-11-17). Add a new keyword
+# here only after its asset is written and approved.
+LEAD_MAGNETS: Dict[str, str] = {
+    "SEQUENCE": ('Want the full sequence written for your next webinar? Comment "SEQUENCE" and {we} send it over.'),
+    "SHOW": ('Got a webinar coming up? Comment "SHOW" and {we} set it up with you. Free for the first 100 '
+             'webinar teams.'),
+}
+
+# The first line decides reach. Rotate how it opens (Lara Acosta's four hook types).
 HOOK_STYLES = [
-    "Open with a contrarian claim the reader half-believes the opposite of.",
-    "Open with the costly mistake the reader is making right now, stated plainly.",
-    "Open with a sharp before/after in one line.",
-    "Open with the number from the sourced facts and what it means for the reader.",
-    "Open with a 1-line scene from the host's day (the empty room at minute five, the replay nobody opens).",
-    "Open with 'Steal this' plus the exact playbook the post gives away.",
+    "Open with a contrarian take: '\"<common advice>\" is the worst webinar advice I've heard.'",
+    "Open with a confession or turning point: 'For years I thought <wrong belief>.'",
+    "Open with a direct call-out: 'If your webinar <specific situation>, read this:'",
+    "Open with a specific number from the sourced facts, or an obvious hypothetical ('Say 400 register. 140 show up.')",
+    "Open with a 1-line scene from the host's day (9:58am, the room a third full; the replay nobody opens).",
 ]
 
 
@@ -225,6 +255,20 @@ def pick_topic(seed: str, need_fact: bool = False) -> Dict:
 def pick_engagement(seed: str, need_fact: bool = False) -> Dict:
     pool = [t for t in ENGAGEMENT_TOPICS if t["facts"]] if need_fact else ENGAGEMENT_TOPICS
     return pool[_index(seed) % len(pool)]
+
+
+def pick_story(seed: str) -> str:
+    return STORY_TOPICS[_index(seed) % len(STORY_TOPICS)]
+
+
+def pick_sell(seed: str) -> str:
+    return SELL_ANGLES[_index(seed) % len(SELL_ANGLES)]
+
+
+def lead_magnet(keyword: str, personal: bool) -> str:
+    """The CTA line for a lead-magnet keyword, in the speaker's voice."""
+    text = LEAD_MAGNETS.get(keyword, "")
+    return text.format(we="I'll" if personal else "we'll")
 
 
 def pick_comparison(seed: str) -> str:
@@ -249,4 +293,5 @@ def fact_block(keys: Optional[List[str]]) -> str:
 
 
 __all__ = ["FACTS", "TOPICS", "ENGAGEMENT_TOPICS", "COMPARISON_TOPICS", "HOOK_STYLES", "PILLAR_HINTS",
-           "pick_topic", "pick_engagement", "pick_comparison", "pick_hook", "fact_block"]
+           "STORY_TOPICS", "SELL_ANGLES", "LEAD_MAGNETS", "pick_topic", "pick_engagement", "pick_comparison",
+           "pick_story", "pick_sell", "lead_magnet", "pick_hook", "fact_block"]

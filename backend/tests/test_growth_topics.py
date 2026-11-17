@@ -58,3 +58,31 @@ def test_original_campaign_passes_brief_facts_and_hook(monkeypatch):
     assert seen["kind"] == "pain_point"
     assert "PILLAR:" in seen["angle_hint"] and "HOOK STYLE:" in seen["angle_hint"]
     assert "SOURCED FACTS (" in seen["fact_block"]
+
+
+def test_story_and_sell_rotate_and_lead_magnets_speak_in_the_right_voice():
+    from growth_engine import topic_library as tl
+    assert tl.pick_story("2026-11-17-0") != tl.pick_story("2026-11-18-0")
+    assert tl.pick_sell("2026-11-17-0") in tl.SELL_ANGLES
+    assert "I'll" in tl.lead_magnet("SEQUENCE", True)
+    assert "we'll" in tl.lead_magnet("SHOW", False)
+
+
+def test_monday_educate_post_carries_the_sequence_magnet(monkeypatch):
+    import asyncio
+    from growth_engine import queue
+    seen = {}
+
+    async def fake_build(kind, **kw):
+        seen[kind] = kw["angle_hint"]
+        return None
+
+    monkeypatch.setattr(queue, "build_campaign", fake_build)
+    asyncio.run(queue.build_original_campaign("pain_point", seed="2026-11-16-0"))   # Monday
+    assert "SEQUENCE" in seen["pain_point"]
+    asyncio.run(queue.build_original_campaign("pain_point", seed="2026-11-18-0"))   # Wednesday
+    assert "SEQUENCE" not in seen["pain_point"]
+    asyncio.run(queue.build_original_campaign("sell", seed="2026-11-19-0"))
+    assert "SHOW" in seen["sell"] and "So we built" not in seen["sell"]
+    asyncio.run(queue.build_original_campaign("story", seed="2026-11-17-0"))
+    assert "story post" in seen["story"]

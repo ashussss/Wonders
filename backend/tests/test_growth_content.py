@@ -20,11 +20,13 @@ def test_default_plan_is_two_posts_a_day_on_every_platform():
     # the two posts on a day never share a format
     assert all(items[0]["format"] != items[1]["format"] for items in plan.values())
     kinds = [x["kind"] for items in plan.values() for x in items]
-    assert {"pain_point", "blog", "news", "competitor", "engagement"} <= set(kinds)
-    # webinar-topic posts lead the mix; blogs still go out four times a week
-    assert sum(1 for x in kinds if x == "pain_point") == 5
+    assert {"pain_point", "blog", "competitor", "engagement", "story", "sell"} <= set(kinds)
+    # 2026-11-17 mix: 4-3-2-1 style (story / educate / sell) plus blogs and polls
     assert sum(1 for x in kinds if x == "blog") == 4
-    assert sum(1 for items in plan.values() for x in items if x["format"] == "poll") == 1
+    assert sum(1 for x in kinds if x == "pain_point") == 3
+    assert sum(1 for x in kinds if x == "story") == 2
+    assert sum(1 for x in kinds if x == "sell") == 1
+    assert sum(1 for items in plan.values() for x in items if x["format"] == "poll") == 2
 
 
 def test_plan_skips_bad_entries_and_falls_back():
@@ -37,7 +39,8 @@ def test_plan_skips_bad_entries_and_falls_back():
 
 def test_plan_for_a_date():
     assert len(queue.plan_for("2026-10-11")) == 2       # a Sunday
-    assert queue.plan_for("2026-10-08")[1]["kind"] == "competitor"   # a Thursday
+    assert queue.plan_for("2026-10-09")[1]["kind"] == "competitor"   # a Friday
+    assert queue.plan_for("2026-10-08")[0]["kind"] == "sell"         # a Thursday
 
 
 def test_humanize_strips_ai_tells():
@@ -51,8 +54,61 @@ def test_copy_issues_flags_banned_words_and_missing_question():
     issues = ce.copy_issues(bad)
     assert any("in today's" in i for i in issues)
     assert any("question" in i for i in issues)
-    good = {"linkedin": PlatformCopy(caption="Your reminders are too late.\n\nWhen do you send the first one? Tell me below.")}
+    good = {"linkedin": PlatformCopy(caption=GOOD_LINKEDIN)}
     assert ce.copy_issues(good) == []
+
+
+GOOD_LINKEDIN = """If your webinar show-up rate is under 40%, read this:
+
+After 100+ webinars, this is the reminder sequence I'd use if I started from zero.
+
+The quick summary? Of course:
+
+1. Instant confirmation. With a calendar link that actually works.
+2. 7 days before: what they'll walk away with.
+3. 3 days before: a speaker teaser.
+4. 1 day before: one question you'll answer live.
+5. Morning of: "today at [time]."
+6. 1 hour before: the join link. Nothing else.
+7. 10 minutes before: "we're starting."
+8. After: the replay + a reason to come live next time.
+
+Most teams send two of these and wonder why the room is empty.
+Not because people don't care.
+Because the reminder landed at the wrong time, on the wrong channel.
+
+It's boring. But boring fills rooms.
+
+PS: Which of these 8 are you not sending right now?
+
+Save this ♻️ for your next webinar.
+
+---
+
+Want the full sequence written for your next webinar? Comment "SEQUENCE" and I'll send it over.
+showupai.live"""
+
+
+def test_copy_issues_new_voice_rules():
+    no_ps = {"linkedin": PlatformCopy(caption=GOOD_LINKEDIN.replace("PS: ", ""))}
+    assert any("PS:" in i for i in ce.copy_issues(no_ps))
+    short = {"linkedin": PlatformCopy(caption="Hook.\n\nPS: Which one?")}
+    assert any("words" in i for i in ce.copy_issues(short))
+    tags = {"linkedin": PlatformCopy(caption=GOOD_LINKEDIN + "\n\n#webinars #events #b2b")}
+    assert any("hashtags" in i for i in ce.copy_issues(tags))
+    brand = {"linkedin": PlatformCopy(caption=GOOD_LINKEDIN.replace("I'd use", "ShowUp AI uses"))}
+    assert any("ShowUpAI" in i for i in ce.copy_issues(brand))
+
+
+def test_humanize_keeps_up_to_two_allowed_emoji():
+    out = ce.humanize("Be honest 👀 😂 ♻️ 🚀")
+    assert "👀" in out and "😂" in out
+    assert "♻" not in out and "🚀" not in out
+
+
+def test_fix_brand():
+    assert ce.fix_brand("ShowUp AI and ShowUp.ai at Showupai.Live") == "ShowUpAI and ShowUpAI at showupai.live"
+    assert ce.fix_brand("email me at hi@showupai.live") == "email me at hi@showupai.live"
 
 
 def test_competitor_detection():
@@ -68,7 +124,8 @@ async def test_build_campaign_rewrites_once_when_rules_broken(monkeypatch):
     async def fake_ai(prompt):
         calls.append(prompt)
         cap = ("Unlock better attendance — today 🚀" if len(calls) == 1
-               else "Your no-shows are a timing problem.\n\nWhat day do you send reminders? Tell me in the comments.")
+               else GOOD_LINKEDIN.replace("If your webinar show-up rate is under 40%, read this:",
+                                          "Your no-shows are a timing problem."))
         return {"strategy": {}, "platform_copy": {"linkedin": {"caption": cap}},
                 "visual": {"format": "carousel", "title": "Fix it",
                            "slides": [{"title": f"S{i}", "body": "b"} for i in range(4)], "cta": "c"}}
@@ -84,10 +141,15 @@ async def test_build_campaign_rewrites_once_when_rules_broken(monkeypatch):
 
 
 def test_every_caption_gets_the_site():
-    assert ce.ensure_site("Hook.\n\nQuestion?\n\n#a #b #c").endswith("showupai.live\n\n#a #b #c")
-    assert ce.ensure_site("Hook. Question?").endswith("\n\nshowupai.live")
-    already = "See showupai.live\nQuestion?"
+    assert ce.ensure_site("Hook.\n\nQuestion?\n\n#a #b #c").endswith("https://showupai.live\n\n#a #b #c")
+    assert ce.ensure_site("Hook. Question?").endswith("\n\nTry it free: https://showupai.live")
+    assert ce.ensure_site("See showupai.live\nQuestion?") == "See https://showupai.live\nQuestion?"
+    already = "See https://showupai.live\nQuestion?"
     assert ce.ensure_site(already) == already
+    blog = "Read https://showupai.live/blog/x\nQ?"
+    assert ce.ensure_site(blog) == blog
+    ig = ce.ensure_site("Hook. Question?", "instagram")
+    assert ig.endswith("showupai.live (link in bio)") and "https" not in ig
 
 
 def test_poll_spec_is_trimmed_to_linkedin_limits():

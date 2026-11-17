@@ -67,6 +67,24 @@ THEMES = [
     {"name": "orange", "bg": "#EA580C", "fg": "#FFFFFF", "muted": "#FFE2CF", "accent": "#141414",
      "on_accent": "#FFFFFF", "card": "#F07436", "line": "#F49A6A", "em": "mark",
      "em_fill": "#141414", "em_text": "#FFFFFF", "dark": True},
+    # 2026-11-17 (Ashu): more colour variety, with a little brand tone kept for familiarity.
+    # Each theme has its own background and highlight colour, but the small accents (rules,
+    # rings, progress bar, logo) stay ShowUpAI orange.
+    {"name": "forest", "bg": "#0F2A22", "fg": "#FFFFFF", "muted": "#A8C4B8", "accent": "#FF6B1A",
+     "on_accent": "#0F2A22", "card": "#173A2F", "line": "#24493C", "em": "color",
+     "em_fill": "#7FE0B0", "em_text": "#7FE0B0", "dark": True},
+    {"name": "sky", "bg": "#E8F1FB", "fg": "#10213A", "muted": "#4E5F78", "accent": "#EA580C",
+     "on_accent": "#FFFFFF", "card": "#FFFFFF", "line": "#C9DAEE", "em": "mark",
+     "em_fill": "#B9D5F7", "em_text": "#10213A", "dark": False},
+    {"name": "plum", "bg": "#2A1238", "fg": "#FFFFFF", "muted": "#C9B3D6", "accent": "#FF6B1A",
+     "on_accent": "#2A1238", "card": "#3A1D4C", "line": "#4C2C61", "em": "color",
+     "em_fill": "#E9B8FF", "em_text": "#E9B8FF", "dark": True},
+    {"name": "sage", "bg": "#EEF3EA", "fg": "#16201A", "muted": "#56634F", "accent": "#EA580C",
+     "on_accent": "#FFFFFF", "card": "#FFFFFF", "line": "#D3DECB", "em": "mark",
+     "em_fill": "#CDE6B8", "em_text": "#16201A", "dark": False},
+    {"name": "lilac", "bg": "#F1ECFA", "fg": "#1A1426", "muted": "#5F5670", "accent": "#EA580C",
+     "on_accent": "#FFFFFF", "card": "#FFFFFF", "line": "#DDD3F0", "em": "mark",
+     "em_fill": "#D9C8FA", "em_text": "#1A1426", "dark": False},
 ]
 _BY_NAME = {t["name"]: t for t in THEMES}
 

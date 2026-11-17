@@ -22,6 +22,7 @@ from . import (
     CAMPAIGN_KINDS,
     COLLECTIONS,
     DEFAULT_WEEKLY_PLAN,
+    GROWTH_LINKEDIN_VOICE,
     GROWTH_PLATFORMS,
     GROWTH_SLOTS_IST,
     GROWTH_WEEKLY_PLAN,
@@ -84,13 +85,13 @@ def auto_mode() -> bool:
 
 
 def theme_index(day: str, slot: int) -> int:
-    """Colour theme for a post. day*3 + slot walks the 4 themes so the two posts on a
-    day differ, and the next morning differs from the previous afternoon."""
+    """Colour theme for a post. Consecutive posts (day*2 + slot, two a day) take the next
+    theme, so all 9 colour schemes come round in turn and no two posts in a row match."""
     try:
         base = datetime.fromisoformat(day).date().toordinal()
     except ValueError:
         base = 0
-    return base * 3 + slot
+    return base * 2 + slot
 
 
 def hold_reason(doc: Dict[str, Any]) -> str:
@@ -104,8 +105,11 @@ def hold_reason(doc: Dict[str, Any]) -> str:
         return "the image text is incomplete"
     copy = doc.get("platform_copy") or {}
     for p in doc.get("platforms") or []:
-        if not str((copy.get(p) or {}).get("caption") or "").strip():
+        caption = str((copy.get(p) or {}).get("caption") or "")
+        if not caption.strip():
             return f"no {p} caption"
+        if "CONFIRM WITH ASHU" in caption.upper() or "[CONFIRM" in caption.upper():
+            return f"the {p} caption has a line marked for Ashu to confirm"
     return ""
 
 
@@ -162,6 +166,14 @@ ENGAGEMENT_ANGLES = [t["brief"] for t in topic_library.ENGAGEMENT_TOPICS]
 COMPETITOR_ANGLES = list(topic_library.COMPARISON_TOPICS)
 
 
+def _weekday(seed: str) -> int:
+    """0 = Monday for a "YYYY-MM-DD-n" seed, -1 when the seed has no date."""
+    try:
+        return datetime.fromisoformat(seed.rpartition("-")[0]).date().weekday()
+    except ValueError:
+        return -1
+
+
 def _pick_angle(pool: List[str], seed: str) -> str:
     """Rotate through ``pool`` across days and within a day (seed "YYYY-MM-DD-n")."""
     return pool[topic_library._index(seed) % len(pool)]
@@ -174,32 +186,52 @@ async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: An
     """
     need_fact = overrides.get("visual_format") == "stat_card"
     facts: List[str] = []
+    personal = GROWTH_LINKEDIN_VOICE == "archana"
+    magnet = ""
     if kind == "pain_point":
         topic = topic_library.pick_topic(seed, need_fact=need_fact)
         facts = topic["facts"]
         hint = (
-            "ORIGINAL webinar insight post. Write to the brief directly. The reader is a B2B marketer or "
-            "founder who runs webinars and wants more people to show up and more pipeline from them. "
-            "Make it practical and specific, give the fix away in full, then point to showupai.live as "
-            "the way to run the reminders on autopilot.\n"
+            "ORIGINAL educate post. Write to the brief directly. The reader runs webinars at a B2B company "
+            "and wants more registrants to show up live. Give the fix away in full as the numbered list.\n"
             f"{topic_library.PILLAR_HINTS[topic['pillar']]}\n"
             f"Brief: {topic['brief']}"
         )
+        # The week's first educate post carries the lead magnet (4-3-2-1: one magnet a week).
+        if _weekday(seed) == 0:
+            magnet = "SEQUENCE"
     elif kind == "competitor":
         hint = (
-            "ORIGINAL comparison campaign for someone choosing how to run their webinars. "
+            "ORIGINAL comparison post for someone choosing how to run their webinars. "
             "Compare the two approaches in the brief honestly: where the usual way is fine, and "
             "where it breaks. Do NOT name any company or product other than ShowUpAI. "
             f"Brief: {topic_library.pick_comparison(seed)}"
         )
+    elif kind == "story":
+        hint = (
+            "ORIGINAL story post. It attracts new people, it does not sell. "
+            "Use only the allowed personal facts; anything else is what teams do every week, in general terms. "
+            f"Brief: {topic_library.pick_story(seed)}"
+        )
+    elif kind == "sell":
+        hint = (
+            "ORIGINAL sell post. It converts: the reader runs webinars and has one coming up. "
+            f"Pain to open with: {topic_library.pick_sell(seed)}"
+        )
+        magnet = "SHOW"
     else:
         topic = topic_library.pick_engagement(seed, need_fact=need_fact)
         facts = topic["facts"]
         hint = (
-            "ORIGINAL engagement campaign designed to start a conversation, not to sell. "
-            "Take a clear side, then ask a real question people will answer in the comments. "
-            "No pitch in the caption beyond the showupai.live line. "
+            "ORIGINAL conversation post, not a pitch. Take a clear side, then ask a real question people will "
+            "answer in the comments. No pitch in the caption beyond the showupai.live line. "
             f"Brief: {topic['brief']}"
+        )
+    if magnet:
+        hint += (
+            "\nLEAD MAGNET: after the PS (and optional repost line), add a line with only \"---\" and then, word "
+            f"for word in the LinkedIn caption: {topic_library.lead_magnet(magnet, personal)} "
+            f"In the Facebook and Instagram captions use: {topic_library.lead_magnet(magnet, False)}"
         )
     hint += "\nHOOK STYLE: " + topic_library.pick_hook(seed, bool(facts))
 
