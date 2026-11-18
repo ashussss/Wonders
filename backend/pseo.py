@@ -1598,7 +1598,7 @@ async def seed_content_posts() -> int:
 # Static SEO pages prerendered by frontend/scripts/prerender-blog.mjs from frontend/src/lib/seoPages.js.
 # Keep in step with COMPARE and TOOLS there (tests/test_seo_pages_sitemap.py checks it).
 SEO_PAGES = [
-    "/webinar-attendance", "/compare", "/tools",
+    "/webinar-attendance", "/compare", "/tools", "/best-webinar-reminder-software",
     "/compare/zoom", "/compare/demio", "/compare/livestorm", "/compare/webinarjam", "/compare/on24",
     "/compare/gotowebinar", "/compare/activecampaign", "/compare/buffer",
     "/tools/webinar-no-show-calculator", "/tools/webinar-roi-calculator", "/tools/webinar-title-generator",
