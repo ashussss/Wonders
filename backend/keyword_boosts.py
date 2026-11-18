@@ -273,3 +273,18 @@ async def apply_all() -> list:
         logger.info(f"keyword boost applied to {post['slug']}: {sorted(changes)}")
         changed.append(post["slug"])
     return changed
+
+
+async def fix_seo_titles() -> list:
+    """Re-make auto seo_titles that were cut mid-phrase ('... Registrants to') or are far too long. Idempotent."""
+    changed = []
+    async for post in db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "title": 1, "seo_title": 1}):
+        if not pseo.needs_new_seo_title(post):
+            continue
+        new = pseo.make_seo_title(post["title"])
+        if new and new != post.get("seo_title"):
+            await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"seo_title": new}})
+            changed.append(post["slug"])
+    if changed:
+        logger.info(f"seo_title fixed on {len(changed)} posts")
+    return changed

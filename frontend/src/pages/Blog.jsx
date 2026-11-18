@@ -22,15 +22,15 @@ export default function BlogPage() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    document.title = "Blog | ShowUpAI — Make People Actually Show Up to Your Webinar";
-    setMeta("description", "Guides to increase webinar attendance and make people actually show up from ShowUpAI.");
+    document.title = "Blog | ShowUpAI — Webinar Attendance Insights";
+    setMeta("description", "Practical guides on webinar attendance, reminder sequences and no-show reduction from ShowUpAI.");
     setMeta("og:title", "ShowUpAI Blog", "property");
   }, []);
 
   useEffect(() => {
     api
       .get("/blog")
-      .then((res) => setPosts(Array.isArray(res.data) ? res.data : []))
+      .then((res) => setPosts(Array.isArray(res.data) ? res.data.filter((p) => !p.noindex) : []))
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);

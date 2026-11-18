@@ -275,15 +275,37 @@ def clean_content(content: str, has_faq: bool) -> str:
     return c
 
 
+_TITLE_TAIL_WORDS = {"a", "an", "the", "to", "for", "with", "and", "or", "of", "in", "on", "that", "into", "from", "by", "at", "your", "how"}
+
+
 def make_seo_title(title: str, limit: int = 60) -> str:
-    """'<title> | ShowUpAI' when it fits, else the title alone, cut at a word boundary only if still too long."""
+    """'<title> | ShowUpAI' when it fits, else the title alone; a longer title keeps its part before a colon/dash when
+    that reads on its own, else it is cut at a word boundary without a dangling 'to'/'for'/'with' at the end."""
     title = (title or "").strip()
     branded = f"{title} | {BRAND}"
     if len(branded) <= limit:
         return branded
-    if len(title) <= 70:
+    if len(title) <= 70:  # Google shows ~60 chars but a whole title reads better than a cut one
         return title
-    return title[:70].rsplit(" ", 1)[0].rstrip(" :-,|")
+    head = re.split(r"\s*[:—–|]\s*|\s+-\s+", title, maxsplit=1)[0].strip()
+    if 25 <= len(head) <= 70 and head != title:
+        return head
+    words = title[:71].rsplit(" ", 1)[0].rstrip(" :-,|").split(" ")
+    while len(words) > 3 and (words[-1].lower().strip(",:") in _TITLE_TAIL_WORDS or words[-1] in "-—–&"):
+        words.pop()
+    return " ".join(words).rstrip(" :-,|")
+
+
+def needs_new_seo_title(post: dict) -> bool:
+    """True for an auto-made seo_title that is too long for Google or was cut mid-phrase (custom titles are kept)."""
+    seo, title = (post.get("seo_title") or "").strip(), (post.get("title") or "").strip()
+    if not title or not seo:
+        return bool(title)
+    auto = seo == title or seo == f"{title} | {BRAND}" or title.startswith(seo)
+    if not auto:
+        return False
+    last = seo.split(" ")[-1].lower().strip(",:")
+    return len(seo) > 70 or last in _TITLE_TAIL_WORDS
 
 
 _BLOG_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://(?:www\.)?showupai\.live)?/blog/([a-z0-9-]+)/?\)")

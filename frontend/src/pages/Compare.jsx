@@ -7,6 +7,7 @@ import { parseMarkdown, splitInline, headingId } from "@/lib/markdown";
 import { api } from "@/lib/api";
 import {
   SITE, COMPARE, COMPARE_ROWS, SHOWUP, compareFaq, TOOLS, titleIdeas, GUIDE, BENCHMARKS, COMPARE_INDEX, TOOLS_INDEX,
+  pageTitle,
 } from "@/lib/seoPages";
 
 function setMeta(name, content, attr = "name") {
@@ -114,7 +115,7 @@ export default function Compare() {
   const { competitor } = useParams();
   const key = (competitor || "").toLowerCase();
   const c = COMPARE[key];
-  usePageMeta(c && `${c.title} | ShowUpAI`, c && c.description, `/compare/${key}`);
+  usePageMeta(c && pageTitle(c.title), c && c.description, `/compare/${key}`);
   if (!c) return <Shell><h1 className="text-white text-3xl font-bold mb-4">Comparison not found</h1><Link to="/compare" className="text-orange-500">See all comparisons</Link></Shell>;
   return (
     <Shell>
@@ -149,7 +150,7 @@ export default function Compare() {
 }
 
 export function CompareIndex() {
-  usePageMeta(`${COMPARE_INDEX.title} | ShowUpAI`, COMPARE_INDEX.description, "/compare");
+  usePageMeta(pageTitle(COMPARE_INDEX.title), COMPARE_INDEX.description, "/compare");
   return (
     <Shell>
       <h1 className="text-white text-3xl md:text-5xl font-bold mb-6">{COMPARE_INDEX.title}</h1>
@@ -273,7 +274,7 @@ export function ToolPage() {
   const { tool } = useParams();
   const t = TOOLS[tool];
   const Widget = WIDGETS[tool];
-  usePageMeta(t && `${t.title} | ShowUpAI`, t && t.description, `/tools/${tool}`);
+  usePageMeta(t && pageTitle(t.title), t && t.description, `/tools/${tool}`);
   if (!t) return <Shell><h1 className="text-white text-3xl font-bold mb-4">Tool not found</h1><Link to="/tools" className="text-orange-500">See all free tools</Link></Shell>;
   return (
     <Shell>
@@ -295,7 +296,7 @@ export function ToolPage() {
 }
 
 export function ToolsIndex() {
-  usePageMeta(`${TOOLS_INDEX.title} | ShowUpAI`, TOOLS_INDEX.description, "/tools");
+  usePageMeta(pageTitle(TOOLS_INDEX.title), TOOLS_INDEX.description, "/tools");
   return (
     <Shell>
       <h1 className="text-white text-3xl md:text-5xl font-bold mb-6">Free webinar tools</h1>
@@ -305,6 +306,12 @@ export function ToolsIndex() {
           <h2 className="text-white font-bold mb-2">{v.name}</h2><p className="text-gray-400 text-sm">{v.description}</p>
         </Link>
       ))}</div>
+      {(TOOLS_INDEX.sections || []).map((x) => (
+        <section key={x.h} className="mt-10">
+          <h2 className="text-white text-2xl font-bold mb-3">{x.h}</h2>
+          <p className="text-gray-300">{x.p}</p>
+        </section>
+      ))}
       <Cta />
     </Shell>
   );

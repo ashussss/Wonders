@@ -89,8 +89,16 @@ def test_seo_title_never_cut_mid_word():
     long = "How to Write a Webinar Confirmation Email That Drives Attendance"
     assert pseo.make_seo_title(long) == long
     very = "Mastering Webinar Reminder Cadence for B2B SaaS: A Complete Playbook for Busy Teams"
-    out = pseo.make_seo_title(very)
-    assert len(out) <= 70 and very.startswith(out) and very[len(out)] == " "
+    assert pseo.make_seo_title(very) == "Mastering Webinar Reminder Cadence for B2B SaaS"
+    cut = pseo.make_seo_title("How to Write a Webinar Description That Converts Registrants to Attendees Every Time")
+    assert len(cut) <= 70 and cut.split(" ")[-1] not in {"to", "for", "with", "and"}
+
+
+def test_needs_new_seo_title_only_for_auto_titles():
+    t = "How to Write a Webinar Description That Converts Registrants to Attendees"
+    assert pseo.needs_new_seo_title({"title": t, "seo_title": "How to Write a Webinar Description That Converts Registrants to"})
+    assert not pseo.needs_new_seo_title({"title": t, "seo_title": "Webinar Description Examples That Convert"})
+    assert not pseo.needs_new_seo_title({"title": "Webinar Statistics", "seo_title": "Webinar Statistics | ShowUpAI"})
 
 
 def test_clean_post_fields_repairs_auto_cut_title_but_keeps_custom():
