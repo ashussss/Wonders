@@ -236,7 +236,64 @@ ${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
     jsonld: { "@context": "https://schema.org", "@type": "CollectionPage", url: `${SITE}/compare`, name: S.COMPARE_INDEX.title,
       hasPart: Object.entries(S.COMPARE).map(([k, v]) => ({ "@type": "WebPage", name: `ShowUpAI vs ${v.name}`, url: `${SITE}/compare/${k}` })) } },
     `${SEO_NAV}<main><h1>${esc(S.COMPARE_INDEX.title)}</h1><p>ShowUpAI doesn't host webinars. It works alongside your webinar platform and handles what happens between registration and start time.</p>
+<p>Comparing several tools at once? See <a href="/${S.BEST.slug}">the best webinar reminder software, compared</a>.</p>
 <ul>${Object.entries(S.COMPARE).map(([k, v]) => `<li><a href="/compare/${k}">ShowUpAI vs ${esc(v.name)}</a>: ${esc(v.description)}</li>`).join("")}</ul>${cta}</main>`);
+
+  // /best-webinar-reminder-software: list page built from the same compare data
+  {
+    const B = S.BEST;
+    const burl = `${SITE}/${B.slug}`;
+    const entries = [["ShowUpAI", "webinar attendance software", S.SHOWUP,
+      "you already have a webinar platform and want more registrants to join, with reminders on several channels and your approval on every message.", null, SITE]]
+      .concat(Object.entries(S.COMPARE).map(([k, c]) => [c.name, c.kind, c.them, c.chooseThem, c.intro, `${SITE}/compare/${k}`]));
+    const keys = ["channels", "sequence", "copy", "noshow", "price"];
+    const label = Object.fromEntries(S.COMPARE_ROWS);
+    const items = entries.map(([name, kind, rows, best, intro, link], i) => `<h3>${i + 1}. ${esc(name)}</h3>
+<p><strong>${esc(name)}</strong> is a ${esc(kind)}.${intro ? ` ${esc(intro)}` : ""}</p>
+<ul>${keys.map((k) => `<li><strong>${esc(label[k])}:</strong> ${esc(rows[k])}</li>`).join("")}</ul>
+<p><strong>Pick it if</strong> ${esc(best)}</p>
+${i ? `<p><a href="${esc(link)}">ShowUpAI vs ${esc(name)}: full comparison</a></p>` : `<p><a href="/waitlist">Try ShowUpAI free for 14 days</a></p>`}`).join("\n");
+    const table = `<table><thead><tr><th>Tool</th><th>Type</th><th>Reminder channels</th><th>Who writes reminders</th></tr></thead><tbody>${entries.map(([name, kind, rows]) =>
+      `<tr><td>${esc(name)}</td><td>${esc(kind)}</td><td>${esc(rows.channels)}</td><td>${esc(rows.copy)}</td></tr>`).join("")}</tbody></table>`;
+    out(`${B.slug}.html`, {
+      title: B.seoTitle, description: B.description, url: burl,
+      jsonld: { "@context": "https://schema.org", "@graph": [
+        { "@type": "Article", "@id": `${burl}#article`, headline: B.title, description: B.description, url: burl,
+          dateModified: B.updated, author: { "@id": `${SITE}/#organization` }, publisher: { "@id": `${SITE}/#organization` } },
+        { "@type": "ItemList", name: B.title, itemListElement: entries.map(([name, , , , , link], i) => ({
+          "@type": "ListItem", position: i + 1, name, url: link })) },
+        crumbs([["Compare", `${SITE}/compare`], [B.title, burl]]), faqLd(B.faq)] },
+    }, `${SEO_NAV}<main><article><h1>${esc(B.title)}</h1><p>Updated <time datetime="${B.updated}">${B.updated}</time></p>
+<div class="qa"><p><strong>Short answer:</strong> ${esc(B.answer)}</p></div>
+<p><em>${esc(B.disclosure)}</em></p>
+<h2>The 9 tools at a glance</h2>${table}
+<h2>How we compared them</h2><ul>${B.howWeCompared.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>
+<h2>The tools</h2>
+${items}
+${faqHtml(B.faq)}
+<p>Read next: <a href="/webinar-attendance">How to increase webinar attendance</a> · <a href="/tools/webinar-no-show-calculator">Webinar no-show calculator</a></p>${cta}</article></main>`);
+    n++;
+  }
+
+  // llms-full.txt: the guide, the list page, every comparison and tool in plain markdown for AI assistants
+  {
+    const B = S.BEST;
+    const lines = [`# ShowUpAI: webinar attendance guide, comparisons and free tools`, "",
+      `> Plain-text copy of the main pages on ${SITE} for AI assistants. ShowUpAI is webinar attendance software: an AI-written 11-touch reminder sequence across email, LinkedIn, Facebook, Instagram, WhatsApp/SMS, Circle.so and calendar invites, approved by the host before sending. It works alongside any webinar platform.`, "",
+      `## ${S.GUIDE.title}`, `Source: ${SITE}/${S.GUIDE.slug} (updated ${S.GUIDE.updated})`, "", S.GUIDE.markdown.trim(), "",
+      ...S.GUIDE.faq.flatMap(([q, a]) => [`### ${q}`, a, ""]),
+      `## ${B.title}`, `Source: ${SITE}/${B.slug} (updated ${B.updated})`, "", B.answer, "", B.disclosure, "",
+      ...[["ShowUpAI", "webinar attendance software", S.SHOWUP]].concat(Object.values(S.COMPARE).map((c) => [c.name, c.kind, c.them]))
+        .map(([name, kind, r]) => `- **${name}** (${kind}). Reminder channels: ${r.channels}. Reminders written by: ${r.copy}. No-show follow-up: ${r.noshow}.`), "",
+      ...Object.entries(S.COMPARE).flatMap(([k, c]) => [`## ShowUpAI vs ${c.name}`, `Source: ${SITE}/compare/${k}`, "",
+        `${c.name} is a ${c.kind}. ShowUpAI is webinar attendance software that works alongside it. ${c.together}`, "", c.intro, "",
+        `Choose ${c.name} if ${c.chooseThem}`, `Choose ShowUpAI if ${c.chooseUs}`, "",
+        ...S.compareFaq(c).flatMap(([q, a]) => [`### ${q}`, a, ""])]),
+      ...Object.entries(S.TOOLS).flatMap(([k, t]) => [`## ${t.name} (free)`, `Source: ${SITE}/tools/${k}`, "", t.intro, "",
+        ...t.how.map((h) => `- ${h}`), "", ...t.faq.flatMap(([q, a]) => [`### ${q}`, a, ""])]),
+    ];
+    fs.writeFileSync(path.join(BUILD, "llms-full.txt"), lines.join("\n"));
+  }
 
   for (const [key, t] of Object.entries(S.TOOLS)) {
     const url = `${SITE}/tools/${key}`;
@@ -421,7 +478,7 @@ ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
 <p>Free tools: <a href="/tools/webinar-no-show-calculator">no-show calculator</a> · <a href="/tools/webinar-roi-calculator">ROI calculator</a> · <a href="/tools/webinar-title-generator">title generator</a>. Full guide: <a href="/webinar-attendance">how to increase webinar attendance</a>.</p>
-<p>Compare: ${[["zoom", "Zoom"], ["demio", "Demio"], ["livestorm", "Livestorm"], ["webinarjam", "WebinarJam"], ["on24", "ON24"], ["gotowebinar", "GoTo Webinar"]].map(([k, n]) => `<a href="/compare/${k}">ShowUpAI vs ${n}</a>`).join(" · ")}.</p>
+<p>Compare: <a href="/best-webinar-reminder-software">best webinar reminder software</a> · ${[["zoom", "Zoom"], ["demio", "Demio"], ["livestorm", "Livestorm"], ["webinarjam", "WebinarJam"], ["on24", "ON24"], ["gotowebinar", "GoTo Webinar"]].map(([k, n]) => `<a href="/compare/${k}">ShowUpAI vs ${n}</a>`).join(" · ")}.</p>
 <p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
     const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph },
