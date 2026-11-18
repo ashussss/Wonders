@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
-import DemoVideo from "@/components/DemoVideo";
+import { DemoPlayer } from "@/components/DemoVideo";
 import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
@@ -209,7 +209,8 @@ export default function Landing() {
           style={{ background: "radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%)", filter: "blur(60px)" }}
           animate={{ x: [0, 40, 0], y: [0, 30, 0] }} transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }} />
 
-        <div className="relative z-10 max-w-4xl mx-auto text-center">
+        <div className="relative z-10 w-full max-w-7xl mx-auto grid lg:grid-cols-[1fr_1.1fr] gap-y-10 lg:gap-x-14 lg:gap-y-10">
+        <div className="text-center lg:text-left lg:col-start-1 lg:row-start-1 lg:self-end">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <Link to="/waitlist" className="inline-flex items-center gap-2 bg-orange-500/10 border border-orange-500/25 rounded-full px-4 py-1.5 text-xs font-semibold text-orange-400 uppercase tracking-widest mb-8 hover:bg-orange-500/20 transition-colors">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
@@ -219,7 +220,7 @@ export default function Landing() {
 
           <motion.h1
             initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 }}
-            className="text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-bold tracking-tight leading-[0.95] mb-6"
+            className="text-5xl sm:text-6xl lg:text-6xl xl:text-7xl font-bold tracking-tight leading-[0.95] mb-6"
             style={{ fontFamily: "Outfit", letterSpacing: "-0.02em", position: "relative", zIndex: 10 }}
           >
             <span className="text-white">Make people</span>
@@ -232,25 +233,35 @@ export default function Landing() {
           </motion.h1>
 
           <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
-            className="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto leading-relaxed mb-10">
+            className="text-xl sm:text-2xl lg:text-xl text-gray-400 max-w-2xl mx-auto lg:mx-0 leading-relaxed mb-10">
             You spent weeks building your webinar. 40–60% of your registrants won't show up — not because they forgot, but because nobody gave them a reason to care. ShowUpAI fixes that.
           </motion.p>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }}
-            className="flex flex-col sm:flex-row gap-3 justify-center mb-16">
+            className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
             <Link to="/register"
               className="group inline-flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500 text-white font-semibold px-8 py-4 rounded-xl text-lg transition-all shadow-[0_0_40px_rgba(234,88,12,0.4)] hover:shadow-[0_0_60px_rgba(234,88,12,0.6)]">
               Start for free
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>
             <a href="#demo" className="inline-flex items-center justify-center gap-2 border border-white/[0.12] text-gray-300 hover:text-white hover:border-white/30 px-8 py-4 rounded-xl text-base transition-all">
-              Watch the 74-sec demo <ChevronDown size={16} />
+              Watch the 1-min video <ChevronDown size={16} />
             </a>
           </motion.div>
+        </div>
+
+        {/* Demo video: right of the copy on desktop, between CTAs and stats on mobile */}
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
+          className="relative lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
+          <DemoPlayer />
+          <p className="mt-3 text-center text-xs text-gray-500">Three people. Three webinars. One fix, in 60 seconds.</p>
+        </motion.div>
+
+        <div className="text-center lg:text-left lg:col-start-1 lg:row-start-2 lg:self-start">
 
           {/* Stats row */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }}
-            className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
+            className="grid grid-cols-3 gap-4 max-w-2xl mx-auto lg:mx-0">
             {[["7","channels, email to WhatsApp"],["11","AI-written touches"],["<30s","webinar setup time"]].map(([num,label]) => (
               <div key={label} className="text-center p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
                 <div className="text-3xl sm:text-4xl font-bold text-white mb-1" style={{ fontFamily: "Outfit" }}>{num}</div>
@@ -258,9 +269,11 @@ export default function Landing() {
               </div>
             ))}
           </motion.div>
-          <p className="mt-4 text-[11px] text-gray-500 max-w-2xl mx-auto">
+          <p className="mt-4 text-[11px] text-gray-500 max-w-2xl mx-auto lg:mx-0">
             No-show range from published platform averages: ON24 60% attendance (2025), Livestorm 51.3%, Demio 38% (2022).
           </p>
+        </div>
+
         </div>
 
         {/* Scroll indicator */}
@@ -269,9 +282,6 @@ export default function Landing() {
           <ChevronDown size={24} />
         </motion.div>
       </section>
-
-      {/* ── DEMO VIDEO ── */}
-      <DemoVideo />
 
       {/* ── THE GAP ── */}
       <section className="py-24 px-6 text-center relative overflow-hidden">
