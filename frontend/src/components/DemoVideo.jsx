@@ -5,20 +5,9 @@ import { useRef, useState } from "react";
 // preload="none": no video bytes are downloaded until the visitor presses play,
 // so each player costs only its ~25 KB poster and never touches LCP.
 export const VIDEOS = {
-  // 62-second "story" cut (Priya, Jake, Meera), video/v2/story/. Used in the hero.
-  story: {
-    id: "demo",
-    src: "/video/showupai-story.mp4",
-    poster: "/video/showupai-story-poster.webp",
-    captions: "/video/showupai-story.vtt",
-    gaTitle: "showupai_story_v3",
-    label: "Watch the story · 1:02",
-    ariaLabel: "Play the 1-minute ShowUpAI video",
-    alt: "ShowUpAI product video",
-  },
-  // 74-second step-by-step tutorial, video/v2/showupai-tutorial-16x9.mp4. Used in "How it works".
+  // 74-second step-by-step tutorial, video/v2/showupai-tutorial-16x9.mp4. Used in the hero.
   tutorial: {
-    id: "tutorial",
+    id: "demo",
     src: "/video/showupai-tutorial.mp4",
     poster: "/video/showupai-tutorial-poster.webp",
     captions: "/video/showupai-tutorial.vtt",
@@ -33,7 +22,7 @@ function track(name, title) {
   try { window.gtag && window.gtag("event", name, { video_title: title }); } catch { /* ignore */ }
 }
 
-export function DemoPlayer({ video = VIDEOS.story, className = "", style = {} }) {
+export function DemoPlayer({ video = VIDEOS.tutorial, className = "", style = {} }) {
   const ref = useRef(null);
   const [started, setStarted] = useState(false);
 

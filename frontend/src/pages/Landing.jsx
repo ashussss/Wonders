@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
-import { DemoPlayer, VIDEOS } from "@/components/DemoVideo";
+import { DemoPlayer } from "@/components/DemoVideo";
 import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
@@ -245,7 +245,7 @@ export default function Landing() {
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>
             <a href="#demo" className="inline-flex items-center justify-center gap-2 border border-white/[0.12] text-gray-300 hover:text-white hover:border-white/30 px-8 py-4 rounded-xl text-base transition-all">
-              Watch the 1-min video <ChevronDown size={16} />
+              Watch the 74-sec demo <ChevronDown size={16} />
             </a>
           </motion.div>
         </div>
@@ -254,7 +254,7 @@ export default function Landing() {
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
           className="relative lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
           <DemoPlayer />
-          <p className="mt-3 text-center text-xs text-gray-500">Three people. Three webinars. One fix, in 60 seconds.</p>
+          <p className="mt-3 text-center text-xs text-gray-500">See it in 74 seconds: paste a link, approve the plan, ShowUpAI sends it.</p>
         </motion.div>
 
         <div className="text-center lg:text-left lg:col-start-1 lg:row-start-2 lg:self-start">
@@ -316,11 +316,6 @@ export default function Landing() {
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-16">
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-orange-500 mb-4">How it works</div>
             <h2 className="text-4xl sm:text-5xl font-bold text-white" style={{ fontFamily: "Outfit" }}>From link to full room in 3 steps.</h2>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7 }}
-            className="max-w-4xl mx-auto mb-16">
-            <DemoPlayer video={VIDEOS.tutorial} />
-            <p className="mt-3 text-center text-xs text-gray-500">The full walkthrough in 74 seconds: paste a link, approve the plan, ShowUpAI sends it.</p>
           </motion.div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
