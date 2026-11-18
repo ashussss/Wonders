@@ -245,7 +245,7 @@ export default function Landing() {
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </Link>
             <a href="#demo" className="inline-flex items-center justify-center gap-2 border border-white/[0.12] text-gray-300 hover:text-white hover:border-white/30 px-8 py-4 rounded-xl text-base transition-all">
-              Watch the 1-min video <ChevronDown size={16} />
+              Watch the 74-sec demo <ChevronDown size={16} />
             </a>
           </motion.div>
         </div>
@@ -254,7 +254,7 @@ export default function Landing() {
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
           className="relative lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
           <DemoPlayer />
-          <p className="mt-3 text-center text-xs text-gray-500">Three people. Three webinars. One fix, in 60 seconds.</p>
+          <p className="mt-3 text-center text-xs text-gray-500">See it in 74 seconds: paste a link, approve the plan, ShowUpAI sends it.</p>
         </motion.div>
 
         <div className="text-center lg:text-left lg:col-start-1 lg:row-start-2 lg:self-start">
