@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Zap, ArrowRight, Check, ChevronDown, Menu, X, TrendingUp, Users, Clock, Sparkles, BarChart3, Mail, MessageSquare, Star } from "@/components/Icons";
 import StarField from "@/components/StarField";
 import CinematicBackground from "@/components/CinematicBackground";
-import { DemoPlayer } from "@/components/DemoVideo";
+import { DemoPlayer, VIDEOS } from "@/components/DemoVideo";
 import { FreeToolsSection, MENU_TOOLS, MENU_COMPARE } from "@/pages/Compare";
 
 // ── Design tokens ──────────────────────────────────────────
@@ -316,6 +316,11 @@ export default function Landing() {
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-16">
             <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-orange-500 mb-4">How it works</div>
             <h2 className="text-4xl sm:text-5xl font-bold text-white" style={{ fontFamily: "Outfit" }}>From link to full room in 3 steps.</h2>
+          </motion.div>
+          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.7 }}
+            className="max-w-4xl mx-auto mb-16">
+            <DemoPlayer video={VIDEOS.tutorial} />
+            <p className="mt-3 text-center text-xs text-gray-500">The full walkthrough in 74 seconds: paste a link, approve the plan, ShowUpAI sends it.</p>
           </motion.div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
