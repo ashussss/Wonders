@@ -246,6 +246,7 @@ export default function BlogPostPage() {
     setMeta("twitter:title", post.twitter_title || post.title);
     setMeta("twitter:description", post.twitter_description || desc);
     setCanonical(`https://showupai.live/blog/${post.slug}`);
+    setMeta("robots", post.noindex ? "noindex, follow" : "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1");
 
     // Structured data (Article + FAQPage) for rich results / AEO
     const graph = [

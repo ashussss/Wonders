@@ -531,9 +531,14 @@ async def list_blog_posts():
     rows = await db.blog_posts.find({"published": True}, {"_id": 0, "content": 0, "faq_items": 0}).sort(
         [("published_at", -1), ("reading_time", -1)]
     ).to_list(500)
-    published = [r for r in rows if r.get("published")]
-    not_published = [r for r in rows if not r.get("published")]
-    return published + not_published
+    out = []
+    for r in rows:
+        status = pseo.index_status(r)
+        if status == "redirect":  # its URL 301s to the post it was merged into
+            continue
+        r["noindex"] = status == "noindex"
+        out.append(r)
+    return out
 
 
 @router.get("/blog/{slug}")
@@ -542,6 +547,7 @@ async def get_blog_post(slug: str):
     row = await db.blog_posts.find_one({"slug": slug, "published": True}, {"_id": 0})
     if not row:
         raise HTTPException(404, "Blog post not found")
+    row["noindex"] = pseo.index_status(row) != ""
     return row
 
 

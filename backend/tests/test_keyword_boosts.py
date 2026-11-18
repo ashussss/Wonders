@@ -51,3 +51,12 @@ def test_boost_copy_follows_pipeline_rules():
 def test_priority_keywords_are_on_topic_and_first():
     assert all(pseo.is_on_topic(k) for k, _, _ in kb.PRIORITY_KEYWORDS)
     assert kb._FIRST_AT < pseo._PRIORITY_AT
+
+
+def test_index_status_drops_redirects_and_off_topic_posts():
+    assert pseo.index_status({"slug": "best-practices-for-webinar-followup-emails", "title": "x"}) == "redirect"
+    assert pseo.index_status({"slug": "a", "redirect_to": "b"}) == "redirect"
+    assert pseo.index_status({"slug": "integrating-nfc-badge-data-with-abm-platforms",
+                              "keyword": "integrating nfc badge data with abm platforms"}) == "noindex"
+    assert pseo.index_status({"slug": "webinar-cta-examples", "keyword": "webinar cta examples"}) == ""
+    assert pseo.index_status({"slug": "hybrid-event-reminder-strategies", "title": "Hybrid event reminder strategies"}) == ""

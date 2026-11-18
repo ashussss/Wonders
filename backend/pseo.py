@@ -672,6 +672,23 @@ def is_on_topic(keyword: str) -> bool:
     return not off_topic_reason(keyword)
 
 
+def redirected_slugs() -> dict:
+    """Posts merged into another post or removed in the October refresh (301s in frontend/public/_redirects)."""
+    import blog_refresh  # lazy: blog_refresh imports pseo
+    return {**blog_refresh.MERGED, **blog_refresh.REMOVED}
+
+
+def index_status(post: dict) -> str:
+    """"" when the post should be in Google; "redirect" when its URL 301s elsewhere (leave it out of every list);
+    "noindex" when it is off-topic for the site (page stays reachable but asks search engines not to index it)."""
+    if post.get("redirect_to") or post.get("slug") in redirected_slugs():
+        return "redirect"
+    text = post.get("keyword") or post.get("title") or ""
+    if text and off_topic_reason(text):
+        return "noindex"
+    return ""
+
+
 async def hold_off_topic_drafts() -> int:
     """Take already-scheduled (unpublished) off-topic drafts off the publish schedule."""
     rows = await db.blog_posts.find(
@@ -1574,8 +1591,10 @@ async def build_sitemap() -> str:
         for p, pr, f in static
     ]
     rows = await db.blog_posts.find(
-        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "published_at": 1, "updated_at": 1}
+        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1, "redirect_to": 1, "published_at": 1, "updated_at": 1}
     ).sort("published_at", -1).to_list(5000)
+    # Only URLs we want indexed: no 301ed duplicates, no off-topic (noindex) posts
+    rows = [r for r in rows if not index_status(r)]
     for r in rows:
         last = (r.get("updated_at") or r.get("published_at") or "")[:10]
         lastmod = f"<lastmod>{last}</lastmod>" if last else ""
