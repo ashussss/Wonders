@@ -275,15 +275,37 @@ def clean_content(content: str, has_faq: bool) -> str:
     return c
 
 
+_TITLE_TAIL_WORDS = {"a", "an", "the", "to", "for", "with", "and", "or", "of", "in", "on", "that", "into", "from", "by", "at", "your", "how"}
+
+
 def make_seo_title(title: str, limit: int = 60) -> str:
-    """'<title> | ShowUpAI' when it fits, else the title alone, cut at a word boundary only if still too long."""
+    """'<title> | ShowUpAI' when it fits, else the title alone; a longer title keeps its part before a colon/dash when
+    that reads on its own, else it is cut at a word boundary without a dangling 'to'/'for'/'with' at the end."""
     title = (title or "").strip()
     branded = f"{title} | {BRAND}"
     if len(branded) <= limit:
         return branded
-    if len(title) <= 70:
+    if len(title) <= 70:  # Google shows ~60 chars but a whole title reads better than a cut one
         return title
-    return title[:70].rsplit(" ", 1)[0].rstrip(" :-,|")
+    head = re.split(r"\s*[:—–|]\s*|\s+-\s+", title, maxsplit=1)[0].strip()
+    if 25 <= len(head) <= 70 and head != title:
+        return head
+    words = title[:71].rsplit(" ", 1)[0].rstrip(" :-,|").split(" ")
+    while len(words) > 3 and (words[-1].lower().strip(",:") in _TITLE_TAIL_WORDS or words[-1] in "-—–&"):
+        words.pop()
+    return " ".join(words).rstrip(" :-,|")
+
+
+def needs_new_seo_title(post: dict) -> bool:
+    """True for an auto-made seo_title that is too long for Google or was cut mid-phrase (custom titles are kept)."""
+    seo, title = (post.get("seo_title") or "").strip(), (post.get("title") or "").strip()
+    if not title or not seo:
+        return bool(title)
+    auto = seo == title or seo == f"{title} | {BRAND}" or title.startswith(seo)
+    if not auto:
+        return False
+    last = seo.split(" ")[-1].lower().strip(",:")
+    return len(seo) > 70 or last in _TITLE_TAIL_WORDS
 
 
 _BLOG_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://(?:www\.)?showupai\.live)?/blog/([a-z0-9-]+)/?\)")
@@ -670,6 +692,23 @@ def off_topic_reason(keyword: str) -> str:
 
 def is_on_topic(keyword: str) -> bool:
     return not off_topic_reason(keyword)
+
+
+def redirected_slugs() -> dict:
+    """Posts merged into another post or removed in the October refresh (301s in frontend/public/_redirects)."""
+    import blog_refresh  # lazy: blog_refresh imports pseo
+    return {**blog_refresh.MERGED, **blog_refresh.REMOVED}
+
+
+def index_status(post: dict) -> str:
+    """"" when the post should be in Google; "redirect" when its URL 301s elsewhere (leave it out of every list);
+    "noindex" when it is off-topic for the site (page stays reachable but asks search engines not to index it)."""
+    if post.get("redirect_to") or post.get("slug") in redirected_slugs():
+        return "redirect"
+    text = post.get("keyword") or post.get("title") or ""
+    if text and off_topic_reason(text):
+        return "noindex"
+    return ""
 
 
 async def hold_off_topic_drafts() -> int:
@@ -1574,8 +1613,10 @@ async def build_sitemap() -> str:
         for p, pr, f in static
     ]
     rows = await db.blog_posts.find(
-        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "published_at": 1, "updated_at": 1}
+        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1, "redirect_to": 1, "published_at": 1, "updated_at": 1}
     ).sort("published_at", -1).to_list(5000)
+    # Only URLs we want indexed: no 301ed duplicates, no off-topic (noindex) posts
+    rows = [r for r in rows if not index_status(r)]
     for r in rows:
         last = (r.get("updated_at") or r.get("published_at") or "")[:10]
         lastmod = f"<lastmod>{last}</lastmod>" if last else ""

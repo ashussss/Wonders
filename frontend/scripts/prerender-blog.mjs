@@ -214,7 +214,7 @@ async function writeSeoPages(shell, list) {
     const rows = S.COMPARE_ROWS.map(([k, label]) => `<tr><td>${esc(label)}</td><td>${esc(S.SHOWUP[k])}</td><td>${esc(c.them[k])}</td></tr>`).join("");
     const others = Object.entries(S.COMPARE).filter(([k]) => k !== key).map(([k, v]) => `<li><a href="/compare/${k}">ShowUpAI vs ${esc(v.name)}</a></li>`).join("");
     out(`compare/${key}.html`, {
-      title: `${c.title} | ShowUpAI`, description: c.description, url,
+      title: S.pageTitle(c.title), description: c.description, url,
       jsonld: { "@context": "https://schema.org", "@graph": [
         { "@type": "WebPage", "@id": `${url}#webpage`, url, name: c.title, description: c.description,
           about: [{ "@id": `${SITE}/#software` }, { "@type": "SoftwareApplication", name: c.name }], isPartOf: { "@id": `${SITE}/#website` } },
@@ -232,7 +232,7 @@ ${faqHtml(faq)}
 ${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
     n++;
   }
-  out("compare.html", { title: `${S.COMPARE_INDEX.title} | ShowUpAI`, description: S.COMPARE_INDEX.description, url: `${SITE}/compare`,
+  out("compare.html", { title: S.pageTitle(S.COMPARE_INDEX.title), description: S.COMPARE_INDEX.description, url: `${SITE}/compare`,
     jsonld: { "@context": "https://schema.org", "@type": "CollectionPage", url: `${SITE}/compare`, name: S.COMPARE_INDEX.title,
       hasPart: Object.entries(S.COMPARE).map(([k, v]) => ({ "@type": "WebPage", name: `ShowUpAI vs ${v.name}`, url: `${SITE}/compare/${k}` })) } },
     `${SEO_NAV}<main><h1>${esc(S.COMPARE_INDEX.title)}</h1><p>ShowUpAI doesn't host webinars. It works alongside your webinar platform and handles what happens between registration and start time.</p>
@@ -242,7 +242,7 @@ ${cta}<h2>Other comparisons</h2><ul>${others}</ul></article></main>`);
     const url = `${SITE}/tools/${key}`;
     const others = Object.entries(S.TOOLS).filter(([k]) => k !== key).map(([k, v]) => `<li><a href="/tools/${k}">${esc(v.name)}</a></li>`).join("");
     out(`tools/${key}.html`, {
-      title: `${t.title} | ShowUpAI`, description: t.description, url,
+      title: S.pageTitle(t.title), description: t.description, url,
       jsonld: { "@context": "https://schema.org", "@graph": [
         { "@type": "WebApplication", "@id": `${url}#app`, name: t.name, url, description: t.description, applicationCategory: "BusinessApplication",
           operatingSystem: "Web", isAccessibleForFree: true, offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -261,11 +261,12 @@ ${faqHtml(t.faq)}
       title: `${t.name} | ShowUpAI`, description: t.description, url, type: "website", robots: "noindex, follow" }));
     n++;
   }
-  out("tools.html", { title: `${S.TOOLS_INDEX.title} | ShowUpAI`, description: S.TOOLS_INDEX.description, url: `${SITE}/tools`,
+  out("tools.html", { title: S.pageTitle(S.TOOLS_INDEX.title), description: S.TOOLS_INDEX.description, url: `${SITE}/tools`,
     jsonld: { "@context": "https://schema.org", "@type": "CollectionPage", url: `${SITE}/tools`, name: "Free webinar tools",
       hasPart: Object.entries(S.TOOLS).map(([k, v]) => ({ "@type": "WebApplication", name: v.name, url: `${SITE}/tools/${k}` })) } },
     `${SEO_NAV}<main><h1>Free webinar tools</h1><p>${esc(S.TOOLS_INDEX.description)}</p>
-<ul>${Object.entries(S.TOOLS).map(([k, v]) => `<li><a href="/tools/${k}">${esc(v.name)}</a>: ${esc(v.description)}</li>`).join("")}</ul>${cta}</main>`);
+<ul>${Object.entries(S.TOOLS).map(([k, v]) => `<li><a href="/tools/${k}">${esc(v.name)}</a>: ${esc(v.description)}</li>`).join("")}</ul>
+${(S.TOOLS_INDEX.sections || []).map((x) => `<h2>${esc(x.h)}</h2><p>${esc(x.p)}</p>`).join("")}${cta}</main>`);
 
   const G = S.GUIDE;
   const gurl = `${SITE}/${G.slug}`;
@@ -312,7 +313,7 @@ async function main() {
   // Hide the static copy from JS-enabled browsers (the dark landing page renders over it) to avoid a flash;
   // crawlers without JavaScript still read the full text in the HTML.
   const homeShell = shell.replace("</head>", `<script>document.documentElement.classList.add("js")</script><style>html.js #root > .pr, html.js #root > style{display:none}</style>\n</head>`);
-  fs.writeFileSync(shellPath, withRoot(homeShell, homeHtml(graph, Array.isArray(list) ? list : [])));
+  fs.writeFileSync(shellPath, withRoot(homeShell, homeHtml(graph, Array.isArray(list) ? list.filter((p) => !p.noindex) : [])));
   const aboutPage = withRoot(setHead(shell, {
     title: "About ShowUpAI — Webinar Attendance Software",
     description: "ShowUpAI is webinar attendance software built to make registrants actually show up. What it does, why it exists, who builds it, and the facts.",
@@ -370,21 +371,29 @@ ${bodyHtml(md, PRIVACY_MD)}</main>`));
     console.log("[prerender] compare/tools/guide pages skipped:", e.message);
   }
 
-  if (!Array.isArray(list)) return console.log("[prerender] could not load posts, skipping blog pages (site still works client-side)");
+  // A build without blog HTML would serve the empty app shell (spa.html) for /blog and every post, which crawlers
+  // read as a 3-word page. Fail the build instead, so Netlify keeps the last good deploy live.
+  if (!Array.isArray(list)) throw new BuildFailure("could not load the post list from the API");
   const md = await loadMarkdown();
   const posts = [];
+  const missed = [];
   for (const item of list) {
-    const p = await getJSON(`${API}/blog/${encodeURIComponent(item.slug)}`, 2);
-    if (p && p.slug) posts.push(p);
+    const p = await getJSON(`${API}/blog/${encodeURIComponent(item.slug)}`, 4);
+    if (p && p.slug) posts.push(p); else missed.push(item.slug);
   }
+  if (missed.length) console.log(`[prerender] could not load ${missed.length} post(s): ${missed.join(", ")}`);
+  if (missed.length > Math.max(3, list.length * 0.05)) throw new BuildFailure(`${missed.length} of ${list.length} posts failed to load`);
 
   const nav = `<p><a href="/">ShowUpAI</a> · <a href="/blog">Blog</a></p>`;
+  // Off-topic posts stay reachable but carry noindex and are left out of the index, RSS, llms.txt and related links,
+  // so Google spends its crawl on the posts that match what the site is about.
+  const indexed = posts.filter((p) => !p.noindex);
   for (const p of posts) {
     const url = `${SITE}/blog/${p.slug}`;
     const image = await staticCover(p.slug);
     const desc = p.seo_description || p.meta_description || p.excerpt || "";
     const faqs = (p.faq_items || []).filter((f) => f.question && f.answer);
-    const related = md.relatedPosts(p, posts, 3);
+    const related = md.relatedPosts(p, indexed, 3);
     const person = p.author && p.author !== "ShowUpAI Team";
     const graph = [
       {
@@ -412,20 +421,22 @@ ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
 <p>Free tools: <a href="/tools/webinar-no-show-calculator">no-show calculator</a> · <a href="/tools/webinar-roi-calculator">ROI calculator</a> · <a href="/tools/webinar-title-generator">title generator</a>. Full guide: <a href="/webinar-attendance">how to increase webinar attendance</a>.</p>
+<p>Compare: ${[["zoom", "Zoom"], ["demio", "Demio"], ["livestorm", "Livestorm"], ["webinarjam", "WebinarJam"], ["on24", "ON24"], ["gotowebinar", "GoTo Webinar"]].map(([k, n]) => `<a href="/compare/${k}">ShowUpAI vs ${n}</a>`).join(" · ")}.</p>
 <p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
-    const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph } }), html);
+    const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph },
+      ...(p.noindex ? { robots: "noindex, follow" } : {}) }), html);
     fs.mkdirSync(path.join(BUILD, "blog"), { recursive: true });
     fs.writeFileSync(path.join(BUILD, "blog", `${p.slug}.html`), page);
   }
 
   const listHtml = `${nav}<h1>ShowUpAI Blog</h1><p>Insights on webinars, attendance, and growing your audience.</p>
-<ul>${posts.map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a><p>${esc(p.excerpt || "")}</p></li>`).join("")}</ul>`;
+<ul>${indexed.map((p) => `<li><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a><p>${esc(p.excerpt || "")}</p></li>`).join("")}</ul>`;
   const listPage = withRoot(setHead(shell, { title: "Blog | ShowUpAI — Webinar Attendance Insights",
     description: "Practical guides on webinar attendance, reminder sequences and no-show reduction from ShowUpAI.",
     url: `${SITE}/blog`, type: "website",
     jsonld: { "@context": "https://schema.org", "@type": "Blog", name: "ShowUpAI Blog", url: `${SITE}/blog`,
-      blogPost: posts.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: `${SITE}/blog/${p.slug}`, datePublished: p.published_at })) } }), listHtml);
+      blogPost: indexed.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: `${SITE}/blog/${p.slug}`, datePublished: p.published_at })) } }), listHtml);
   fs.writeFileSync(path.join(BUILD, "blog.html"), listPage);
   // RSS feed
   const rfc = (d) => { try { return new Date(d).toUTCString(); } catch (e) { return ""; } };
@@ -434,18 +445,29 @@ ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a hr
 <title>ShowUpAI Blog</title><link>${SITE}/blog</link>
 <description>Practical, number-backed guides on webinar attendance, reminders and no-shows.</description>
 <language>en</language><atom:link href="${SITE}/rss.xml" rel="self" type="application/rss+xml" />
-${posts.map((p) => `<item><title>${esc(p.title)}</title><link>${SITE}/blog/${esc(p.slug)}</link><guid>${SITE}/blog/${esc(p.slug)}</guid>${p.published_at ? `<pubDate>${rfc(p.published_at)}</pubDate>` : ""}<description>${esc(p.excerpt || p.meta_description || "")}</description>${p.author ? `<author>hello@showupai.live (${esc(p.author)})</author>` : ""}</item>`).join("\n")}
+${indexed.map((p) => `<item><title>${esc(p.title)}</title><link>${SITE}/blog/${esc(p.slug)}</link><guid>${SITE}/blog/${esc(p.slug)}</guid>${p.published_at ? `<pubDate>${rfc(p.published_at)}</pubDate>` : ""}<description>${esc(p.excerpt || p.meta_description || "")}</description>${p.author ? `<author>hello@showupai.live (${esc(p.author)})</author>` : ""}</item>`).join("\n")}
 </channel></rss>`;
   fs.writeFileSync(path.join(BUILD, "rss.xml"), rss);
 
   // llms.txt: append a list of articles so AI assistants can find them
   const llmsPath = path.join(BUILD, "llms.txt");
-  if (fs.existsSync(llmsPath) && posts.length) {
+  if (fs.existsSync(llmsPath) && indexed.length) {
     const base = fs.readFileSync(llmsPath, "utf8").trimEnd();
-    const block = `\n\n## Blog articles\n\n${posts.map((p) => `- [${p.title}](${SITE}/blog/${p.slug}): ${(p.excerpt || p.meta_description || "").replace(/\s+/g, " ")}`).join("\n")}\n`;
+    const block = `\n\n## Blog articles\n\n${indexed.map((p) => `- [${p.title}](${SITE}/blog/${p.slug}): ${(p.excerpt || p.meta_description || "").replace(/\s+/g, " ")}`).join("\n")}\n`;
     fs.writeFileSync(llmsPath, base + block);
   }
   console.log(`[prerender] wrote ${posts.length} post pages + blog index + rss.xml + llms.txt list`);
 }
 
-main().catch((e) => console.log("[prerender] error (ignored):", e.message)).finally(() => process.exit(0));
+class BuildFailure extends Error {}
+
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    if (e instanceof BuildFailure) {
+      console.log("[prerender] FAILING BUILD:", e.message);
+      process.exit(1);
+    }
+    console.log("[prerender] error (ignored):", e.message);
+    process.exit(0);
+  });

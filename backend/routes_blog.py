@@ -10,6 +10,7 @@ Enhanced version with:
 
 """Blog, touches, registrants, and lead magnets endpoints — enhanced."""
 
+import logging
 import asyncio
 import uuid
 from typing import Dict, Any, List, Optional
@@ -152,6 +153,15 @@ async def publish_due() -> list:
         await pseo.seed_content_posts()
     except Exception:
         pass
+    try:  # exact on-page changes for queries Search Console shows at positions 5-40 (idempotent)
+        import keyword_boosts
+        await keyword_boosts.queue_priority_keywords()
+        boosted = (await keyword_boosts.apply_all() + await keyword_boosts.fix_seo_titles()
+                   + await keyword_boosts.apply_compare_links())
+        if boosted:
+            await _trigger_rebuild(f"keyword boosts: {', '.join(boosted)}"[:120])
+    except Exception as e:
+        logging.getLogger("showup.blog").warning(f"keyword boosts skipped: {e}")
     now = now_iso()
     due = await db.blog_posts.find(
         {"published": {"$ne": True}, "publish_at": {"$ne": None, "$lte": now}}, {"_id": 0, "slug": 1}
@@ -522,9 +532,14 @@ async def list_blog_posts():
     rows = await db.blog_posts.find({"published": True}, {"_id": 0, "content": 0, "faq_items": 0}).sort(
         [("published_at", -1), ("reading_time", -1)]
     ).to_list(500)
-    published = [r for r in rows if r.get("published")]
-    not_published = [r for r in rows if not r.get("published")]
-    return published + not_published
+    out = []
+    for r in rows:
+        status = pseo.index_status(r)
+        if status == "redirect":  # its URL 301s to the post it was merged into
+            continue
+        r["noindex"] = status == "noindex"
+        out.append(r)
+    return out
 
 
 @router.get("/blog/{slug}")
@@ -533,6 +548,7 @@ async def get_blog_post(slug: str):
     row = await db.blog_posts.find_one({"slug": slug, "published": True}, {"_id": 0})
     if not row:
         raise HTTPException(404, "Blog post not found")
+    row["noindex"] = pseo.index_status(row) != ""
     return row
 
 

@@ -46,7 +46,7 @@ export const COMPARE = {
     name: "Zoom Webinars",
     kind: "webinar platform",
     title: "ShowUpAI vs Zoom Webinars: Get More Registrants to Show Up",
-    description: "Zoom Webinars hosts the event and sends email reminders. ShowUpAI adds an 11-touch, multi-channel attendance sequence on top. How they differ and when to use both.",
+    description: "Zoom Webinars hosts the event and sends email reminders. ShowUpAI adds an 11-touch, multi-channel attendance sequence on top. How they differ.",
     intro: "Zoom Webinars is the webinar add-on to Zoom's video platform. It handles registration, the live room, Q&A, polls and recordings, and it can send a registration confirmation, reminder emails and a follow-up email to attendees and absentees.",
     them: {
       what: "Video webinar platform",
@@ -71,7 +71,7 @@ export const COMPARE = {
     name: "Demio",
     kind: "webinar platform",
     title: "ShowUpAI vs Demio: Webinar Platform vs Attendance Engine",
-    description: "Demio is a webinar platform for marketing teams, with built-in email reminders. ShowUpAI is a multi-channel attendance sequence that works with any platform. Here's the difference.",
+    description: "Demio is a webinar platform with built-in email reminders. ShowUpAI is a multi-channel attendance sequence that works with any platform.",
     intro: "Demio (part of Banzai) is a browser-based webinar platform for marketing teams. It runs live, automated and series webinars and sends registration, reminder and follow-up emails from inside the product.",
     them: {
       what: "Webinar platform for marketing teams",
@@ -96,7 +96,7 @@ export const COMPARE = {
     name: "Livestorm",
     kind: "webinar platform",
     title: "ShowUpAI vs Livestorm: Which One Raises Webinar Attendance?",
-    description: "Livestorm is a browser-based webinar and video engagement platform with email reminders. ShowUpAI runs an 11-touch attendance sequence across 7 channels. A side-by-side comparison.",
+    description: "Livestorm is a browser-based webinar platform with email reminders. ShowUpAI runs an 11-touch attendance sequence across 7 channels. Side by side.",
     intro: "Livestorm is a browser-based platform for webinars, demos and virtual events. Registration, email reminders, the live room, recordings and analytics are all in one product, with integrations for CRMs and marketing tools.",
     them: {
       what: "Browser-based webinar and video engagement platform",
@@ -121,7 +121,7 @@ export const COMPARE = {
     name: "WebinarJam",
     kind: "webinar platform",
     title: "ShowUpAI vs WebinarJam: Reminders Built for Attendance",
-    description: "WebinarJam is an all-in-one webinar platform with email and SMS reminders. ShowUpAI adds a value-led, multi-channel sequence with AI-written copy. How to choose.",
+    description: "WebinarJam is an all-in-one webinar platform with email and SMS reminders. ShowUpAI adds a multi-channel sequence with AI-written copy. How to choose.",
     intro: "WebinarJam is an all-in-one webinar platform popular with course creators and marketers. It covers registration pages, the live room, offers during the webinar, replays, and email and SMS reminders.",
     them: {
       what: "All-in-one webinar and sales platform",
@@ -169,7 +169,7 @@ export const COMPARE = {
     name: "GoTo Webinar",
     kind: "webinar platform",
     title: "ShowUpAI vs GoTo Webinar: More Show-Ups From the Same Signups",
-    description: "GoTo Webinar hosts webinars and sends reminder emails. ShowUpAI adds an 11-touch sequence across email, social, WhatsApp and community channels. Compare them here.",
+    description: "GoTo Webinar hosts webinars and sends reminder emails. ShowUpAI adds an 11-touch sequence across email, social, WhatsApp and community channels.",
     intro: "GoTo Webinar (formerly GoToWebinar) is a long-standing webinar platform with registration, reminder and follow-up emails, polls, recordings and reporting.",
     them: {
       what: "Webinar platform",
@@ -193,7 +193,7 @@ export const COMPARE = {
     name: "ActiveCampaign",
     kind: "email marketing automation",
     title: "ShowUpAI vs ActiveCampaign for Webinar Reminders",
-    description: "You can build webinar reminders in ActiveCampaign, but you design and write every step yourself. ShowUpAI plans and writes the whole attendance sequence for you.",
+    description: "You can build webinar reminders in ActiveCampaign, but you write every step yourself. ShowUpAI plans and writes the whole attendance sequence for you.",
     intro: "ActiveCampaign is a marketing automation and CRM platform. Many webinar hosts build their reminder sequences there as automations triggered by a registration tag or form.",
     them: {
       what: "Email marketing automation and CRM",
@@ -217,7 +217,7 @@ export const COMPARE = {
     name: "Buffer",
     kind: "social media scheduler",
     title: "ShowUpAI vs Buffer for Promoting Webinars",
-    description: "Buffer schedules social posts you write. ShowUpAI writes and times webinar-specific posts and reminders across social, email and WhatsApp. Here's the difference.",
+    description: "Buffer schedules social posts you write. ShowUpAI writes and times webinar posts and reminders across social, email and WhatsApp. Here's the difference.",
     intro: "Buffer is a social media scheduling tool. You write posts, queue them and publish across your social accounts, with an AI assistant for drafting.",
     them: {
       what: "Social media scheduler",
@@ -256,7 +256,7 @@ export const TOOLS = {
   "webinar-no-show-calculator": {
     name: "Webinar No-Show Calculator",
     title: "Webinar No-Show Calculator: What Your Empty Seats Cost",
-    description: "Free calculator: enter registrants, attendees and the value of a lead to see your show-up rate, no-show rate, and the pipeline lost to no-shows, compared with published benchmarks.",
+    description: "Free calculator: enter registrants, attendees and lead value to see your show-up rate, no-show rate and the pipeline lost to no-shows, vs benchmarks.",
     intro: "Enter how many people registered and how many joined. The calculator shows your show-up and no-show rates, compares them with published platform averages, and estimates what the no-shows cost you.",
     how: [
       "Show-up rate = attendees ÷ registrants × 100.",
@@ -283,6 +283,9 @@ export const TOOLS = {
     faq: [
       ["How do you measure webinar ROI?", "Add up every cost (ads, tools, the hours your team spent), then track the revenue from customers who attended. ROI is revenue minus cost, divided by cost."],
       ["What costs should I include?", "Paid promotion, webinar and email tools, speaker fees, design, and the time your team spent planning, promoting and running the event."],
+      ["Which number moves webinar ROI the most?", "Usually the show-up rate. Every other cost is already spent by the time people register, so each extra attendee raises revenue without raising cost. Try the calculator with your show-up rate 10 points higher to see the difference for your own funnel."],
+      ["Should I count replay viewers as attendees?", "Track them separately. Replay viewers can still convert, but they rarely ask questions or book a call on the spot, so mixing them in makes live attendance look better than it is."],
+      ["How long after the webinar should I measure revenue?", "Use your normal sales cycle. If deals usually close in 60 days, check the attendee list against closed deals 60 days after the event, then again a quarter later."],
     ],
   },
   "webinar-title-generator": {
@@ -298,6 +301,9 @@ export const TOOLS = {
     faq: [
       ["What makes a good webinar title?", "A specific outcome, a clear audience and a reason to attend live. 'How B2B marketers can double demo bookings from webinars' beats 'Q3 product webinar'."],
       ["How long should a webinar title be?", "Aim for 40–70 characters. Longer titles get cut off in email subject lines, calendar invites and social previews."],
+      ["Should a webinar title include a number?", "Use one when the session really delivers a list, such as 5 templates or 3 case studies. A number sets a clear promise, but only if the webinar keeps it."],
+      ["Should I test webinar titles?", "Yes, if you can. Send two versions of the invite email to small parts of your list and keep the title with more registrations. Then check which version also had the better show-up rate, because a clickbait title can win sign-ups and lose attendance."],
+      ["Does the title affect how many registrants show up?", "It does. The title is repeated in every reminder and calendar invite, so a clear outcome-led title reminds people why they signed up each time they see it."],
     ],
   },
 };
@@ -329,7 +335,7 @@ export const GUIDE = {
   slug: "webinar-attendance",
   title: "How to Increase Webinar Attendance: The Complete Guide (2026)",
   seoTitle: "How to Increase Webinar Attendance (2026 Guide) | ShowUpAI",
-  description: "A practical guide to raising webinar attendance: benchmarks, why registrants no-show, an 11-touch reminder timeline, channels, copy examples and how to measure it.",
+  description: "A practical guide to raising webinar attendance: benchmarks, why registrants no-show, an 11-touch reminder timeline, channels, copy and measurement.",
   updated: "2026-11-04",
   // blog posts whose slug contains one of these words are listed under "More on webinar attendance"
   clusterWords: ["attendance", "no-show", "noshow", "reminder", "show-up", "follow-up", "registration", "promotion"],
@@ -417,10 +423,21 @@ ShowUpAI plans this timeline for each webinar, writes every touch for its channe
 
 export const COMPARE_INDEX = {
   title: "ShowUpAI Comparisons: Webinar Platforms and Reminder Tools",
-  description: "How ShowUpAI compares with Zoom Webinars, Demio, Livestorm, WebinarJam, ON24, GoTo Webinar, ActiveCampaign and Buffer for getting webinar registrants to show up.",
+  description: "How ShowUpAI compares with Zoom Webinars, Demio, Livestorm, WebinarJam, ON24, GoTo Webinar, ActiveCampaign and Buffer for webinar attendance.",
 };
 
 export const TOOLS_INDEX = {
-  title: "Free Webinar Tools: No-Show Calculator, ROI Calculator, Title Generator",
+  title: "Free Webinar Tools: No-Show, ROI and Title Calculators",
   description: "Free webinar tools from ShowUpAI: calculate no-show cost and webinar ROI, and generate webinar title ideas. No sign-up needed.",
+  sections: [
+    { h: "Which tool to use when", p: "Use the title generator while you plan the webinar, because the title decides who registers and whether they still care on the day. Use the no-show calculator after a webinar, with your real registrant and attendee numbers, to see how many people you lost between sign-up and start time and what that gap is worth in pipeline. Use the ROI calculator when you need to defend the budget: it turns your costs, attendance and conversion rates into cost per attendee, customers won and return." },
+    { h: "How to get more out of the numbers", p: "Run the no-show calculator for each of your last three webinars instead of one. A single event can be skewed by the topic or the time slot, while three events show your real baseline. Then change one thing at a time, such as adding a reminder the morning of the event or a calendar invite at registration, and run the calculator again to see whether the show-up rate moved." },
+    { h: "Private by design", p: "Every tool runs in your browser. Nothing you type is stored or sent to us, and you don't need an account. When you want the reminders themselves handled, ShowUpAI writes and schedules the whole attendance sequence for you." },
+  ],
 };
+
+// <title> for a page: adds " | ShowUpAI" only when it fits in ~60 characters and the title doesn't already name the brand.
+export function pageTitle(title) {
+  const t = String(title || "").trim();
+  return /showupai/i.test(t) || t.length + 11 > 60 ? t : `${t} | ShowUpAI`;
+}
