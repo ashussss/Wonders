@@ -32,7 +32,7 @@ function Inline({ text }) {
     part.t === "b" ? (
       <strong key={i}>{part.v}</strong>
     ) : part.t === "a" ? (
-      <a key={i} href={part.href} target="_blank" rel="noopener" className="underline underline-offset-2 decoration-orange-500">
+      <a key={i} href={part.href} {...(/^https?:\/\/(www\.)?showupai\.live\//.test(part.href) ? {} : { target: "_blank", rel: "noopener" })} className="underline underline-offset-2 decoration-orange-500">
         {part.v}
       </a>
     ) : part.t === "code" ? (
@@ -434,6 +434,14 @@ export default function BlogPostPage() {
         <p className="text-muted-foreground mb-5">
           ShowUpAI writes and schedules an 11-touch reminder sequence across email, LinkedIn, WhatsApp, Circle and calendar
           invites, so more of your registrants turn into live attendees. You approve every message before it goes out.
+        </p>
+        <p className="text-sm text-muted-foreground mb-5">
+          Free tools: <Link to="/tools/webinar-no-show-calculator" className="underline">no-show calculator</Link> ·{" "}
+          <Link to="/tools/webinar-roi-calculator" className="underline">ROI calculator</Link> ·{" "}
+          <Link to="/tools/webinar-title-generator" className="underline">title generator</Link>. Compare:{" "}
+          {[["zoom", "Zoom"], ["demio", "Demio"], ["livestorm", "Livestorm"], ["webinarjam", "WebinarJam"], ["on24", "ON24"], ["gotowebinar", "GoTo Webinar"]].map(([k, n], i) => (
+            <React.Fragment key={k}>{i ? " · " : ""}<Link to={`/compare/${k}`} className="underline">ShowUpAI vs {n}</Link></React.Fragment>
+          ))}.
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <Link

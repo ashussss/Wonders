@@ -421,6 +421,7 @@ ${person ? `<aside><p><strong>Written by ${esc(p.author)}</strong></p><p>${esc(p
 ${(p.sources || []).length ? `<p><strong>Sources:</strong> ${p.sources.map((s) => `<a href="${esc(s.url)}" rel="noopener">${esc(s.source)}</a>`).join(", ")}</p>` : ""}
 ${related.length ? `<h2>Related articles</h2><ul>${related.map((r) => `<li><a href="/blog/${esc(r.slug)}">${esc(r.title)}</a></li>`).join("")}</ul>` : ""}
 <p>Free tools: <a href="/tools/webinar-no-show-calculator">no-show calculator</a> · <a href="/tools/webinar-roi-calculator">ROI calculator</a> · <a href="/tools/webinar-title-generator">title generator</a>. Full guide: <a href="/webinar-attendance">how to increase webinar attendance</a>.</p>
+<p>Compare: ${[["zoom", "Zoom"], ["demio", "Demio"], ["livestorm", "Livestorm"], ["webinarjam", "WebinarJam"], ["on24", "ON24"], ["gotowebinar", "GoTo Webinar"]].map(([k, n]) => `<a href="/compare/${k}">ShowUpAI vs ${n}</a>`).join(" · ")}.</p>
 <p><a href="/waitlist">Try ShowUpAI free</a></p></article>`;
 
     const page = withRoot(setHead(shell, { title: p.seo_title || `${p.title} | ShowUpAI`, description: desc, url, image, type: "article", jsonld: { "@context": "https://schema.org", "@graph": graph },

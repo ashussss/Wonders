@@ -283,6 +283,9 @@ export const TOOLS = {
     faq: [
       ["How do you measure webinar ROI?", "Add up every cost (ads, tools, the hours your team spent), then track the revenue from customers who attended. ROI is revenue minus cost, divided by cost."],
       ["What costs should I include?", "Paid promotion, webinar and email tools, speaker fees, design, and the time your team spent planning, promoting and running the event."],
+      ["Which number moves webinar ROI the most?", "Usually the show-up rate. Every other cost is already spent by the time people register, so each extra attendee raises revenue without raising cost. Try the calculator with your show-up rate 10 points higher to see the difference for your own funnel."],
+      ["Should I count replay viewers as attendees?", "Track them separately. Replay viewers can still convert, but they rarely ask questions or book a call on the spot, so mixing them in makes live attendance look better than it is."],
+      ["How long after the webinar should I measure revenue?", "Use your normal sales cycle. If deals usually close in 60 days, check the attendee list against closed deals 60 days after the event, then again a quarter later."],
     ],
   },
   "webinar-title-generator": {
@@ -298,6 +301,9 @@ export const TOOLS = {
     faq: [
       ["What makes a good webinar title?", "A specific outcome, a clear audience and a reason to attend live. 'How B2B marketers can double demo bookings from webinars' beats 'Q3 product webinar'."],
       ["How long should a webinar title be?", "Aim for 40–70 characters. Longer titles get cut off in email subject lines, calendar invites and social previews."],
+      ["Should a webinar title include a number?", "Use one when the session really delivers a list, such as 5 templates or 3 case studies. A number sets a clear promise, but only if the webinar keeps it."],
+      ["Should I test webinar titles?", "Yes, if you can. Send two versions of the invite email to small parts of your list and keep the title with more registrations. Then check which version also had the better show-up rate, because a clickbait title can win sign-ups and lose attendance."],
+      ["Does the title affect how many registrants show up?", "It does. The title is repeated in every reminder and calendar invite, so a clear outcome-led title reminds people why they signed up each time they see it."],
     ],
   },
 };

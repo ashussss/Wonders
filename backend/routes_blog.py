@@ -156,7 +156,8 @@ async def publish_due() -> list:
     try:  # exact on-page changes for queries Search Console shows at positions 5-40 (idempotent)
         import keyword_boosts
         await keyword_boosts.queue_priority_keywords()
-        boosted = await keyword_boosts.apply_all() + await keyword_boosts.fix_seo_titles()
+        boosted = (await keyword_boosts.apply_all() + await keyword_boosts.fix_seo_titles()
+                   + await keyword_boosts.apply_compare_links())
         if boosted:
             await _trigger_rebuild(f"keyword boosts: {', '.join(boosted)}"[:120])
     except Exception as e:

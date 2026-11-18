@@ -288,3 +288,62 @@ async def fix_seo_titles() -> list:
     if changed:
         logger.info(f"seo_title fixed on {len(changed)} posts")
     return changed
+
+
+# Competitor names -> their comparison page. The first plain mention in a post's body links there, so the compare
+# pages get internal links from the posts that already talk about these tools (Google had found them only via the guide).
+COMPARE_LINKS = [
+    ("Zoom Webinars", "zoom"), ("Zoom", "zoom"), ("Demio", "demio"), ("Livestorm", "livestorm"),
+    ("WebinarJam", "webinarjam"), ("ON24", "on24"), ("GoTo Webinar", "gotowebinar"), ("GoToWebinar", "gotowebinar"),
+    ("ActiveCampaign", "activecampaign"),
+]
+_MAX_COMPARE_LINKS = 3
+
+
+def link_compare_pages(content: str) -> str:
+    """Link the first plain-text mention of each competitor in body paragraphs/lists (not headings, tables, code or
+    existing links) to /compare/<key>. Idempotent: a page the post already links to is skipped. At most 3 per post."""
+    import re
+    content = content or ""
+    done = {k for _, k in COMPARE_LINKS if f"/compare/{k}" in content}
+    added = len(done)
+    lines = content.split("\n")
+    in_code = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+        if in_code or added >= _MAX_COMPARE_LINKS or line.lstrip().startswith(("#", "|", ">")) or not line.strip():
+            continue
+        for name, key in COMPARE_LINKS:
+            if key in done or added >= _MAX_COMPARE_LINKS:
+                continue
+            # skip text inside [..](..) links and `code`
+            spans = [m.span() for m in re.finditer(r"\[[^\]]*\]\([^)]*\)|`[^`]*`", line)]
+            for m in re.finditer(rf"(?<![\w/.-]){re.escape(name)}(?![\w-])", line):
+                if any(a <= m.start() < b for a, b in spans):
+                    continue
+                line = f"{line[:m.start()]}[{name}]({SITE}/compare/{key}){line[m.end():]}"
+                done.add(key)
+                added += 1
+                break
+        lines[i] = line
+    return "\n".join(lines)
+
+
+async def apply_compare_links() -> list:
+    """Add compare-page links to published, indexable posts that mention a competitor. Idempotent."""
+    changed = []
+    async for post in db.blog_posts.find({"published": True}, {"_id": 0}):
+        if pseo.index_status(post):
+            continue
+        new = link_compare_pages(post.get("content", ""))
+        if new == (post.get("content") or ""):
+            continue
+        if not await db.blog_posts_backup.find_one({"run_id": RUN_ID, "slug": post["slug"]}, {"_id": 1}):
+            await db.blog_posts_backup.insert_one({"run_id": RUN_ID, "slug": post["slug"], "reason": "compare links",
+                                                   "saved_at": pseo.now_iso(), "post": post})
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"content": new}})
+        changed.append(post["slug"])
+    if changed:
+        logger.info(f"compare links added to {len(changed)} posts")
+    return changed

@@ -60,3 +60,14 @@ def test_index_status_drops_redirects_and_off_topic_posts():
                               "keyword": "integrating nfc badge data with abm platforms"}) == "noindex"
     assert pseo.index_status({"slug": "webinar-cta-examples", "keyword": "webinar cta examples"}) == ""
     assert pseo.index_status({"slug": "hybrid-event-reminder-strategies", "title": "Hybrid event reminder strategies"}) == ""
+
+
+def test_compare_links_first_plain_mention_only_and_idempotent():
+    c = ("We used Zoom and Demio.\n\n## Zoom vs Demio\n| Zoom | x |\n"
+         "Try [Livestorm](https://livestorm.co) or Livestorm. WebinarJam too.\n```\nZoom\n```")
+    out = kb.link_compare_pages(c)
+    assert "[Zoom](https://showupai.live/compare/zoom) and [Demio](https://showupai.live/compare/demio)" in out
+    assert "## Zoom vs Demio" in out and "| Zoom | x |" in out
+    assert "[Livestorm](https://livestorm.co) or [Livestorm](https://showupai.live/compare/livestorm)" in out
+    assert "compare/webinarjam" not in out  # max 3 per post
+    assert kb.link_compare_pages(out) == out
