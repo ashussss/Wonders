@@ -54,6 +54,7 @@ logger = logging.getLogger("showup.webinars")
 # same webinar running at once.
 _jobs: Dict[str, asyncio.Task] = {}
 RETRY_FAILED_AFTER = 300  # seconds before a page load retries a failed generation
+STALE_RUNNING_AFTER = 900  # a "running" job this old died (restart/deploy) and may be restarted
 
 
 def generation_running(webinar_id: str) -> bool:
@@ -164,12 +165,17 @@ def _should_heal(w: Dict[str, Any], touches: List[Dict[str, Any]]) -> bool:
     if generation_running(w["id"]) or all(_has_copy(t) for t in touches):
         return False
     gen = w.get("generation") or {}
-    if gen.get("status") == "failed" and gen.get("finished_at"):
+
+    def _age(key: str) -> float:
         try:
-            age = (datetime.now(timezone.utc) - datetime.fromisoformat(gen["finished_at"])).total_seconds()
-            return age >= RETRY_FAILED_AFTER
+            return (datetime.now(timezone.utc) - datetime.fromisoformat(gen[key])).total_seconds()
         except Exception:
-            return True
+            return float("inf")
+    # Running in another worker process (or just started): leave it alone.
+    if gen.get("status") == "running" and _age("started_at") < STALE_RUNNING_AFTER:
+        return False
+    if gen.get("status") == "failed":
+        return _age("finished_at") >= RETRY_FAILED_AFTER
     return True
 
 

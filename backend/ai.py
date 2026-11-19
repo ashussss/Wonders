@@ -59,6 +59,7 @@ GEMINI_COOLDOWN = 60.0
 _llm_sem: Optional[asyncio.Semaphore] = None
 _gemini_blocked_until = 0.0
 _dead_models: set = set()
+_no_lean: set = set()  # Gemini models that reject JSON mode / thinking settings
 
 # Last outcome per provider, for GET /api/ai/health and the logs.
 LLM_STATUS: Dict[str, Dict[str, Any]] = {"gemini": {}, "groq": {}}
@@ -129,7 +130,7 @@ async def _try_gemini(prompt: str, max_tokens: int) -> Optional[str]:
     import time
     for model in [m for m in GEMINI_MODELS if m not in _dead_models]:
         # lean = JSON mode + low thinking. If a model rejects either option, ask plainly.
-        for lean in (True, False):
+        for lean in ((False,) if model in _no_lean else (True, False)):
             try:
                 def _gemini():
                     r = gemini_client.models.generate_content(
@@ -155,6 +156,8 @@ async def _try_gemini(prompt: str, max_tokens: int) -> Optional[str]:
                     _dead_models.add(model)
                     break
                 logger.error(f"Gemini {model} failed (lean={lean}): {ex}")
+                if lean and ("400" in str(ex) or "INVALID_ARGUMENT" in str(ex)):
+                    _no_lean.add(model)  # don't pay for the rejected request on every call
     return None
 
 

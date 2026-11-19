@@ -213,3 +213,29 @@ def test_gemini_empty_text_and_retired_model_fall_back(monkeypatch):
     assert asyncio.run(ai._call_llm("p")) == '{"ok": true}'
     assert calls[0] == "gem-a" and "gem-a" in ai._dead_models
     assert "MAX_TOKENS" in ai.LLM_STATUS["gemini"]["last_error"]["error"]
+
+
+def test_job_running_elsewhere_is_left_alone_until_stale():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    w = {"id": "w8", "generation": {"status": "running", "started_at": now.isoformat()}}
+    assert rw._should_heal(w, [{"ai_copy": {}}]) is False  # another worker is writing it
+    w["generation"]["started_at"] = (now - timedelta(minutes=20)).isoformat()
+    assert rw._should_heal(w, [{"ai_copy": {}}]) is True   # died in a restart
+
+
+def test_gemini_that_rejects_json_mode_is_asked_plainly_after(monkeypatch):
+    seen = []
+
+    def gen(model, contents, config):
+        lean = config.response_mime_type == "application/json"
+        seen.append(lean)
+        if lean:
+            raise Exception("400 INVALID_ARGUMENT: thinking_level is not supported")
+        return types.SimpleNamespace(text='{"ok": true}')
+    gem = types.SimpleNamespace(models=types.SimpleNamespace(generate_content=gen))
+    _llm(monkeypatch, None, gem)
+    monkeypatch.setattr(ai, "_no_lean", set())
+    assert asyncio.run(ai._call_llm("p")) == '{"ok": true}'
+    assert asyncio.run(ai._call_llm("p")) == '{"ok": true}'
+    assert seen == [True, False, False]  # second call skips the rejected settings
