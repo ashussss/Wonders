@@ -76,6 +76,17 @@ export default function WebinarDetail() {
   };
   useEffect(() => { reload(); }, [id]);
 
+  // AI copy is written in the background after a webinar is created (and by Regen All).
+  // Keep refreshing while it runs, so touches fill in without a manual page reload.
+  const gen = w?.generation || {};
+  const missingCopy = touches.some(t => !t.ai_copy?.channels || Object.keys(t.ai_copy.channels).length === 0);
+  const generatingNow = gen.running || gen.status === "running" || (missingCopy && gen.status !== "failed");
+  useEffect(() => {
+    if (!generatingNow) return;
+    const timer = setInterval(() => { reload().catch(() => {}); }, 5000);
+    return () => clearInterval(timer);
+  }, [generatingNow, id]);
+
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -92,8 +103,9 @@ export default function WebinarDetail() {
     setRegenAllBusy(true);
     try {
       const r = await api.post(`/webinars/${id}/regenerate-all`);
-      toast.success(`Regenerating ${r.data.regenerated} touches — refresh in a moment`);
-      setTimeout(() => reload(), 3000);
+      toast.success(r.data.already_running ? "Already writing the copy. It fills in here as it's ready."
+                                           : `Rewriting ${r.data.total} touches. They fill in here as they're ready.`);
+      setTimeout(() => reload(), 1500);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Regeneration failed");
     } finally {
@@ -287,6 +299,21 @@ export default function WebinarDetail() {
           } />
         </div>
 
+
+          {/* ── AI copy progress / failure ── */}
+          {generatingNow && (
+            <div data-testid="generation-progress" className="rounded-xl px-4 py-3 mb-5 text-sm flex items-center gap-3" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+              <span className="w-3.5 h-3.5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span>Writing your reminders{gen.total ? ` (${Math.min(gen.done || 0, gen.total)} of ${gen.total} touches done)` : ""}. This takes a minute or two.</span>
+            </div>
+          )}
+          {!generatingNow && gen.status === "failed" && (
+            <div data-testid="generation-failed" className="rounded-xl px-4 py-3 mb-5 text-sm flex flex-wrap items-center gap-3 border border-red-500/30 bg-red-500/10">
+              <AlertTriangle size={14} className="text-red-500 shrink-0" />
+              <span className="flex-1 min-w-[200px]">Some reminder copy couldn't be written. {gen.error}</span>
+              <button onClick={handleRegenAll} disabled={regenAllBusy} className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg text-white bg-orange-600 disabled:opacity-50">Try again</button>
+            </div>
+          )}
 
           {/* ── AI Health Score ── */}
           {insights && (

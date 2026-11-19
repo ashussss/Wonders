@@ -15,6 +15,7 @@ from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnet
 from config import TOUCH_DEFS
 import touch_visuals
 import brand_kit
+import ai
 from ai import (generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule,
                 touch_reasoning, kit_from_lead_magnets)
 
@@ -47,38 +48,152 @@ import logging
 logger = logging.getLogger("showup.webinars")
 
 
-async def _bg_generate_all(webinar_id: str):
-    """Background task fired after webinar creation — generates AI copy for
-    lead magnets and every touch in parallel. Errors are logged, not swallowed,
-    so failures are visible instead of silently doing nothing."""
+# Running generation jobs, by webinar id. asyncio only keeps a weak reference to a task,
+# so a fire-and-forget create_task() could be garbage collected halfway through and the
+# webinar's touches stayed empty for good. Keeping them here also stops two jobs for the
+# same webinar running at once.
+_jobs: Dict[str, asyncio.Task] = {}
+RETRY_FAILED_AFTER = 300  # seconds before a page load retries a failed generation
+
+
+def generation_running(webinar_id: str) -> bool:
+    t = _jobs.get(webinar_id)
+    return bool(t and not t.done())
+
+
+def start_generation(webinar_id: str, only_missing: bool = False) -> bool:
+    """Start (or keep) the background job that writes the kit and every touch's copy."""
+    if generation_running(webinar_id):
+        return False
+    task = asyncio.create_task(_bg_generate_all(webinar_id, only_missing=only_missing))
+    _jobs[webinar_id] = task
+    task.add_done_callback(lambda _t, wid=webinar_id: _jobs.pop(wid, None) if _jobs.get(wid) is _t else None)
+    return True
+
+
+def _has_copy(t: Dict[str, Any]) -> bool:
+    return bool((t.get("ai_copy") or {}).get("channels"))
+
+
+def _llm_ok_since(started: str) -> bool:
+    for st in ai.LLM_STATUS.values():
+        ok = (st or {}).get("last_ok") or {}
+        if ok.get("at", "") >= started:
+            return True
+    return False
+
+
+def _llm_last_error() -> str:
+    errs = [(st or {}).get("last_error") or {} for st in ai.LLM_STATUS.values()]
+    errs = [e for e in errs if e.get("error")]
+    if not errs:
+        return "No AI provider answered. Check GEMINI_API_KEY / GROQ_API_KEY on Render."
+    e = max(errs, key=lambda e: e.get("at", ""))
+    return f"{e.get('model')}: {e.get('error')}"
+
+
+async def _set_gen(webinar_id: str, owner_id: str, **fields) -> None:
+    await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id},
+                                 {"$set": {f"generation.{k}": v for k, v in fields.items()}})
+
+
+async def _bg_generate_all(webinar_id: str, only_missing: bool = False):
+    """Background job fired after webinar creation (and by Regenerate all, and by a page
+    load that finds touches without copy): writes the content kit, then every touch's
+    copy. Progress and the outcome are kept on webinar.generation for the UI."""
+    started = now_iso()
+    owner_id = None
     try:
         w = await db.webinars.find_one({"id": webinar_id}, {"_id": 0})
         if not w:
             logger.warning(f"_bg_generate_all: webinar {webinar_id} not found")
             return
+        owner_id = w["owner_id"]
+        touches = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+        if only_missing:
+            touches = [t for t in touches if not _has_copy(t)]
+        await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id}, {"$set": {"generation": {
+            "status": "running", "started_at": started, "finished_at": None,
+            "total": len(touches), "done": 0, "error": None}}})
 
-        lm_data = await generate_lead_magnets(w)
-        await db.lead_magnets.update_one({"webinar_id": webinar_id},
-                                          {"$set": {"ai_content": lm_data, "generated_at": now_iso()}})
-
-        touches = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0}).to_list(50)
-
+        kit = await _ensure_kit(w)
         # The host's brand voice (Brand Kit, plus the older Settings brand fields)
         global_instructions = await brand_kit.voice_brief(db, w["owner_id"])
 
         async def _gen_one(t):
             try:
                 copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]),
-                                                  custom_instructions=global_instructions, kit=lm_data)
-                reasoning = await touch_reasoning(t["touch_num"], t["channels"])
-                await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]},
-                                             {"$set": {"ai_copy": copy, "ai_reasoning": reasoning}})
+                                                  custom_instructions=global_instructions, kit=kit)
+                upd = {"ai_copy": copy}
+                if not only_missing:
+                    upd["approval_status"] = "pending"
+                if not t.get("ai_reasoning"):
+                    upd["ai_reasoning"] = await touch_reasoning(t["touch_num"], t.get("channels", []))
+                await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]}, {"$set": upd})
             except Exception as e:
-                logger.error(f"_bg_generate_all: touch {t.get('touch_num')} for {webinar_id} failed: {e}")
+                logger.exception(f"_bg_generate_all: touch {t.get('touch_num')} for {webinar_id} failed: {e}")
+            finally:
+                await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id}, {"$inc": {"generation.done": 1}})
 
         await asyncio.gather(*[_gen_one(t) for t in touches], return_exceptions=True)
+
+        rows = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0, "ai_copy": 1}).to_list(50)
+        missing = sum(1 for t in rows if not _has_copy(t))
+        if missing:
+            await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(),
+                           error=f"{missing} touches have no copy. {_llm_last_error()}")
+        elif touches and not _llm_ok_since(started):
+            # Every call failed, so the touches carry the generic fallback text.
+            await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(),
+                           error=f"AI was unavailable, so basic template copy was used. {_llm_last_error()}")
+        else:
+            await _set_gen(webinar_id, owner_id, status="done", finished_at=now_iso(), error=None)
+        logger.info(f"_bg_generate_all: webinar {webinar_id}: {len(touches)} touches, {missing} without copy")
     except Exception as e:
-        logger.error(f"_bg_generate_all: webinar {webinar_id} failed entirely: {e}")
+        logger.exception(f"_bg_generate_all: webinar {webinar_id} failed entirely: {e}")
+        try:
+            if owner_id:
+                await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(), error=str(e)[:300])
+        except Exception:
+            pass
+
+
+def _should_heal(w: Dict[str, Any], touches: List[Dict[str, Any]]) -> bool:
+    """A page load restarts generation when touches have no copy and nothing is writing it:
+    the job died in a restart or deploy, or it failed more than 5 minutes ago."""
+    if generation_running(w["id"]) or all(_has_copy(t) for t in touches):
+        return False
+    gen = w.get("generation") or {}
+    if gen.get("status") == "failed" and gen.get("finished_at"):
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(gen["finished_at"])).total_seconds()
+            return age >= RETRY_FAILED_AFTER
+        except Exception:
+            return True
+    return True
+
+
+async def resume_stuck_generations() -> int:
+    """On startup: webinars whose job was cut off by a restart or deploy get it again."""
+    now = now_iso()
+    wids = await db.touches.distinct("webinar_id", {"$or": [{"ai_copy": {}}, {"ai_copy": None},
+                                                             {"ai_copy.channels": {}}]})
+    started = 0
+    for wid in wids:
+        w = await db.webinars.find_one({"id": wid}, {"_id": 0, "id": 1, "starts_at": 1})
+        if w and (w.get("starts_at") or "") >= now and start_generation(wid, only_missing=True):
+            started += 1
+    if started:
+        logger.info(f"resume_stuck_generations: restarted copy for {started} webinars")
+    return started
+
+
+@router.get("/ai/health")
+async def ai_health(user=Depends(get_user)):
+    """Admin: one tiny real call to Gemini and to Groq, with the error if one fails."""
+    if user.get("role") not in {"admin", "superadmin"}:
+        raise HTTPException(403, "Admin only")
+    return await ai.llm_health()
 
 
 # --------- Webinars ---------
@@ -118,7 +233,7 @@ async def create_webinar(data: WebinarIn, user=Depends(get_user)):
         "id": str(uuid.uuid4()), "webinar_id": doc["id"], "owner_id": user["id"],
         "ai_content": {}, "edited_content": {}, "approval_status": "pending", "created_at": now_iso(),
     })
-    asyncio.create_task(_bg_generate_all(doc["id"]))
+    start_generation(doc["id"])
     return {"id": doc["id"]}
 
 
@@ -130,6 +245,7 @@ async def get_webinar(wid: str, user=Depends(get_user)):
     w["registrant_count"] = await db.registrants.count_documents({"webinar_id": wid})
     w["attendee_count"] = await db.registrants.count_documents({"webinar_id": wid, "attended": True})
     w["attendance_rate"] = round((w["attendee_count"]/w["registrant_count"])*100, 1) if w["registrant_count"] else 0
+    w["generation"] = {**(w.get("generation") or {}), "running": generation_running(wid)}
     return w
 
 
@@ -302,6 +418,10 @@ async def _ensure_kit(w: Dict[str, Any]) -> Dict[str, Any]:
 async def list_touches(wid: str, user=Depends(get_user)):
     asyncio.create_task(_backfill_touches(wid, user["id"]))
     rows = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0, "id": 1, "generation": 1})
+    if w and rows and _should_heal(w, rows):
+        logger.info(f"list_touches: {wid} has touches without copy and no job, restarting generation")
+        start_generation(wid, only_missing=True)
     for r in rows:
         r["has_visual"] = touch_visuals.has_visual(r["touch_num"])
     return rows
@@ -427,31 +547,18 @@ async def approval_queue(user=Depends(get_user), webinar_id: str = None):
 # --------- Regenerate ALL touches for a webinar ---------
 @router.post("/webinars/{wid}/regenerate-all")
 async def regen_all_touches(wid: str, user=Depends(get_user)):
-    import asyncio
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    """Starts the rewrite in the background and returns at once. Doing ~40 AI calls inside
+    the request ran past the browser/Render timeout, so the button showed "Regeneration
+    failed" while the work was still going (or was cut off)."""
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not w:
         raise HTTPException(404)
-    touches = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(20)
-    if not touches:
+    total = await db.touches.count_documents({"webinar_id": wid, "owner_id": user["id"]})
+    if not total:
         raise HTTPException(404, "No touches found for this webinar")
-    kit = await _ensure_kit(w)
-    voice = await brand_kit.voice_brief(db, user["id"])
-
-    async def regen_one(t):
-        try:
-            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]), kit=kit,
-                                              custom_instructions=voice)
-            await db.touches.update_one(
-                {"id": t["id"], "owner_id": user["id"]},
-                {"$set": {"ai_copy": copy, "approval_status": "pending"}}
-            )
-            return True
-        except Exception:
-            return False
-
-    results = await asyncio.gather(*[regen_one(t) for t in touches], return_exceptions=True)
-    count = sum(1 for r in results if r is True)
-    return {"ok": True, "regenerated": count, "total": len(touches)}
+    started = start_generation(wid)
+    return {"ok": True, "started": started, "already_running": not started,
+            "regenerated": total, "total": total}
 
 
 # ══════════════════════════════════════════════
