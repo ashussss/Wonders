@@ -101,7 +101,20 @@ def test_all_formats_registered():
     from growth_engine import VISUAL_FORMATS
     assert set(ve.RENDERERS) == set(VISUAL_FORMATS) == {
         "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll",
-        "myth_fact", "timeline", "hot_take"}
+        "myth_fact", "timeline", "hot_take", "text_card"}
+
+
+def test_text_card_and_gif_versions():
+    from growth_engine import design, queue
+    jpg = ve.render_text_card(VisualSpec(format="text_card", title="They fail at *9:58am*."), seed="t")
+    assert jpg[:2] == b"\xff\xd8"
+    for style in design.GIF_STYLES:
+        gif = design.animate(jpg, style)
+        im = Image.open(io.BytesIO(gif))
+        assert gif[:6] == b"GIF89a" and im.n_frames >= 5 and len(gif) < 5_000_000
+    styles = [queue.gif_style(i) for i in range(8)]
+    assert styles[0] == "" and all(styles[1::2]) and len(set(styles[1::2])) == 4
+    assert len(design.THEMES) == 9
 
 
 def test_forced_theme_changes_the_look():
