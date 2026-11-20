@@ -26,6 +26,7 @@ class WebinarIn(BaseModel):
     registration_link: str = ""
     custom_context: Optional[str] = ""  # extra AI instructions for this webinar
     key_topics: Optional[str] = ""      # key topics/outcomes
+    cover_image_url: Optional[str] = ""  # event page's banner, imported as the webinar banner
 
 
 class WebinarPatch(BaseModel):

@@ -181,7 +181,7 @@ def test_delivery_sends_the_card_everywhere(monkeypatch):
     # Sending again reuses the stored card instead of drawing it twice.
     asyncio.run(routes_delivery._deliver_touch(t, {}, public_backend_url="https://api.x"))
     assert len(bucket.files) == 1
-    # The one-hour reminder stays a plain short text.
+    # The one-hour reminder carries the event's "Starts in 1 hour" creative, not a content card.
     sent.clear()
     asyncio.run(routes_delivery._deliver_touch({**t, "id": "t9", "touch_num": 9}, {}, public_backend_url="https://api.x"))
-    assert all(url is None for ch, url in sent if ch != "instagram")
+    assert all(url and url.startswith("https://api.x/api/touches/t9/visual.jpg?v=") for _, url in sent)

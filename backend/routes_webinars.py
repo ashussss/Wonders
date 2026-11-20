@@ -57,6 +57,17 @@ RETRY_FAILED_AFTER = 300  # seconds before a page load retries a failed generati
 STALE_RUNNING_AFTER = 900  # a "running" job this old died (restart/deploy) and may be restarted
 
 
+_bg: set = set()  # strong refs for small background tasks (banner import)
+
+
+def _start_cover_import(w: Dict[str, Any], url: str) -> None:
+    import event_art
+    from database import social_images_fs
+    task = asyncio.create_task(event_art.import_cover(db, social_images_fs, w, url))
+    _bg.add(task)
+    task.add_done_callback(_bg.discard)
+
+
 def generation_running(webinar_id: str) -> bool:
     t = _jobs.get(webinar_id)
     return bool(t and not t.done())
@@ -240,6 +251,8 @@ async def create_webinar(data: WebinarIn, user=Depends(get_user)):
         "ai_content": {}, "edited_content": {}, "approval_status": "pending", "created_at": now_iso(),
     })
     start_generation(doc["id"])
+    if data.cover_image_url:
+        _start_cover_import(doc, data.cover_image_url)
     return {"id": doc["id"]}
 
 
@@ -750,46 +763,77 @@ async def upload_banner(wid: str, file: UploadFile = File(...), user=Depends(get
     if not w:
         raise HTTPException(404)
 
-    # Validate file type
-    if not file.content_type.startswith("image/"):
+    if not (file.content_type or "").startswith("image/"):
         raise HTTPException(400, "Only image files allowed")
-
-    # Max 5MB
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
-        raise HTTPException(400, "Image must be under 5MB")
+    if len(contents) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Image must be under 8MB")
+    import event_art
+    try:
+        out = await event_art.store_banner(db, social_images_fs, w, contents, source="upload",
+                                           filename=file.filename or "banner")
+    except event_art.BannerError as e:
+        raise HTTPException(400, str(e))
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$unset": {"banner_error": ""}})
+    return {"ok": True, "url": out["url"], "event_theme": out["event_theme"], "size": len(contents)}
 
-    # Delete old banner if exists
-    old = await db.banners.find_one({"webinar_id": wid}, {"_id": 0})
-    if old and old.get("file_id"):
-        try:
-            await social_images_fs.delete(old["file_id"])
-        except: pass
 
-    # Store in GridFS
-    from bson import ObjectId
-    file_id = await social_images_fs.upload_from_stream(
-        f"banner-{wid}{file.filename[-4:]}",
-        contents,
-        metadata={"webinar_id": wid, "owner_id": user["id"], "mime": file.content_type}
-    )
+@router.post("/webinars/{wid}/banner/from-url")
+async def banner_from_url(wid: str, payload: dict = Body(default={}), user=Depends(get_user)):
+    """Use an image link (or the event page's cover) as the banner."""
+    import event_art
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    url = (payload.get("url") or w.get("cover_image_url") or "").strip()
+    if not url:
+        raise HTTPException(400, "Paste the image link")
+    try:
+        data = await event_art.download_image(url)
+        out = await event_art.store_banner(db, social_images_fs, w, data, source=url)
+    except event_art.BannerError as e:
+        raise HTTPException(400, str(e))
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
+                                 {"$set": {"cover_image_url": url}, "$unset": {"banner_error": ""}})
+    return {"ok": True, "url": out["url"], "event_theme": out["event_theme"]}
 
-    await db.banners.update_one(
-        {"webinar_id": wid},
-        {"$set": {"webinar_id": wid, "owner_id": user["id"],
-                  "file_id": file_id, "mime": file.content_type,
-                  "filename": file.filename, "size": len(contents),
-                  "uploaded_at": now_iso()}},
-        upsert=True
-    )
 
-    # Store banner URL reference on webinar
-    await db.webinars.update_one(
-        {"id": wid},
-        {"$set": {"banner_url": f"/api/webinars/{wid}/banner.img"}}
-    )
+@router.get("/webinars/{wid}/creatives")
+async def list_creatives(wid: str, user=Depends(get_user)):
+    """The event's ready-to-post creatives, in the event banner's look."""
+    import event_art
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    brand = await brand_kit.resolve(db, user["id"])
+    out = []
+    for kind in event_art.DOWNLOADS:
+        row = await event_art.ensure_creative(db, social_images_fs, w, kind, brand)
+        if row:
+            out.append({"kind": kind, "label": event_art.LABELS[kind], "size": row["size"],
+                        "url": event_art.creative_url("", row)})
+    return {"has_banner": bool(w.get("banner_hash")), "event_theme": w.get("event_theme"),
+            "banner_error": w.get("banner_error"), "creatives": out}
 
-    return {"ok": True, "url": f"/api/webinars/{wid}/banner.img", "size": len(contents)}
+
+@router.get("/webinars/{wid}/creatives/{kind}.jpg")
+async def get_creative(wid: str, kind: str):
+    """Public, like touch cards: social networks and email clients fetch it by URL."""
+    import event_art
+    from fastapi.responses import StreamingResponse
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w or kind not in event_art.SIZES:
+        raise HTTPException(404)
+    row = await event_art.ensure_creative(db, social_images_fs, w, kind)
+    if not row:
+        raise HTTPException(404)
+    try:
+        stream = await social_images_fs.open_download_stream(row["file_id"])
+    except Exception:
+        raise HTTPException(404)
+    return StreamingResponse(stream, media_type="image/jpeg",
+                             headers={"Cache-Control": "public, max-age=300",
+                                      "Content-Disposition": f'inline; filename="{kind}.jpg"'})
 
 
 @router.get("/webinars/{wid}/banner.img")
@@ -815,7 +859,8 @@ async def delete_banner(wid: str, user=Depends(get_user)):
         try: await social_images_fs.delete(old["file_id"])
         except: pass
     await db.banners.delete_one({"webinar_id": wid})
-    await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$unset": {"banner_url": ""}})
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
+                                 {"$unset": {"banner_url": "", "banner_hash": "", "event_theme": ""}})
     return {"ok": True}
 
 

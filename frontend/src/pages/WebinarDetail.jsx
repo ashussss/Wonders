@@ -43,13 +43,13 @@ export default function WebinarDetail() {
   const uploadBanner = async (file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) { toast.error("Only image files allowed"); return; }
-    if (file.size > 5 * 1024 * 1024) { toast.error("Max 5MB"); return; }
+    if (file.size > 8 * 1024 * 1024) { toast.error("Max 8MB"); return; }
     setBannerUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
       await api.post(`/webinars/${id}/banner`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Banner uploaded!");
+      toast.success("Banner saved. Cards and creatives now use its colours.");
       reload();
     } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
     finally { setBannerUploading(false); }
@@ -267,12 +267,20 @@ export default function WebinarDetail() {
                   onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
                   {bannerUploading
                     ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Uploading…</>
-                    : <><Upload size={13} /> Upload webinar banner (recommended: 1200×630px, max 5MB)</>}
+                    : <><Upload size={13} /> Upload event banner (1200×630px, max 8MB): creatives use its colours</>}
                 </div>
                 <input type="file" accept="image/*" className="hidden" onChange={e => uploadBanner(e.target.files?.[0])} />
               </label>
             )}
           </div>
+
+          {!w.banner_url && w.banner_error && (
+            <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              We couldn't use the event page's banner ({w.banner_error}). Upload it above and the creatives will use it.
+            </div>
+          )}
+
+          <EventCreatives webinar={w} />
 
           {/* Description */}
           {w.description && (
@@ -1426,5 +1434,49 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+
+// Ready-to-post creatives in the event banner's colours: feed post, square, story,
+// plus the "You're in", "Tomorrow", "Starts in 1 hour" and "We're live" visuals.
+function EventCreatives({ webinar }) {
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(false);
+  const key = `${webinar.id}:${webinar.banner_hash || ""}:${webinar.title}:${webinar.starts_at}`;
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    api.get(`/webinars/${webinar.id}/creatives`).then(r => { if (alive) setData(r.data); }).catch(() => {});
+    return () => { alive = false; };
+  }, [key, open]);
+  const src = (u) => `${API_BASE}${u.replace(/^\/api/, "")}`;
+  return (
+    <div className="mb-4 rounded-xl p-4" data-testid="event-creatives" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-left">
+        <span className="text-sm font-bold">Event creatives</span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {webinar.banner_url ? "In your event banner's colours" : "Add a banner to match your event's look"} · {open ? "Hide" : "Show"}
+        </span>
+      </button>
+      {open && !data && <div className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>Designing…</div>}
+      {open && data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+          {data.creatives.map(c => (
+            <div key={c.kind} className="flex flex-col gap-1.5">
+              <a href={src(c.url)} target="_blank" rel="noreferrer" className="block rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                <img src={src(c.url)} alt={c.label} loading="lazy" className="w-full object-cover" style={{ aspectRatio: `${c.size[0]} / ${c.size[1]}` }} />
+              </a>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold truncate">{c.label}</span>
+                <a href={src(c.url)} download={`${c.kind}.jpg`} className="text-[11px] font-bold text-orange-500 inline-flex items-center gap-1 shrink-0">
+                  <FileDown size={11} /> Save
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

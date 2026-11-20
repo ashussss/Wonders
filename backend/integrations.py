@@ -606,13 +606,15 @@ async def scrape_and_extract(url: str) -> dict:
         
         # Extract image
         img_patterns = [
-            r'<meta property="og:image" content="([^"]+)"',
-            r'<meta name="twitter:image" content="([^"]+)"',
+            r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+            r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)',
         ]
         for pat in img_patterns:
             m = re.search(pat, html, re.IGNORECASE)
             if m:
-                result["cover_image_url"] = m.group(1).strip()
+                from urllib.parse import urljoin
+                result["cover_image_url"] = urljoin(url, m.group(1).strip().replace("&amp;", "&"))
                 break
         
         # Extract zoom/meet/teams join links from page
