@@ -48,8 +48,7 @@ APPROVAL_MODE = _flag("GROWTH_APPROVAL_MODE", "true")
 GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 
 # ── Posting plan ─────────────────────────────────────────────────────────────
-# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06): one blog
-# post every morning, then one other type in the afternoon. That is above the
+# Two posts a day, every day, on every platform (Ashu's call, 2026-10-06). That is above the
 # commonly cited B2B guidance (about one LinkedIn post per weekday, one Facebook post
 # a day, 3-5 Instagram feed posts a week), so the two posts are six hours apart and
 # never share a visual format.
@@ -59,15 +58,20 @@ GROWTH_AUTO_PUBLISH = _flag("GROWTH_AUTO_PUBLISH", "false")
 # Several posts on one day: repeat the day (mon=blog:carousel,mon=engagement:quote).
 # A day with no entry posts nothing. No "@..." means every platform in GROWTH_PLATFORMS.
 DEFAULT_WEEKLY_PLAN = (
-    # 14 posts a week across 9 visual templates; no template runs twice in a row and
-    # the colour theme rotates per post (see queue.theme_index).
-    "mon=blog:carousel,mon=engagement:poll,"
-    "tue=blog:myth_fact,tue=pain_point:timeline,"
-    "wed=blog:infographic,wed=engagement:hot_take,"
-    "thu=blog:carousel,thu=competitor:comparison,"
-    "fri=blog:checklist,fri=engagement:quote,"
-    "sat=blog:timeline,sat=engagement:poll,"
-    "sun=blog:myth_fact,sun=news:infographic"
+    # 14 posts a week across 9 visual templates; no template runs twice in a row and the
+    # colour theme rotates per post (see queue.theme_index).
+    # 2026-11-17 (Ashu): every post follows the Lara Acosta style master prompt (see
+    # content_engine.VOICE_RULES). The mix borrows her 4-3-2-1 system (story / educate / sell)
+    # and keeps blog promos and polls: per week 4 blog, 3 educate (Monday's carries the
+    # "SEQUENCE" lead magnet), 2 story, 1 sell ("SHOW"), 1 contrarian take, 2 polls and 1
+    # approach-vs-approach comparison.
+    "mon=pain_point:carousel,mon=engagement:hot_take,"
+    "tue=story:text_card,tue=blog:infographic,"
+    "wed=pain_point:timeline,wed=engagement:poll,"
+    "thu=sell:checklist,thu=blog:carousel,"
+    "fri=pain_point:checklist,fri=competitor:comparison,"
+    "sat=story:hot_take,sat=blog:myth_fact,"
+    "sun=blog:checklist,sun=engagement:poll"
 )
 GROWTH_WEEKLY_PLAN = os.environ.get("GROWTH_WEEKLY_PLAN", DEFAULT_WEEKLY_PLAN).strip()
 
@@ -122,6 +126,11 @@ GROWTH_NEWS_FEEDS = _csv("GROWTH_NEWS_FEEDS", ",".join(_DEFAULT_FEEDS))
 SITE_URL = os.environ.get("SITE_URL", "https://showupai.live")
 BRAND_NAME = os.environ.get("BRAND_NAME", "ShowUpAI")
 
+# Whose voice the LinkedIn caption is written in. "archana" = first person as Archana Singh,
+# Growth Manager (use when the LinkedIn account connected for SOCIAL_ACCOUNT_EMAIL is hers).
+# "brand" = the ShowUpAI team ("we"), the same voice Facebook and Instagram always use.
+GROWTH_LINKEDIN_VOICE = os.environ.get("GROWTH_LINKEDIN_VOICE", "archana").strip().lower()
+
 # ── Collections (all new — nothing existing is reused or mutated) ────────────
 COLLECTIONS = {
     "campaigns": "growth_campaigns",
@@ -136,7 +145,7 @@ COLLECTIONS = {
 
 ASSET_BUCKET = "growth_assets_fs"
 
-CAMPAIGN_KINDS = ("blog", "news", "pain_point", "engagement", "competitor")
+CAMPAIGN_KINDS = ("blog", "news", "pain_point", "engagement", "competitor", "story", "sell")
 
 FUNNEL_STAGES = ("awareness", "consideration", "intent", "conversion", "retention")
 
@@ -151,6 +160,7 @@ VISUAL_FORMATS = (
     "myth_fact",
     "timeline",
     "hot_take",
+    "text_card",
 )
 
 __all__ = [
@@ -165,6 +175,7 @@ __all__ = [
     "GROWTH_ENGAGEMENT_CAMPAIGNS",
     "GROWTH_PLATFORMS",
     "GROWTH_SLOTS_IST",
+    "GROWTH_LINKEDIN_VOICE",
     "GROWTH_WEEKLY_PLAN",
     "DEFAULT_WEEKLY_PLAN",
     "GROWTH_NEWS_FEEDS",

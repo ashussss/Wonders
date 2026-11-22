@@ -234,6 +234,15 @@ async def growth_summary(request: Request, days: int = 7):
 
 # ── assets (public read so Meta can fetch bytes) ─────────────────────────────
 
+@router.get("/asset/{aid}.gif")
+async def growth_asset_gif(aid: str):
+    data = await visual_engine.read_asset(db, aid, "gif")
+    if not data:
+        raise HTTPException(404, "Asset not found")
+    return Response(content=data, media_type="image/gif",
+                    headers={"Cache-Control": "public, max-age=604800"})
+
+
 @router.get("/asset/{aid}.jpg")
 async def growth_asset(aid: str):
     data = await visual_engine.read_asset(db, aid)

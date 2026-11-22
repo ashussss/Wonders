@@ -22,6 +22,7 @@ from . import (
     CAMPAIGN_KINDS,
     COLLECTIONS,
     DEFAULT_WEEKLY_PLAN,
+    GROWTH_LINKEDIN_VOICE,
     GROWTH_PLATFORMS,
     GROWTH_SLOTS_IST,
     GROWTH_WEEKLY_PLAN,
@@ -29,6 +30,7 @@ from . import (
     SITE_URL,
     VISUAL_FORMATS,
 )
+from . import topic_library
 from .content_engine import build_campaign
 from .models import CampaignDraft, CampaignKind
 
@@ -83,13 +85,22 @@ def auto_mode() -> bool:
 
 
 def theme_index(day: str, slot: int) -> int:
-    """Colour theme for a post. day*3 + slot walks the 4 themes so the two posts on a
-    day differ, and the next morning differs from the previous afternoon."""
+    """Colour theme for a post. Consecutive posts (day*2 + slot, two a day) take the next
+    theme, so all 9 colour schemes come round in turn and no two posts in a row match."""
     try:
         base = datetime.fromisoformat(day).date().toordinal()
     except ValueError:
         base = 0
-    return base * 3 + slot
+    return base * 2 + slot
+
+
+def gif_style(index: int) -> str:
+    """Every other post gets a GIF version on LinkedIn, cycling the motion style; the rest
+    stay static, so the feed mixes still and moving cards."""
+    from .design import GIF_STYLES
+    if index % 2 == 0:
+        return ""
+    return GIF_STYLES[(index // 2) % len(GIF_STYLES)]
 
 
 def hold_reason(doc: Dict[str, Any]) -> str:
@@ -103,8 +114,11 @@ def hold_reason(doc: Dict[str, Any]) -> str:
         return "the image text is incomplete"
     copy = doc.get("platform_copy") or {}
     for p in doc.get("platforms") or []:
-        if not str((copy.get(p) or {}).get("caption") or "").strip():
+        caption = str((copy.get(p) or {}).get("caption") or "")
+        if not caption.strip():
             return f"no {p} caption"
+        if "CONFIRM WITH ASHU" in caption.upper() or "[CONFIRM" in caption.upper():
+            return f"the {p} caption has a line marked for Ashu to confirm"
     return ""
 
 
@@ -124,16 +138,19 @@ async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
         "updated_at": now_iso(),
         "asset_ids": [],
         "asset_urls": [],
+        "gif_urls": [],
         "results": {},
         "review": {"mode": "approval", "reviewed_by": None, "reviewed_at": None, "notes": ""},
         "metrics": {},
     })
 
     if render:
+        ti = theme_index(day, slot)
         assets = await ve.store_assets(db, draft.visual, seed=f"{draft.kind}:{draft.source_slug}",
-                                       theme_index=theme_index(day, slot))
+                                       theme_index=ti, gif_style=gif_style(ti))
         doc["asset_ids"] = assets.get("asset_ids") or []
         doc["asset_urls"] = assets.get("asset_urls") or []
+        doc["gif_urls"] = assets.get("gif_urls") or []
         if assets.get("error"):
             doc["review"]["visual_error"] = assets["error"]
 
@@ -153,83 +170,82 @@ async def enqueue(db, draft: CampaignDraft, when: datetime, day: str,
     return doc
 
 
-# ── original (no external source) campaigns ──────────────────────────────────
-
-PAIN_ANGLES = [
-    "The reminder sequence nobody sends because it takes too long",
-    "Why registrants go quiet after the confirmation email",
-    "The 3 days before your webinar are where attendance is won or lost",
-    "Registration numbers are vanity metrics without a show-up rate",
-    "Calendar invites are the cheapest attendance lever nobody uses",
-    "The post-event no-show follow-up most hosts never write",
-]
-
-ENGAGEMENT_ANGLES = [
-    "A question the whole audience argues about",
-    "An unpopular opinion about webinar follow-up",
-    "A number the industry gets wrong",
-    "The most common mistake new event hosts make",
-]
+# ── original (no external source) campaigns ──────────────────────────────
+# Briefs, pillars, sourced facts and hook styles live in topic_library.py.
+# These names stay for anything importing the old pools.
+PAIN_ANGLES = [t["brief"] for t in topic_library.TOPICS]
+ENGAGEMENT_ANGLES = [t["brief"] for t in topic_library.ENGAGEMENT_TOPICS]
+COMPETITOR_ANGLES = list(topic_library.COMPARISON_TOPICS)
 
 
-# Used when there is no published alternative/vs article to build from. These
-# compare APPROACHES, never named products, so nothing about a competitor is invented.
-COMPETITOR_ANGLES = [
-    "Your webinar platform's built-in reminder emails vs a multi-channel reminder sequence",
-    "Manual reminder emails from your marketing tool vs an automated pre-event sequence",
-    "Email-only reminders vs email plus LinkedIn, WhatsApp and calendar",
-    "Sending the replay to everyone vs a separate follow-up for attendees and no-shows",
-]
+def _weekday(seed: str) -> int:
+    """0 = Monday for a "YYYY-MM-DD-n" seed, -1 when the seed has no date."""
+    try:
+        return datetime.fromisoformat(seed.rpartition("-")[0]).date().weekday()
+    except ValueError:
+        return -1
 
 
 def _pick_angle(pool: List[str], seed: str) -> str:
-    """Rotate through ``pool`` across days and within a day.
-
-    ``seed`` is "YYYY-MM-DD-n". The day's ordinal shifts the start each day and
-    ``n`` steps within the day, so two campaigns on one day differ and the same
-    slot gets a different angle tomorrow. Unparseable seeds fall back to a hash.
-    """
-    day, _, n = seed.rpartition("-")
-    try:
-        idx = datetime.fromisoformat(day).date().toordinal() * 2 + int(n)
-    except ValueError:
-        idx = sum(seed.encode())
-    return pool[idx % len(pool)]
+    """Rotate through ``pool`` across days and within a day (seed "YYYY-MM-DD-n")."""
+    return pool[topic_library._index(seed) % len(pool)]
 
 
 async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: Any) -> Optional[CampaignDraft]:
-    """pain_point = webinar/event-marketing lead-gen. engagement = conversation.
+    """pain_point = a webinar insight from the topic library (attendance, lead gen,
+    big-team playbooks, trends, follow-up). engagement = conversation starter.
     competitor = approach-vs-approach comparison (no named products).
-
-    All three are ORIGINAL content (no blog, no news): the model picks the angle, so
-    we deliberately seed it with a rotating set of real, defensible pain points
-    rather than asking it to invent a topic from nothing.
     """
+    need_fact = overrides.get("visual_format") == "stat_card"
+    facts: List[str] = []
+    personal = GROWTH_LINKEDIN_VOICE == "archana"
+    magnet = ""
     if kind == "pain_point":
-        angle = _pick_angle(PAIN_ANGLES, seed)
+        topic = topic_library.pick_topic(seed, need_fact=need_fact)
+        facts = topic["facts"]
         hint = (
-            "ORIGINAL lead-gen campaign. The pain point is fixed by the brief below; write to it directly. "
-            "The reader is an event host who is losing registrants. Make it practical and specific, "
-            "not inspirational. Give away the fix, then point to showupai.live as the way to run it "
-            "on autopilot. "
-            f"Brief pain point: {angle}"
+            "ORIGINAL educate post. Write to the brief directly. The reader runs webinars at a B2B company "
+            "and wants more registrants to show up live. Give the fix away in full as the numbered list.\n"
+            f"{topic_library.PILLAR_HINTS[topic['pillar']]}\n"
+            f"Brief: {topic['brief']}"
         )
+        # The week's first educate post carries the lead magnet (4-3-2-1: one magnet a week).
+        if _weekday(seed) == 0:
+            magnet = "SEQUENCE"
     elif kind == "competitor":
-        angle = _pick_angle(COMPETITOR_ANGLES, seed)
         hint = (
-            "ORIGINAL comparison campaign for someone choosing how to run webinar reminders. "
+            "ORIGINAL comparison post for someone choosing how to run their webinars. "
             "Compare the two approaches in the brief honestly: where the usual way is fine, and "
             "where it breaks. Do NOT name any company or product other than ShowUpAI. "
-            f"Brief: {angle}"
+            f"Brief: {topic_library.pick_comparison(seed)}"
         )
-    else:
-        angle = _pick_angle(ENGAGEMENT_ANGLES, seed)
+    elif kind == "story":
         hint = (
-            "ORIGINAL engagement campaign designed to start a conversation, not to sell. "
-            "Take a clear side, then ask a real question people will answer in the comments. "
-            "No pitch in the caption. "
-            f"Brief: {angle}"
+            "ORIGINAL story post. It attracts new people, it does not sell. "
+            "Use only the allowed personal facts; anything else is what teams do every week, in general terms. "
+            f"Brief: {topic_library.pick_story(seed)}"
         )
+    elif kind == "sell":
+        hint = (
+            "ORIGINAL sell post. It converts: the reader runs webinars and has one coming up. "
+            f"Pain to open with: {topic_library.pick_sell(seed)}"
+        )
+        magnet = "SHOW"
+    else:
+        topic = topic_library.pick_engagement(seed, need_fact=need_fact)
+        facts = topic["facts"]
+        hint = (
+            "ORIGINAL conversation post, not a pitch. Take a clear side, then ask a real question people will "
+            "answer in the comments. No pitch in the caption beyond the showupai.live line. "
+            f"Brief: {topic['brief']}"
+        )
+    if magnet:
+        hint += (
+            "\nLEAD MAGNET: after the PS (and optional repost line), add a line with only \"---\" and then, word "
+            f"for word in the LinkedIn caption: {topic_library.lead_magnet(magnet, personal)} "
+            f"In the Facebook and Instagram captions use: {topic_library.lead_magnet(magnet, False)}"
+        )
+    hint += "\nHOOK STYLE: " + topic_library.pick_hook(seed, bool(facts))
 
     return await build_campaign(
         kind,
@@ -240,10 +256,7 @@ async def build_original_campaign(kind: CampaignKind, seed: str, **overrides: An
         source_type="original",
         link_url=f"{SITE_URL}/blog",
         link_title="ShowUpAI blog",
-        fact_block=(
-            "SOURCED FACTS: none. Do not state any statistic or study finding. "
-            "Write practical, experience-based advice only."
-        ),
+        fact_block=topic_library.fact_block(facts),
         seed=f"{kind}:{seed}",
         angle_hint=hint,
         **overrides,
@@ -561,6 +574,12 @@ async def publish_campaign(db, doc: Dict[str, Any]) -> Dict[str, Any]:
                 if vis.get("format") == "poll" and len(vis.get("rows") or []) >= 2:
                     res = await post_linkedin_poll(settings, text, (vis.get("title") or "").replace("*", ""),
                                                    [str(r).replace("*", "") for r in vis.get("rows") or []])
+                elif doc.get("gif_urls"):
+                    # Animated version first; if LinkedIn refuses the GIF, post the still card.
+                    res = await social.post_linkedin(settings, text, image_urls=doc["gif_urls"])
+                    if not res.get("ok") and imgs:
+                        logger.warning(f"linkedin gif failed, posting the still image: {res.get('detail')}")
+                        res = await social.post_linkedin(settings, text, image_urls=imgs)
                 elif imgs:
                     res = await social.post_linkedin(settings, text, image_urls=imgs)
                 else:
