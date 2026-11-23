@@ -109,3 +109,21 @@ def test_connect_link_saves_email_for_the_client(db, monkeypatch):
         with pytest.raises(HTTPException):
             await routes_clients.connect_email("wrong-token", {})
     asyncio.run(go())
+
+
+def test_share_copy_fills_links_for_manual_posting(db, monkeypatch):
+    import routes_delivery
+    monkeypatch.setattr(routes_delivery, "db", db)
+    async def go():
+        await db.webinars.insert_one({"id": "w1", "owner_id": "u1", "title": "Demo", "starts_at": "2026-12-08T15:00:00+00:00",
+                                      "timezone": "Europe/London", "share_targets":
+                                      "https://www.linkedin.com/groups/1/\nnot a link\nhttps://www.linkedin.com/groups/1/"})
+        await db.touches.insert_one({"id": "t1", "owner_id": "u1", "webinar_id": "w1", "touch_num": 5, "selected_variant": 0,
+                                     "ai_copy": {"channels": {"linkedin_page": {"safe": {"body": "Join us {{webinar_time}}: {{join_link}}"}}}}})
+        r = await routes_delivery.share_copy("t1", channel="facebook_page", user={"id": "u1"})
+        assert r["source_channel"] == "linkedin_page"
+        assert "3:00 PM GMT" in r["text"] and "/r/w1" in r["text"] and "{{" not in r["text"]
+        assert r["targets"] == ["https://www.linkedin.com/groups/1/"]
+        with pytest.raises(HTTPException):
+            await routes_delivery.share_copy("t1", user={"id": "someone-else"})
+    asyncio.run(go())

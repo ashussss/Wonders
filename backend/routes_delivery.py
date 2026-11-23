@@ -511,6 +511,39 @@ async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], set
     return {"channel": "email", "recipient": f"invite list ({len(invitees)})", "ok": sent > 0, "detail": detail}
 
 
+# Places no API can post to (LinkedIn company pages without Community Management
+# approval, LinkedIn and Facebook groups): the host posts by hand. This gives the
+# finished public text (links filled in), the card, and the host's list of places.
+SHARE_SOURCE_CHANNELS = ("linkedin_page", "linkedin", "linkedin_personal", "facebook_page", "facebook", "instagram")
+
+
+def share_targets(w: Dict[str, Any]) -> List[str]:
+    out = []
+    for line in (w.get("share_targets") or "").splitlines():
+        u = line.strip()
+        if u.startswith(("https://", "http://")) and u not in out:
+            out.append(u)
+    return out[:20]
+
+
+@router.get("/touches/{tid}/share-copy")
+async def share_copy(tid: str, channel: str = "", user=Depends(get_user)):
+    t = await db.touches.find_one({"id": tid, "owner_id": user["id"]}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Touch not found")
+    w = await db.webinars.find_one({"id": t["webinar_id"], "owner_id": user["id"]}, {"_id": 0}) or {}
+    ai_ch = (t.get("ai_copy") or {}).get("channels") or {}
+    variant = "casual" if t.get("selected_variant") == 1 else "safe"
+    order = ([channel] if channel else []) + [c for c in SHARE_SOURCE_CHANNELS if c != channel]
+    src = next((c for c in order if (ai_ch.get(c) or {}).get(variant, {}).get("body")), "")
+    if not src:
+        raise HTTPException(404, "This touch has no social post to share")
+    text = render(ai_ch[src][variant]["body"], w, "linkedin_page")   # public: links go to sign-up
+    base = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    image = f"{base}/api/touches/{tid}/visual.jpg" if touch_visuals.has_visual(t["touch_num"]) else ""
+    return {"text": text, "source_channel": src, "image_url": image, "targets": share_targets(w)}
+
+
 @router.get("/touches/{tid}/visual.jpg")
 async def touch_visual(tid: str):
     """The touch's card. Public: Instagram, Facebook and email clients fetch it by URL."""

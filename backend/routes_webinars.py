@@ -40,6 +40,7 @@ def _webinar_doc(uid: str, data: WebinarIn) -> dict:
         "join_link": data.join_link,
         "registration_link": data.registration_link,
         "after_signup_url": data.after_signup_url or "",
+        "share_targets": data.share_targets or "",
         "status": "scheduled",
         "created_at": now_iso(),
         "enabled_touches": {str(t["num"]): True for t in TOUCH_DEFS},

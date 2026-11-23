@@ -1320,6 +1320,9 @@ function ContentCard({ touch, webinar, onChange }) {
                   </button>
                 )}
               </div>
+              {!["email", "email_invite", "whatsapp", "sms"].includes(expandChannel) && (
+                <ManualShare touchId={touch.id} channel={expandChannel} />
+              )}
             </div>
           );
         })()}
@@ -1420,6 +1423,7 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     join_link:      webinar.join_link || "",
     registration_link: webinar.registration_link || "",
     after_signup_url:  webinar.after_signup_url || "",
+    share_targets:     webinar.share_targets || "",
     key_topics:     webinar.key_topics || "",
     custom_context: webinar.custom_context || "",
   });
@@ -1551,6 +1555,17 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
             </div>
           </div>
 
+          <div>
+            <label style={labelStyle}>Company pages and groups you post in by hand (one link per line)</label>
+            <textarea value={form.share_targets} onChange={upd("share_targets")} rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+              placeholder={"https://www.linkedin.com/company/your-company/admin/\nhttps://www.linkedin.com/groups/1234567/\nhttps://www.facebook.com/groups/your-group"} />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              LinkedIn company pages and groups (LinkedIn and Facebook) can't be posted to automatically. Each social
+              touch gets a "Post by hand" box with the finished text, the image and these links.
+            </div>
+          </div>
+
           {ws && (
             <div>
               <label style={labelStyle}>Client</label>
@@ -1600,6 +1615,62 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+
+// Company pages and groups have no posting API: the finished post (links filled in),
+// the card, and one-click links to each place the host listed in Edit Webinar.
+function ManualShare({ touchId, channel }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setD(null); setErr("");
+    api.get(`/touches/${touchId}/share-copy`, { params: { channel } })
+      .then(r => setD(r.data)).catch(e => setErr(e?.response?.data?.detail || ""));
+  }, [touchId, channel]);
+  if (err || !d) return null;
+  const label = (u) => {
+    if (u.includes("linkedin.com/company")) return "LinkedIn page";
+    if (u.includes("linkedin.com/groups")) return "LinkedIn group";
+    if (u.includes("facebook.com/groups")) return "Facebook group";
+    if (u.includes("facebook.com")) return "Facebook";
+    return u.replace(/^https?:\/\//, "").slice(0, 28);
+  };
+  const btn = { background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" };
+  return (
+    <div className="mt-4 p-3 rounded-xl" style={{ background: "var(--bg-sunken)", border: "1px dashed var(--border)" }}>
+      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>
+        Post by hand: company page and groups
+      </div>
+      <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+        Copy the finished post (sign-up link already in), download the image, then open each place and paste.
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => { navigator.clipboard.writeText(d.text); toast.success("Post copied"); }}
+          className="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1"
+          style={{ background: "#EA580C", color: "#fff" }}>
+          <Copy size={11} /> Copy post
+        </button>
+        {d.image_url && (
+          <a href={d.image_url} target="_blank" rel="noreferrer" download
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1" style={btn}>
+            <FileDown size={11} /> Image
+          </a>
+        )}
+        {d.targets.map(u => (
+          <a key={u} href={u} target="_blank" rel="noreferrer"
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={btn}>
+            {label(u)} ↗
+          </a>
+        ))}
+        {!d.targets.length && (
+          <span className="text-[11px] self-center" style={{ color: "var(--text-muted)" }}>
+            Add your company page and group links in Edit Webinar.
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

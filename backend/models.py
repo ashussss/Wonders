@@ -25,6 +25,7 @@ class WebinarIn(BaseModel):
     join_link: str = ""
     registration_link: str = ""
     after_signup_url: Optional[str] = ""   # host's own event page; ShowUp's form sends people there after sign-up
+    share_targets: Optional[str] = ""      # company pages / groups to post in by hand, one link per line
     custom_context: Optional[str] = ""  # extra AI instructions for this webinar
     key_topics: Optional[str] = ""      # key topics/outcomes
     cover_image_url: Optional[str] = ""  # event page's banner, imported as the webinar banner
@@ -41,6 +42,7 @@ class WebinarPatch(BaseModel):
     join_link: Optional[str] = None
     registration_link: Optional[str] = None
     after_signup_url: Optional[str] = None
+    share_targets: Optional[str] = None
     recording_url: Optional[str] = None
     status: Optional[str] = None
     custom_context: Optional[str] = None
