@@ -1,8 +1,12 @@
 """Invite list: people the host wants at the session who haven't registered yet.
 
 Registrants get the whole show-up sequence. Invitees (a client's past attendees,
-newsletter list, members) only get the warm-up emails, touches 2 to 7, where the
-link is the registration page, and every one carries an unsubscribe link.
+newsletter list, members) get every touch that makes sense before they sign up:
+the value emails and lead magnets (2-7), the day-before, 1-hour and live-now nudges
+(8, 9, 12) as "last chance to grab a seat", and the post-event recap with the
+recording (11). Their link is always the registration page, never the live room,
+and every email carries an unsubscribe link. They never get touch 1 (confirmation)
+or 10 (thanks for attending).
 They are kept apart from registrants so counts, the ShowUp Score and the
 "we're live" broadcast only ever mean people who signed up.
 
@@ -15,8 +19,8 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-# Warm-up touches (config.TOUCH_DEFS) that also go to the invite list by email.
-INVITE_TOUCHES = {2, 3, 4, 5, 6, 7}
+# Touches (config.TOUCH_DEFS) that also go to the invite list by email.
+INVITE_TOUCHES = {2, 3, 4, 5, 6, 7, 8, 9, 11, 12}
 MAX_INVITEES = 5000
 
 INVITE_FOOTER = "You're getting this because you're on {host}'s list."

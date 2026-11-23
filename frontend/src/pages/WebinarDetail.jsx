@@ -801,8 +801,9 @@ function InviteList({ webinar }) {
         <div>
           <div className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Invite list (not registered yet)</div>
           <div className="text-xs text-gray-500 mt-1 max-w-xl">
-            Past attendees, your newsletter or member list. They get the warm-up emails (touches 2 to 7) with your
-            registration link and an unsubscribe link. Once they register they move to registrants and get the full sequence.
+            Past attendees, your newsletter or member list. They get every email in the Send Plan (lead magnets, nudges, day-before,
+            1 hour, live now and the recap) with your registration link and an unsubscribe link. Once they register they move to
+            registrants and get the join link instead. A touch reaches them only if Email is one of its channels.
           </div>
           <div className="text-sm text-gray-500 mt-2" data-testid="invite-summary">
             {s.total} invited · {s.reachable} still to convert · {s.registered} registered · {s.unsubscribed} unsubscribed

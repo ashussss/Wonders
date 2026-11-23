@@ -356,8 +356,9 @@ async def list_invitees(wid: str, user=Depends(get_user)):
 
 @router.post("/webinars/{wid}/invitees/import")
 async def import_invitees(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
-    """Add people who haven't registered yet. They get the warm-up emails (touches 2-7)
-    with the registration link and an unsubscribe link, and nothing after they sign up."""
+    """Add people who haven't registered yet. They get every email touch except the
+    confirmation and the attendee thank-you (invites.INVITE_TOUCHES), with the registration
+    link and an unsubscribe link, until they sign up and become registrants."""
     if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
         raise HTTPException(404)
     existing = await db.invitees.count_documents({"webinar_id": wid})

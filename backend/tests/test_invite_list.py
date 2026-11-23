@@ -94,12 +94,14 @@ def test_invite_render_points_join_link_at_registration():
     assert "zoom.us/j/999" in touch_render.render(body, W, "email", {"name": "Riya"})
 
 
-def test_only_warmup_email_touches_reach_invitees():
+def test_email_touches_reach_invitees_except_confirmation_and_thanks():
     db = _DB()
     asyncio.run(invites.import_invitees(db, "w1", "u1", [{"name": "Sam", "email": "sam@school.org"}]))
     assert len(asyncio.run(invites.invite_targets(db, {"webinar_id": "w1", "touch_num": 5, "channels": ["email"]}))) == 1
-    for t in ({"touch_num": 9, "channels": ["email"]}, {"touch_num": 5, "channels": ["linkedin_page"]},
-              {"touch_num": 1, "channels": ["email"]}, {"touch_num": 12, "channels": ["email"]}):
+    for n in (2, 3, 4, 5, 6, 7, 8, 9, 11, 12):
+        assert asyncio.run(invites.invite_targets(db, {"webinar_id": "w1", "touch_num": n, "channels": ["email"]}))
+    for t in ({"touch_num": 1, "channels": ["email"]}, {"touch_num": 10, "channels": ["email"]},
+              {"touch_num": 5, "channels": ["linkedin_page"]}):
         assert asyncio.run(invites.invite_targets(db, {"webinar_id": "w1", **t})) == []
     asyncio.run(invites.mark_registered(db, "w1", "SAM@school.org"))
     assert asyncio.run(invites.invite_targets(db, {"webinar_id": "w1", "touch_num": 5, "channels": ["email"]})) == []
