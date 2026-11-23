@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { api, API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { wallToUtcISO, importedToWall } from "@/lib/tz";
 
 const PLATFORM_META = {
   circle:      { label: "Circle.so",       emoji: "🔵", color: "#6366F1", canFetch: true  },
@@ -115,7 +116,7 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
         description: d.description || prev.description,
         speaker:     d.speaker || prev.speaker,
         join_link:   d.join_link || target,
-        starts_at:   d.starts_at ? d.starts_at.slice(0,16) : prev.starts_at,
+        starts_at:   d.starts_at ? importedToWall(d.starts_at, prev.timezone) : prev.starts_at,
         cover_image_url: d.cover_image_url || prev.cover_image_url || "",
       }));
       setStep("fill");
@@ -132,7 +133,7 @@ export default function FetchWebinarDialog({ open, onClose, onCreated }) {
       // Create webinar
       const r = await api.post("/webinars", {
         ...form,
-        starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : new Date(Date.now() + 7*24*60*60*1000).toISOString(),
+        starts_at: (form.starts_at && wallToUtcISO(form.starts_at, form.timezone)) || new Date(Date.now() + 7*24*60*60*1000).toISOString(),
       });
       const wid = r.data.id;
 

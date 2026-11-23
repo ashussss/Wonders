@@ -47,6 +47,13 @@ def registration_url(w: Dict[str, Any]) -> str:
     return w.get("registration_link") or f"{FRONTEND_URL}/r/{w.get('id', '')}"
 
 
+def live_link(w: Dict[str, Any]) -> str:
+    """Where a registrant goes to watch. The join link; or, when the session runs on
+    the host's own event page (no separate room link), the page people are sent to
+    after signing up; else the registration page."""
+    return w.get("join_link") or w.get("after_signup_url") or registration_url(w)
+
+
 def calendar_url(w: Dict[str, Any]) -> str:
     """Google Calendar 'add event' link (works without the attached .ics)."""
     start = parse_start(w)
@@ -55,11 +62,12 @@ def calendar_url(w: Dict[str, Any]) -> str:
     end = start + timedelta(hours=1)
     fmt = "%Y%m%dT%H%M%SZ"
     details = (w.get("description") or "")[:500]
-    if w.get("join_link"):
-        details += f"\n\nJoin: {w['join_link']}"
+    live = live_link(w)
+    if live:
+        details += f"\n\nJoin: {live}"
     q = urlencode({"action": "TEMPLATE", "text": w.get("title") or "Webinar",
                    "dates": f"{start.astimezone(timezone.utc):{fmt}}/{end.astimezone(timezone.utc):{fmt}}",
-                   "details": details, "location": w.get("join_link") or ""})
+                   "details": details, "location": live or ""})
     return f"https://calendar.google.com/calendar/render?{q}"
 
 
@@ -82,7 +90,7 @@ def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,
         "webinar_title": w.get("title") or "",
         "webinar_date": f"{local:%A}, {local.day} {local:%B}" if local else "",
         "webinar_time": f"{local:%I:%M %p}".lstrip("0") + f" {local.tzname()}" if local else "",
-        "join_link": reg_url if public or invite else (w.get("join_link") or reg_url),
+        "join_link": reg_url if public or invite else live_link(w),
         "registration_link": reg_url,
         "calendar_link": calendar_url(w),
         "recording_link": w.get("recording_url") or reg_url,
@@ -127,6 +135,7 @@ def link_labels(w: Dict[str, Any], cta_label: str = "") -> Dict[str, str]:
     out[reg] = cta_label or "Save my seat"
     if w.get("recording_url"):
         out[w["recording_url"]] = "Watch the recording"
-    if w.get("join_link"):
-        out[w["join_link"]] = cta_label or "Join the session"
+    live = live_link(w)
+    if live != reg:
+        out[live] = cta_label or "Join the session"
     return out

@@ -653,7 +653,12 @@ def kit_from_lead_magnets(lm: Optional[dict]) -> dict:
     kit = normalize_kit(lm.get("ai_content") or {})
     edited = lm.get("edited_content") or {}
     if isinstance(edited.get("case_study"), str) and edited["case_study"].strip():
-        kit["case_study"] = edited["case_study"].strip()
+        mine = edited["case_study"].strip()
+        if mine != (lm.get("ai_content") or {}).get("case_study", "").strip():
+            # The host wrote or pasted their own (e.g. a real customer story): it replaces
+            # the AI's illustrative story on the case-study touch.
+            kit["case_study"] = mine
+            kit.pop("story", None)
     return kit
 
 
@@ -742,6 +747,34 @@ def _warmup_days(lead_days: float) -> Dict[int, int]:
     return days
 
 
+def _weekday_warmups(days: Dict[int, int], local_start, now) -> Dict[int, int]:
+    """Move warm-ups that land on a Saturday or Sunday to the nearest free weekday.
+
+    Webinar audiences are mostly people at work: a 9am Sunday email sits under
+    Monday's pile. A touch only moves if the new day is free, still at least 2 days
+    before the session and not already past; otherwise it stays where it was.
+    """
+    from datetime import timedelta
+    out = dict(days)
+    taken = set(out.values())
+    for n in sorted(out):
+        d = out[n]
+        day = (local_start - timedelta(days=d)).date()
+        if day.weekday() < 5:
+            continue
+        # Saturday: Friday, then Monday. Sunday: Monday, then Friday.
+        shifts = (1, -2) if day.weekday() == 5 else (-1, 2)
+        for sh in shifts:
+            cand = d + sh
+            when = (local_start - timedelta(days=cand)).replace(hour=SEND_HOUR_LOCAL, minute=0, second=0, microsecond=0)
+            if cand >= 2 and cand not in taken and when > now:
+                taken.discard(d)
+                taken.add(cand)
+                out[n] = cand
+                break
+    return out
+
+
 async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total_touches: int = 12,
                                    tz: str = "") -> str | None:
     """Send time (UTC ISO) for a touch, or None when it has no fixed time.
@@ -786,7 +819,8 @@ async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total
         send = start - timedelta(hours=24)
     elif touch_num in NOMINAL_DAYS_BEFORE:
         lead_days = (start - now).total_seconds() / 86400
-        send = at_local(-_warmup_days(lead_days)[touch_num], SEND_HOUR_LOCAL)
+        days = _weekday_warmups(_warmup_days(lead_days), local_start, now)
+        send = at_local(-days[touch_num], SEND_HOUR_LOCAL)
     else:
         return None
 

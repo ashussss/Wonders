@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft, CalendarDays, Check, Clock, Copy, FileDown, Link, Plus, RefreshCcw, Send, Share2, Star, Trash2, Upload, User, X, Zap } from "@/components/Icons";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, fmtDate, CHANNEL_META, API_BASE } from "@/lib/api";
+import { wallToUtcISO, utcToWall, fmtInTz, TIMEZONES } from "@/lib/tz";
 import { useTheme } from "@/lib/theme";
 import TouchVisual from "@/components/TouchVisual";
 import { motion, AnimatePresence } from "framer-motion";
@@ -211,7 +212,7 @@ export default function WebinarDetail() {
               <Clock size={14} className="text-white shrink-0" />
               <div>
                 <div className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? "text-gray-600" : "text-gray-400"}`}>Date & Time</div>
-                <div className="font-semibold text-sm">{fmtDate(w.starts_at)}</div>
+                <div className="font-semibold text-sm">{fmtInTz(w.starts_at, w.timezone)}</div>
               </div>
             </div>
             {w.speaker && (
@@ -1414,7 +1415,7 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     speakers:       webinar.speakers || "",
     description:    webinar.description || "",
     target_audience:webinar.target_audience || "",
-    starts_at:      webinar.starts_at ? webinar.starts_at.slice(0,16) : "",
+    starts_at:      utcToWall(webinar.starts_at, webinar.timezone || "Europe/London"),
     timezone:       webinar.timezone || "Europe/London",
     join_link:      webinar.join_link || "",
     registration_link: webinar.registration_link || "",
@@ -1431,7 +1432,7 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     try {
       await api.patch(`/webinars/${webinar.id}`, {
         ...form,
-        starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : webinar.starts_at,
+        starts_at: (form.starts_at && wallToUtcISO(form.starts_at, form.timezone)) || webinar.starts_at,
       });
       toast.success("Webinar updated!");
       onSaved();
@@ -1492,13 +1493,13 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={labelStyle}>Date & Time</label>
+              <label style={labelStyle}>Date & Time (in the webinar's timezone)</label>
               <input type="datetime-local" value={form.starts_at} onChange={upd("starts_at")} style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Timezone</label>
               <select value={form.timezone} onChange={upd("timezone")} style={inputStyle}>
-                {["Europe/London","Europe/Paris","America/New_York","America/Chicago","America/Los_Angeles","Asia/Kolkata","Asia/Singapore","Australia/Sydney"].map(tz => (
+                {(TIMEZONES.includes(form.timezone) ? TIMEZONES : [form.timezone, ...TIMEZONES]).map(tz => (
                   <option key={tz} value={tz}>{tz}</option>
                 ))}
               </select>

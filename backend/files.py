@@ -18,16 +18,16 @@ def build_ics(webinar: Dict[str, Any]) -> bytes:
     c = Calendar()
     e = Event()
     e.name = webinar.get("title", "Webinar")
-    e.description = (webinar.get("description") or "") + (
-        f"\n\nJoin link: {webinar['join_link']}" if webinar.get("join_link") else ""
-    )
+    from touch_render import live_link
+    live = live_link(webinar)
+    e.description = (webinar.get("description") or "") + (f"\n\nJoin link: {live}" if live else "")
     start_iso = webinar["starts_at"].replace("Z", "+00:00")
     start = datetime.fromisoformat(start_iso)
     e.begin = start
     e.end = start + timedelta(hours=1)
-    if webinar.get("join_link"):
-        e.url = webinar["join_link"]
-        e.location = webinar["join_link"]
+    if live:
+        e.url = live
+        e.location = live
     e.uid = f"showup-{webinar['id']}@showupai.live"
     # Calendar pop-ups an hour and ten minutes before: the nudge people actually see.
     e.alarms = [DisplayAlarm(trigger=timedelta(hours=-1)), DisplayAlarm(trigger=timedelta(minutes=-10))]
