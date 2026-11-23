@@ -319,6 +319,7 @@ SOCIAL POST RULES:
 
 CHANNEL_RULES = {
     "email": "An email to one registrant.",
+    "email_invite": "An email to one person on the host's own contact list who has NOT registered yet.",
     "linkedin": "A LinkedIn post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
     "linkedin_page": "A LinkedIn company Page post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
     "linkedin_personal": "A personal LinkedIn post by the host, first person, a little more personal than a Page post. "
@@ -372,7 +373,40 @@ _SOCIAL_FALLBACK = ("{{webinar_title}}\n\n{{webinar_date}}, {{webinar_time}}.\n\
                     "Save your spot: {{join_link}}\n\nWhat's the one question you'd want answered on this? Tell me below.")
 
 
+_INVITE_FALLBACK = ("{{webinar_title}}, {{webinar_date}}",
+                    "Hi {{first_name}},\n\nI'm running a free live session, {{webinar_title}}, on {{webinar_date}} "
+                    "at {{webinar_time}}.\n\nIf it's useful for you, grab a seat here:\n{{join_link}}\n\n{{speaker}}")
+
+# Who reads each channel, and what the message has to make them do. Registrants get
+# show-up copy; everyone else (social feeds, the invite list) has not signed up yet,
+# so their copy has to earn the registration.
+REGISTRANT_CHANNELS = {"email", "whatsapp"}
+
+AUDIENCE_REGISTRANT = ("WHO READS THIS: someone who already registered. Your goal is that they actually show up. "
+                       "{{join_link}} is their link to the live session.")
+AUDIENCE_PROSPECT = (
+    "WHO READS THIS: people who have NOT registered yet ({who}). Your goal is that they register now.\n"
+    "- {{join_link}} is the registration page. Never say or imply they are already registered, never write "
+    "'see you there', 'your link' or 'you're in'.\n"
+    "- If the JOB above is written for registered people (a reminder, 'this time tomorrow', 'we start in an hour', "
+    "'we're live'), turn it into a last call to grab a seat: say when it starts and that it's free and live.\n"
+    "- Give them a concrete reason to come: what they'll be able to do after, in their words.\n"
+    "- Right before {{join_link}}, one short, confident call to action line that asks them to register "
+    "(free, live, {{webinar_date}}). Strong, not pushy, no hype words.")
+
+
+def audience_brief(channel: str) -> str:
+    if channel in REGISTRANT_CHANNELS:
+        return AUDIENCE_REGISTRANT
+    who = "the host's contacts" if channel == "email_invite" else "the host's followers and their network"
+    return AUDIENCE_PROSPECT.replace("{who}", who)
+
+
 def fallback_copy(channel: str, touch_type: str) -> dict:
+    if channel == "email_invite":
+        subject, body = _INVITE_FALLBACK
+        block = {"subject": subject, "body": body}
+        return {"safe": block, "casual": dict(block)}
     if channel in ("email", "whatsapp"):
         subject, body = FALLBACK_COPY.get(touch_type, _DEFAULT_FALLBACK)
         if channel == "whatsapp":
@@ -403,7 +437,7 @@ def _usable(copy: Any, is_email: bool) -> bool:
 async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder",
                                    custom_instructions: str = "", content: str = "") -> tuple:
     """Generate copy for a single channel — runs in parallel."""
-    is_email = channel == "email"
+    is_email = channel in ("email", "email_invite")
     rules = EMAIL_RULES if is_email else ("" if channel == "whatsapp" else SOCIAL_RULES)
     schema = '{"subject": "...", "body": "..."}' if is_email else '{"body": "..."}'
 
@@ -420,12 +454,16 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
     share = (f"CONTENT TO SHARE IN THIS MESSAGE (this is the point of the message, so a reader gets real value "
              f"even if they never attend; put it in your own words for this channel; the reminder comes after it):\n"
              f"{content}\n\n") if content else ""
-    prompt = f"""You write the messages that get people who registered for a webinar to actually show up.
+    goal = ("get people who registered for a webinar to actually show up" if channel in REGISTRANT_CHANNELS
+            else "get new people to register for a webinar, and then show up")
+    prompt = f"""You write the messages that {goal}.
 
 {facts}
 
 THIS MESSAGE: touch #{touch_num} ({touch_type})
 JOB: {context}
+
+{audience_brief(channel)}
 
 {share}CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
 {VOICE_RULES}
@@ -469,6 +507,11 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
     content = kit_brief(kit, touch_num)
 
     touch_type = TOUCH_TYPE.get(touch_num, "reminder")
+    # Touches that also email the invite list get their own version written for people
+    # who haven't registered (routes_delivery._email_invitees sends it).
+    from invites import INVITE_TOUCHES
+    if "email" in channels and touch_num in INVITE_TOUCHES and "email_invite" not in channels:
+        channels = list(channels) + ["email_invite"]
     
     # Semaphore to limit concurrent calls (avoid rate limits but stay fast)
     sem = asyncio.Semaphore(3)

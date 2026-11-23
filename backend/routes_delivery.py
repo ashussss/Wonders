@@ -457,7 +457,10 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             body = body + f"\n\nYour ShowUp Score from the session, if you want to share it: {score_url}"
         if ch in PERSONAL_CHANNELS:
             if ch == "email" and invitees:
-                delivery_log.append(await _email_invitees(invitees, w, settings, subject, body, card_url, labels))
+                # Their own copy (written for people who haven't registered), else the registrant email.
+                ic = ai_ch.get("email_invite", {}).get(variant_key) or {}
+                i_subject, i_body = (ic.get("subject") or subject, ic["body"]) if ic.get("body") else (subject, body)
+                delivery_log.append(await _email_invitees(invitees, w, settings, i_subject, i_body, card_url, labels))
             if not regs:
                 if not (ch == "email" and invitees):
                     delivery_log.append({"channel": ch, "ok": False,

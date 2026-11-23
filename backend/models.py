@@ -24,6 +24,7 @@ class WebinarIn(BaseModel):
     timezone: str = "Europe/London"
     join_link: str = ""
     registration_link: str = ""
+    after_signup_url: Optional[str] = ""   # host's own event page; ShowUp's form sends people there after sign-up
     custom_context: Optional[str] = ""  # extra AI instructions for this webinar
     key_topics: Optional[str] = ""      # key topics/outcomes
     cover_image_url: Optional[str] = ""  # event page's banner, imported as the webinar banner
@@ -39,6 +40,7 @@ class WebinarPatch(BaseModel):
     timezone: Optional[str] = None
     join_link: Optional[str] = None
     registration_link: Optional[str] = None
+    after_signup_url: Optional[str] = None
     recording_url: Optional[str] = None
     status: Optional[str] = None
     custom_context: Optional[str] = None

@@ -152,3 +152,56 @@ def test_invite_email_footer_says_why():
     html = senders.build_email_html("hi", unsubscribe_url="https://u", unsubscribe_reason="On the SBM list.")
     assert "On the SBM list." in html and "registered for this session" not in html
     assert "registered for this session" in senders.build_email_html("hi", unsubscribe_url="https://u")
+
+
+def test_prompts_target_the_right_audience(monkeypatch):
+    import ai
+    prompts = {}
+
+    async def fake_llm(prompt, max_tokens=0):
+        ch = ("email_invite" if "NOT registered yet (the host's contacts)" in prompt else
+              "social" if "NOT registered yet (the host's followers" in prompt else "email")
+        prompts[ch] = prompt
+        body = "Hi {{first_name}},\\n\\nx\\n\\n{{join_link}}"
+        return '{"safe": {"subject": "s", "body": "%s"}, "casual": {"subject": "s", "body": "%s"}}' % (body, body)
+
+    async def no_kit(wid):
+        return None
+
+    monkeypatch.setattr(ai, "_call_llm", fake_llm)
+    monkeypatch.setattr(ai, "load_kit", no_kit)
+    out = asyncio.run(ai.generate_touch_copy(W, 8, ["email", "linkedin_page"]))
+    assert set(out["channels"]) == {"email", "linkedin_page", "email_invite"}
+    assert "show up" in prompts["email"].splitlines()[0]
+    for ch in ("email_invite", "social"):
+        assert "register" in prompts[ch].splitlines()[0]
+        assert "Never say or imply they are already registered" in prompts[ch]
+    # Confirmation and attendee thank-you never get an invite version.
+    out = asyncio.run(ai.generate_touch_copy(W, 10, ["email"]))
+    assert "email_invite" not in out["channels"]
+
+
+def test_invitees_get_their_own_copy(monkeypatch):
+    db = _DB()
+    asyncio.run(invites.import_invitees(db, "w1", "u1", [{"name": "Sam", "email": "sam@school.org"}]))
+    sent = []
+
+    async def fake_dispatch(ch, settings, to_email, to_phone, subject, body, **kw):
+        sent.append((to_email, subject, body))
+        return {"ok": True}
+
+    async def brand(*a, **k):
+        return {}
+
+    monkeypatch.setattr(routes_delivery, "db", db)
+    monkeypatch.setattr(routes_delivery, "send_dispatch", fake_dispatch)
+    monkeypatch.setattr(routes_delivery.brand_kit, "resolve", brand)
+    monkeypatch.setattr(routes_delivery.touch_visuals, "has_visual", lambda n: False)
+    t = {"id": "t8", "webinar_id": "w1", "owner_id": "u1", "touch_num": 8, "channels": ["email"],
+         "ai_copy": {"channels": {
+             "email": {"safe": {"subject": "tomorrow", "body": "Hi {{first_name}}, see you: {{join_link}}"}},
+             "email_invite": {"safe": {"subject": "last call", "body": "Hi {{first_name}}, grab a seat: {{join_link}}"}}}}}
+    asyncio.run(routes_delivery._deliver_touch(t, {}, public_backend_url=""))
+    by = {to: (s, b) for to, s, b in sent}
+    assert by["riya@x.io"][0] == "tomorrow" and "zoom.us" in by["riya@x.io"][1]
+    assert by["sam@school.org"][0] == "last call" and "/r/w1" in by["sam@school.org"][1]
