@@ -24,7 +24,7 @@ _GREETING = re.compile(r"^\s*(hi|hey|hello|dear)\s+\{\{\s*first_name\s*\}\}\s*[,
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️⃣←-⇿]")
 _DASH = re.compile(r"\s*[—–]\s*")
 # Channels where people write plainly. Instagram and WhatsApp keep emojis if the copy has them.
-_NO_EMOJI = {"email", "linkedin", "linkedin_page", "linkedin_personal", "facebook", "facebook_page", "circle"}
+_NO_EMOJI = {"email", "email_invite", "linkedin", "linkedin_page", "linkedin_personal", "facebook", "facebook_page", "circle"}
 
 
 def webinar_tz(w: Dict[str, Any]) -> ZoneInfo:

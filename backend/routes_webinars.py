@@ -39,6 +39,7 @@ def _webinar_doc(uid: str, data: WebinarIn) -> dict:
         "timezone": data.timezone,
         "join_link": data.join_link,
         "registration_link": data.registration_link,
+        "after_signup_url": data.after_signup_url or "",
         "status": "scheduled",
         "created_at": now_iso(),
         "enabled_touches": {str(t["num"]): True for t in TOUCH_DEFS},
@@ -317,14 +318,37 @@ async def public_register(wid: str, data: RegistrantIn, request: Request):
         raise HTTPException(404, "Webinar not found")
     existing = await db.registrants.find_one({"webinar_id": wid, "email": data.email.lower()})
     if existing:
-        return {"ok": True, "deduped": True}
+        return {"ok": True, "deduped": True, "next_url": _safe_url(w.get("after_signup_url"))}
     reg = {"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": w["owner_id"],
            "name": data.name, "email": data.email.lower(), "phone": data.phone,
            "source": data.source, "attended": False, "registered_at": now_iso()}
     await db.registrants.insert_one(reg)
     await invites.mark_registered(db, wid, reg["email"])
     asyncio.create_task(_confirm_registrant(wid, reg["id"]))
-    return {"ok": True, "id": reg["id"]}
+    return {"ok": True, "id": reg["id"], "next_url": _safe_url(w.get("after_signup_url"))}
+
+
+def _safe_url(url) -> str:
+    url = (url or "").strip()
+    return url if url.startswith("https://") or url.startswith("http://") else ""
+
+
+@router.get("/webinars/{wid}/public")
+async def public_webinar(wid: str):
+    """What the public sign-up page shows: no owner data, no join link."""
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w:
+        raise HTTPException(404, "Webinar not found")
+    brand = await brand_kit.resolve(db, w.get("owner_id") or "", "")
+    has_banner = bool(await db.banners.find_one({"webinar_id": wid}, {"_id": 1}))
+    return {"id": wid, "title": w.get("title") or "", "starts_at": w.get("starts_at") or "",
+            "timezone": w.get("timezone") or "UTC",
+            "speaker": (w.get("speakers") or w.get("speaker") or ""),
+            "description": (w.get("description") or "")[:600],
+            "has_banner": has_banner, "next_url": _safe_url(w.get("after_signup_url")),
+            "brand_name": brand.get("name") or "", "cta_label": brand.get("cta_label") or "",
+            "button_color": brand.get("button_color") or "",
+            "button_text_color": brand_kit.readable_on(brand["button_color"]) if brand.get("button_color") else ""}
 
 
 @router.post("/webinars/{wid}/registrants/import")

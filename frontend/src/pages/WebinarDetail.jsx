@@ -648,13 +648,13 @@ function TouchCard({ touch, onChange }) {
         </div>
       ) : (
         <div className={`grid lg:grid-cols-2 divide-x ${isDark ? "divide-white/[0.04]" : "divide-gray-100"}`}>
-          {channels.map(ch => {
+          {[...channels, ...(channels.includes("email") && aiCh.email_invite ? ["email_invite"] : [])].map(ch => {
             const channelCopy = aiCh[ch]?.[variantKey];
-            const isManual = CHANNEL_META[ch].manualOnly;
+            const isManual = CHANNEL_META[ch]?.manualOnly;
             return (
               <div key={ch} className={`p-5 ${isManual ? "bg-amber-500/5" : ""}`}>
                 <div className="flex items-center justify-between mb-2.5">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.18em] ${isDark ? "text-gray-500" : "text-gray-400"}`}>{CHANNEL_META[ch].label}</div>
+                  <div className={`text-[10px] font-bold uppercase tracking-[0.18em] ${isDark ? "text-gray-500" : "text-gray-400"}`}>{CHANNEL_META[ch]?.label || "Email · invite list (not registered)"}</div>
                   {isManual && (
                     <span className="text-[9px] bg-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">⚠ Manual</span>
                   )}
@@ -1417,6 +1417,8 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     starts_at:      webinar.starts_at ? webinar.starts_at.slice(0,16) : "",
     timezone:       webinar.timezone || "Europe/London",
     join_link:      webinar.join_link || "",
+    registration_link: webinar.registration_link || "",
+    after_signup_url:  webinar.after_signup_url || "",
     key_topics:     webinar.key_topics || "",
     custom_context: webinar.custom_context || "",
   });
@@ -1511,6 +1513,26 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
           <div>
             <label style={labelStyle}>Join Link</label>
             <input value={form.join_link} onChange={upd("join_link")} style={inputStyle} placeholder="https://zoom.us/j/..." />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Registration link (in every post and invite email)</label>
+            <input value={form.registration_link} onChange={upd("registration_link")} style={inputStyle}
+              placeholder={`Blank = ShowUp sign-up page (${window.location.origin}/r/${webinar.id})`} />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Keep it blank to collect registrants here, so they get every reminder. If you paste your own page,
+              people who sign up there must be imported in the Registrants tab.
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>After sign-up, send people to (optional)</label>
+            <input value={form.after_signup_url} onChange={upd("after_signup_url")} style={inputStyle}
+              placeholder="https://your-site.com/events/..." />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Your own event page (e.g. a community or portal RSVP). People register on the ShowUp page first, so
+              you get their details and reminders go out, then they are sent here to confirm.
+            </div>
           </div>
 
           <div>
