@@ -187,6 +187,12 @@ async def setup_plans() -> Dict[str, str]:
 def entitlement(user: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
     """What the user may do right now: {active, plan, reason, trial_ends_at, paid_through}."""
     now = now or datetime.now(timezone.utc)
+    if user.get("agency_id"):
+        # Client workspaces run on their agency's plan.
+        agency = user.get("_agency") or {}
+        return {**entitlement(agency, now), "reason": "client"} if agency else \
+            {"active": False, "plan": None, "reason": "agency_missing", "trial_ends_at": None,
+             "paid_through": None, "subscription_status": None}
     b = user.get("billing") or {}
     created = _parse_ts(user.get("created_at")) or now
     trial_ends = created + timedelta(days=TRIAL_DAYS)

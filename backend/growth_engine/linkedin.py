@@ -126,7 +126,7 @@ def state_fingerprint(state: str) -> str:
     return hashlib.sha256(state.encode()).hexdigest()
 
 
-async def create_state(db, owner_id: str, platform: str = PLATFORM) -> str:
+async def create_state(db, owner_id: str, platform: str = PLATFORM, return_path: str = "") -> str:
     """Persist a one-time, expiring state bound to this owner. Returns the raw value.
 
     Only the SHA-256 fingerprint is stored — the raw token exists solely in the
@@ -141,6 +141,9 @@ async def create_state(db, owner_id: str, platform: str = PLATFORM) -> str:
         "created_at": now_iso(),
         "expires_at_ts": time.time() + STATE_TTL_SECONDS,
         "used": False,
+        # Where the callback sends the browser back to (a client's connect link page);
+        # empty means the Integrations page.
+        "return_path": return_path if return_path.startswith("/connect/") else "",
     })
     return state
 
@@ -150,6 +153,10 @@ class StateError(Exception):
 
 
 async def consume_state(db, state: str, platform: str = PLATFORM) -> str:
+    return str((await consume_state_doc(db, state, platform)).get("owner_id") or "")
+
+
+async def consume_state_doc(db, state: str, platform: str = PLATFORM) -> Dict[str, Any]:
     """Validate + burn a state, returning its owner_id.
 
     Raises StateError for any invalid state. Uses a single atomic find_one_and_
@@ -169,7 +176,7 @@ async def consume_state(db, state: str, platform: str = PLATFORM) -> str:
     )
     if not doc:
         raise StateError("invalid, expired or already-used state")
-    return str(doc.get("owner_id") or "")
+    return doc
 
 
 async def purge_expired_states(db) -> int:

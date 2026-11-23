@@ -24,6 +24,7 @@ import seo_autopilot
 from growth_engine.routes import router as growth_router
 from billing import router as billing_router
 from routes_brand import router as brand_router
+from routes_clients import router as clients_router, public_router as connect_router
 from growth_engine import scheduler as growth_scheduler
 from datetime import datetime, timedelta, timezone
 
@@ -95,6 +96,8 @@ app.include_router(social_router)
 app.include_router(growth_router)
 app.include_router(billing_router)
 app.include_router(brand_router)
+app.include_router(clients_router)
+app.include_router(connect_router)
 
 
 @app.get("/api/")

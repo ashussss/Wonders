@@ -213,6 +213,8 @@ async def _can_hide_mark(db, owner_id: str) -> bool:
     try:
         from billing import entitlement
         user = await db.users.find_one({"id": owner_id}, {"_id": 0})
+        if user and user.get("agency_id"):
+            user["_agency"] = await db.users.find_one({"id": user["agency_id"]}, {"_id": 0}) or {}
         return bool(user) and entitlement(user).get("plan") == "agency"
     except Exception as e:  # noqa: BLE001
         logger.warning(f"plan lookup failed for {owner_id}: {e}")

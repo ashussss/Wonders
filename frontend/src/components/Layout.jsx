@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { useRestartTour } from "@/components/OnboardingTour";
 import StarField from "@/components/StarField";
+import ClientSwitcher from "@/components/ClientSwitcher";
 
 const NAV = [
   { to: "/app",            label: "Dashboard",     icon: LayoutDashboard, testId: "nav-dashboard" },
@@ -61,9 +62,11 @@ export default function Layout() {
         </a>
       </div>
 
+      <ClientSwitcher />
+
       {/* Nav */}
       <nav className="flex-1 px-3 py-3 space-y-0.5">
-        {NAV.map(({ to, label, icon: Icon, testId }, idx) => {
+        {NAV.filter(n => !(user?.acting_for_agency && n.to === "/app/billing")).map(({ to, label, icon: Icon, testId }, idx) => {
           const active = loc.pathname === to || (to !== "/app" && loc.pathname.startsWith(to));
           return (
             <motion.div key={to} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}

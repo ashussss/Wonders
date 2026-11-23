@@ -1424,6 +1424,13 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     custom_context: webinar.custom_context || "",
   });
   const [saving, setSaving] = useState(false);
+  const [ws, setWs] = useState(null);           // agency mode: workspaces this webinar can move to
+  const [moveTo, setMoveTo] = useState("");
+  useEffect(() => {
+    api.get("/clients").then(r => {
+      if (r.data.clients.length) { setWs(r.data); setMoveTo(r.data.current); }
+    }).catch(() => {});
+  }, []);
 
   const upd = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -1434,6 +1441,14 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
         ...form,
         starts_at: (form.starts_at && wallToUtcISO(form.starts_at, form.timezone)) || webinar.starts_at,
       });
+      if (ws && moveTo && moveTo !== ws.current) {
+        await api.post("/clients/move-webinar", { webinar_id: webinar.id, to: moveTo });
+        const name = moveTo === ws.agency.id ? (ws.agency.name || "your account")
+                   : (ws.clients.find(c => c.id === moveTo)?.name || "the client");
+        toast.success(`Moved to ${name}. Switch to ${name} (top left) to see it.`);
+        window.location.href = "/app";
+        return;
+      }
       toast.success("Webinar updated!");
       onSaved();
       onClose();
@@ -1535,6 +1550,20 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
               you get their details and reminders go out, then they are sent here to confirm.
             </div>
           </div>
+
+          {ws && (
+            <div>
+              <label style={labelStyle}>Client</label>
+              <select value={moveTo} onChange={e => setMoveTo(e.target.value)} style={inputStyle}>
+                <option value={ws.agency.id}>{ws.agency.name || "My account"} (agency)</option>
+                {ws.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Moving takes the send plan, registrants and invite list with it. It then sends with that
+                client's email, LinkedIn, Facebook and brand kit.
+              </div>
+            </div>
+          )}
 
           <div>
             <label style={labelStyle}>Description</label>

@@ -34,6 +34,8 @@ async def create_indexes():
     await db.invitees.create_index("id", unique=True)
     
     # Settings
+    await db.users.create_index("agency_id", sparse=True)
+    await db.client_connect_links.create_index("token_hash", unique=True)
     await db.settings.create_index("owner_id", unique=True)
     
     # Social images, scores

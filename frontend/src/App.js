@@ -22,6 +22,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import Waitlist from "@/pages/Waitlist";
 import EmailAnalytics from "@/pages/EmailAnalytics";
 import PublicRegister from "@/pages/PublicRegister";
+import ClientConnect from "@/pages/ClientConnect";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -56,6 +57,7 @@ export default function App() {
               <Route path="/register" element={<Register />} />
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
+              <Route path="/connect/:token" element={<ClientConnect />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/checkout/:plan" element={<Checkout />} />
               <Route path="/about" element={<About />} />

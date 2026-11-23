@@ -37,11 +37,13 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://showupai.live").rstrip("/
 INTEGRATIONS_PATH = "/app/integrations"
 
 
-def _redirect(**params: str) -> RedirectResponse:
-    """Redirect back to the Integrations page with a query string (no secrets, ever)."""
+def _redirect(path: str = "", **params: str) -> RedirectResponse:
+    """Redirect back to the Integrations page (or a client's connect link page) with a
+    query string (no secrets, ever)."""
     from urllib.parse import urlencode
     qs = urlencode({k: v for k, v in params.items() if v})
-    return RedirectResponse(f"{FRONTEND_URL}{INTEGRATIONS_PATH}{'?' + qs if qs else ''}",
+    target = path if path.startswith("/connect/") else INTEGRATIONS_PATH
+    return RedirectResponse(f"{FRONTEND_URL}{target}{'?' + qs if qs else ''}",
                             status_code=302)
 
 
@@ -122,7 +124,8 @@ async def linkedin_callback(
                          li_detail=error_description or "")
 
     try:
-        owner_id = await li.consume_state(db, state)
+        sdoc = await li.consume_state_doc(db, state)
+        owner_id, back = str(sdoc.get("owner_id") or ""), sdoc.get("return_path") or ""
     except li.StateError as e:
         logger.warning(f"linkedin callback rejected: {e}")
         raise HTTPException(400, "Invalid or expired authorization state. "
@@ -142,20 +145,20 @@ async def linkedin_callback(
         profile = await li.fetch_userinfo(access_token)
     except li.LinkedInError as e:
         logger.warning(f"linkedin connect failed for owner={owner_id}: {e}")
-        return _redirect(li_status="error", li_error=str(e)[:300])
+        return _redirect(back, li_status="error", li_error=str(e)[:300])
 
     try:
         await li.save_connection(db, owner_id, token_data, profile)
     except li.EncryptionUnavailable as e:
         # Token cannot be stored encrypted — refuse rather than persist plaintext.
         logger.error(f"linkedin connect aborted for owner={owner_id}: {e}")
-        return _redirect(li_status="error",
+        return _redirect(back, li_status="error",
                          li_error="LinkedIn connected, but this server cannot store credentials "
                                   "securely (FERNET_KEY missing). Please contact support.")
 
     # Give the frontend a short-lived hand-off so it can show the identity
     # without the callback URL itself ever carrying the member's email.
-    return _redirect(li_status="connected",
+    return _redirect(back, li_status="connected",
                      li_name=profile.get("name") or "",
                      li_sub=profile.get("platform_user_id") or "")
 
@@ -189,7 +192,8 @@ async def meta_callback(code: str = Query(default=""), state: str = Query(defaul
         logger.warning(f"meta oauth denied: {error}")
         return _redirect(meta_status="error", meta_error=error_description or error)
     try:
-        owner_id = await li.consume_state(db, state, platform=meta.PLATFORM)
+        sdoc = await li.consume_state_doc(db, state, platform=meta.PLATFORM)
+        owner_id, back = str(sdoc.get("owner_id") or ""), sdoc.get("return_path") or ""
     except li.StateError as e:
         logger.warning(f"meta callback rejected: {e}")
         raise HTTPException(400, "Invalid or expired authorization state. Please start the connect flow again.") from None
@@ -200,21 +204,21 @@ async def meta_callback(code: str = Query(default=""), state: str = Query(defaul
         granted = await meta.fetch_permissions(token)
         member, *pages = await meta.fetch_pages(token)
     except meta.MetaError as e:
-        return _redirect(meta_status="error", meta_error=str(e)[:300])
+        return _redirect(back, meta_status="error", meta_error=str(e)[:300])
     missing_page = meta.missing_permissions(granted, meta.REQUIRED_PAGE_PERMS)
     if missing_page:
         logger.warning(f"meta oauth missing page permissions: {missing_page}")
-        return _redirect(meta_status="error", meta_error=(
+        return _redirect(back, meta_status="error", meta_error=(
             "Facebook did not grant " + ", ".join(missing_page) + ". Connect again, click "
             "'Edit access' in the Facebook dialog, select your Page and keep every permission switched on."))
     if not pages:
-        return _redirect(meta_status="error",
+        return _redirect(back, meta_status="error",
                          meta_error="No Facebook Pages were shared. Reconnect and select your Page (and its Instagram account).")
     try:
         await meta.save_connection(db, owner_id, member, pages, granted)
     except li.EncryptionUnavailable:
-        return _redirect(meta_status="error", meta_error="This server cannot store credentials securely (FERNET_KEY missing).")
-    return _redirect(meta_status="connected")
+        return _redirect(back, meta_status="error", meta_error="This server cannot store credentials securely (FERNET_KEY missing).")
+    return _redirect(back, meta_status="connected")
 
 
 @router.post("/integrations/meta/page")

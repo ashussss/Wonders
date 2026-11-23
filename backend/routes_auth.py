@@ -13,14 +13,18 @@ router = APIRouter(prefix="/api/auth")
 limiter = Limiter(key_func=get_remote_address)
 
 
-async def create_user(email: str, name: str, password: str) -> dict:
-    """Insert a user with default settings. Raises 400 if the email is taken."""
+async def create_user(email: str, name: str, password: str, agency_id: str = "") -> dict:
+    """Insert a user with default settings. Raises 400 if the email is taken.
+
+    agency_id makes it a client workspace of that agency account (agency mode)."""
     email = email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     uid = str(uuid.uuid4())
     user = {"id": uid, "email": email, "name": name,
             "password": hash_pw(password), "created_at": now_iso()}
+    if agency_id:
+        user["agency_id"] = agency_id
     await db.users.insert_one(user)
     await db.settings.insert_one({
         "owner_id": uid,
@@ -42,7 +46,7 @@ async def register(request: Request, data: UserSignup):
 @limiter.limit("10/minute")
 async def login(request: Request, data: UserLogin):
     user = await db.users.find_one({"email": data.email.lower()})
-    if not user or not verify_pw(data.password, user["password"]):
+    if not user or not verify_pw(data.password, user["password"]) or user.get("agency_id"):
         raise HTTPException(401, "Invalid credentials")
     return {"token": make_token(user["id"]),
             "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}}
@@ -50,7 +54,11 @@ async def login(request: Request, data: UserLogin):
 
 @router.get("/me")
 async def me(user=Depends(get_user)):
-    return {k: v for k, v in user.items() if k != "password"}
+    out = {k: v for k, v in user.items() if k != "password" and not k.startswith("_")}
+    agency = user.get("_agency")
+    if agency:
+        out["acting_for_agency"] = {"id": agency.get("id"), "name": agency.get("name"), "email": agency.get("email")}
+    return out
 
 
 # ══════════════════════════════════════════════
