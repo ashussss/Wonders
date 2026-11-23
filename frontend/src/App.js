@@ -26,6 +26,7 @@ import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
+import NotFound from "@/pages/NotFound";
 import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
 import Compare, { CompareIndex, ToolPage, ToolsIndex, Guide, EmbedTool, BestList } from "@/pages/Compare";
@@ -94,6 +95,7 @@ export default function App() {
 
               {/* Legacy redirects */}
               <Route path="/dashboard" element={<Navigate to="/app" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
 
         </Suspense>

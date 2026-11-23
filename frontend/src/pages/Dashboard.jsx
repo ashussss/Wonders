@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import CreateWebinarDialog from "@/components/CreateWebinarDialog";
 import FetchWebinarDialog from "@/components/FetchWebinarDialog";
 import OnboardingTour from "@/components/OnboardingTour";
+import SetupChecklist from "@/components/SetupChecklist";
 import StarField from "@/components/StarField";
 import { useTheme } from "@/lib/theme";
 
@@ -110,6 +111,8 @@ export default function Dashboard() {
             </motion.button>
           </div>
         </motion.header>
+
+        {!loading && <SetupChecklist webinarCount={webinars.length} onNewWebinar={() => setOpen(true)} />}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit" style={{ background: "var(--bg-sunken)" }}>
