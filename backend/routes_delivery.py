@@ -19,6 +19,7 @@ from showup_score import render_showup_score
 from crypto_utils import decrypt_settings
 from touch_render import PERSONAL_CHANNELS, link_labels, render
 import brand_kit
+import invites
 import touch_visuals
 
 logger = logging.getLogger("showup.delivery")
@@ -424,6 +425,7 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     delivery_log: List[Dict[str, Any]] = []
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
     regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
+    invitees = await invites.invite_targets(db, t)
     brand = await brand_kit.resolve(db, w.get("owner_id") or t.get("owner_id") or "", public_backend_url)
     settings = {**settings, "_brand": brand}
     labels = link_labels(w, brand.get("cta_label") or "")
@@ -454,9 +456,12 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             score_url = f"{public_backend_url}/api/webinars/{t['webinar_id']}/showup-score.png"
             body = body + f"\n\nYour ShowUp Score from the session, if you want to share it: {score_url}"
         if ch in PERSONAL_CHANNELS:
+            if ch == "email" and invitees:
+                delivery_log.append(await _email_invitees(invitees, w, settings, subject, body, card_url, labels))
             if not regs:
-                delivery_log.append({"channel": ch, "ok": False,
-                                      "detail": "No recipients in audience — share the registration link first"})
+                if not (ch == "email" and invitees):
+                    delivery_log.append({"channel": ch, "ok": False,
+                                          "detail": "No recipients in audience — share the registration link first"})
                 continue
             for r in regs:
                 if ch == "email" and not r.get("email") or ch == "whatsapp" and not r.get("phone"):
@@ -475,6 +480,32 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             delivery_log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
     ok_any = any(d.get("ok") for d in delivery_log)
     return {"ok": ok_any, "log": delivery_log}
+
+
+async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], settings: Dict[str, Any],
+                          subject: str, body: str, card_url, labels: Dict[str, str]) -> Dict[str, Any]:
+    """Send a warm-up email to the invite list: join links become the registration page,
+    and each email carries its own unsubscribe link. Logged as one summary line so a
+    big list doesn't flood the touch's delivery log."""
+    host = (settings.get("_brand") or {}).get("name") or settings.get("sendgrid_sender_name") or "the host"
+    reason = invites.INVITE_FOOTER.format(host=host)
+    sent = failed = 0
+    errors: List[str] = []
+    for r in invitees:
+        res = await send_dispatch("email", settings, to_email=r["email"], to_phone=None,
+                                  subject=render(subject, w, "email", r, invite=True),
+                                  body=render(body, w, "email", r, invite=True),
+                                  image_url=card_url, link_labels=labels,
+                                  unsubscribe_url=invites.unsubscribe_url(r["id"]), unsubscribe_reason=reason)
+        if res.get("ok"):
+            sent += 1
+            await db.invitees.update_one({"id": r["id"]}, {"$inc": {"sends": 1}, "$set": {"last_sent_at": now_iso()}})
+        else:
+            failed += 1
+            if len(errors) < 3:
+                errors.append(f"{r['email']}: {(res.get('detail') or '')[:80]}")
+    detail = f"invite list: {sent} sent, {failed} failed" + (f" ({'; '.join(errors)})" if errors else "")
+    return {"channel": "email", "recipient": f"invite list ({len(invitees)})", "ok": sent > 0, "detail": detail}
 
 
 @router.get("/touches/{tid}/visual.jpg")

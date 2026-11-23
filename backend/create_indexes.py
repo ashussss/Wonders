@@ -29,6 +29,9 @@ async def create_indexes():
     await db.registrants.create_index([("webinar_id", 1), ("email", 1)], unique=True)
     await db.registrants.create_index("owner_id")
     await db.registrants.create_index("webinar_id")
+    await db.invitees.create_index([("webinar_id", 1), ("email", 1)], unique=True)
+    await db.invitees.create_index([("owner_id", 1), ("email", 1)])
+    await db.invitees.create_index("id", unique=True)
     
     # Settings
     await db.settings.create_index("owner_id", unique=True)
