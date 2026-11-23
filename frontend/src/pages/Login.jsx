@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, TrendingUp, Users, Zap } from "@/components/Icons";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -18,13 +18,26 @@ export default function Login() {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [focus, setFocus] = useState(null);
+  const [showPw, setShowPw] = useState(false);
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  // Only same-site app paths, so the link can't bounce people to another site.
+  const next = (params.get("next") || "").startsWith("/app") ? params.get("next") : "/app";
+
+  useEffect(() => {
+    if (params.get("expired")) toast.info("Your session ended. Please sign in again.", { id: "session-expired" });
+  }, [params]);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
-    try { await login(email, pw); nav("/app"); }
-    catch (err) { toast.error(err?.response?.data?.detail || "Login failed"); }
+    try { await login(email, pw); nav(next); }
+    catch (err) {
+      const status = err?.response?.status;
+      toast.error(status === 401 ? "Wrong email or password. Forgot it? Reset below the password field."
+        : status === 429 ? "Too many tries. Wait a minute and try again."
+        : err?.response?.data?.detail || "Login failed. Check your internet and try again.");
+    }
     finally { setBusy(false); }
   };
 
@@ -114,10 +127,15 @@ export default function Login() {
           </FloatLabel>
 
           <FloatLabel label="Password" focused={focus === "pw" || !!pw} testId="login-password-wrap">
-            <input data-testid="login-password" type="password" required value={pw}
+            <input data-testid="login-password" type={showPw ? "text" : "password"} required value={pw}
+              autoComplete="current-password"
               onFocus={() => setFocus("pw")} onBlur={() => setFocus(null)}
               onChange={e => setPw(e.target.value)}
-              className="w-full bg-transparent text-white focus:outline-none pt-5 pb-1.5 px-0 border-0 placeholder-transparent" />
+              className="w-full bg-transparent text-white focus:outline-none pt-5 pb-1.5 pl-0 pr-12 border-0 placeholder-transparent" />
+            <button type="button" data-testid="login-show-password" onClick={() => setShowPw(v => !v)}
+              className="absolute right-0 bottom-2 text-[11px] font-semibold uppercase tracking-wider text-white/40 hover:text-white">
+              {showPw ? "Hide" : "Show"}
+            </button>
           </FloatLabel>
 
           <div className="flex justify-end mt-3">

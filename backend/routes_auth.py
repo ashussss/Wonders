@@ -34,6 +34,8 @@ async def create_user(email: str, name: str, password: str) -> dict:
 @router.post("/register")
 @limiter.limit("5/minute")
 async def register(request: Request, data: UserSignup):
+    if len(data.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     user = await create_user(data.email, data.name, data.password)
     return {"token": make_token(user["id"]), "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": "user"}}
 
@@ -101,6 +103,23 @@ async def reset_password(request: Request, payload: dict = Body(default={})):
     await db.password_resets.delete_many({"user_id": user["id"]})
     return {"token": make_token(user["id"]),
             "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}}
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+async def change_password(request: Request, payload: dict = Body(default={}), user=Depends(get_user)):
+    """Logged-in password change. Other sessions are signed out; this one gets a fresh token."""
+    import password_reset as pr
+    new = payload.get("new_password") or ""
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_pw(payload.get("current_password") or "", full["password"]):
+        raise HTTPException(400, "Current password is wrong")
+    if len(new) < pr.MIN_PASSWORD_LEN:
+        raise HTTPException(400, f"Password must be at least {pr.MIN_PASSWORD_LEN} characters")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(new),
+                                                             "password_changed_at": now_iso()}})
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    return {"ok": True, "token": make_token(user["id"])}
 
 
 # ══════════════════════════════════════════════

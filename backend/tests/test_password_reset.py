@@ -160,3 +160,27 @@ def test_superadmin_settings_used_when_no_env(env, monkeypatch):
     _call(app, "POST", "/api/auth/forgot-password", json={"email": "ashu@x.io"})
     assert sent[-1]["settings"]["brevo_sender_email"] == "team@showupai.live"
     assert sent[-1]["settings"]["brevo_sender_name"] == "ShowUp AI"
+
+
+def test_change_password_needs_current_and_keeps_this_session(env):
+    db, app, _ = env
+    tok = auth_utils.make_token("u1")
+    h = {"Authorization": f"Bearer {tok}"}
+    r = _call(app, "POST", "/api/auth/change-password", headers=h,
+              json={"current_password": "wrong", "new_password": "newpassword9"})
+    assert r.status_code == 400
+    r = _call(app, "POST", "/api/auth/change-password", headers=h,
+              json={"current_password": "oldpassword1", "new_password": "short"})
+    assert r.status_code == 400
+    r = _call(app, "POST", "/api/auth/change-password", headers=h,
+              json={"current_password": "oldpassword1", "new_password": "newpassword9"})
+    assert r.status_code == 200
+    assert auth_utils.verify_pw("newpassword9", db.users.docs[0]["password"])
+    new_h = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert _call(app, "GET", "/api/auth/me", headers=new_h).status_code == 200
+
+
+def test_register_needs_8_char_password(env):
+    _, app, _ = env
+    r = _call(app, "POST", "/api/auth/register", json={"email": "n@x.io", "name": "N", "password": "short"})
+    assert r.status_code == 400

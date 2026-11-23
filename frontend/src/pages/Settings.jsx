@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 
 // Mirrors backend config.TOUCH_DEFS.
 const TOUCHES = [
@@ -60,6 +61,10 @@ export default function Settings() {
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="p-4 sm:p-8 max-w-5xl mx-auto pb-24 min-h-screen" style={{ background: "var(--bg-base)" }}>
       <div className="text-xs font-bold uppercase tracking-[0.2em] text-white mb-2">Configuration</div>
       <h1 className="text-3xl sm:text-4xl font-bold mb-6 tracking-tight" style={{fontFamily:'Outfit', color: "var(--text-primary)"}}>Settings</h1>
+
+      <Group title="Account">
+        <ChangePassword />
+      </Group>
 
       <Group title="Email provider">
         <Row label="Active provider"><select data-testid="set-email-provider" value={s.email_provider||""} onChange={e=>set("email_provider", e.target.value)} className="input">
@@ -239,6 +244,40 @@ export default function Settings() {
         .input::placeholder{ color:var(--text-muted); }`}</style>
     </motion.div>
   );
+}
+function ChangePassword() {
+  const { user } = useAuth();
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (pw.length < 8) return toast.error("New password must be at least 8 characters");
+    if (pw !== pw2) return toast.error("New passwords don't match");
+    setBusy(true);
+    try {
+      const r = await api.post("/auth/change-password", { current_password: cur, new_password: pw });
+      localStorage.setItem("showup_token", r.data.token);
+      setCur(""); setPw(""); setPw2("");
+      toast.success("Password changed. Other devices are signed out.");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Could not change password"); }
+    finally { setBusy(false); }
+  };
+  return <form onSubmit={submit} data-testid="change-password-form" className="space-y-3">
+    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+      Signed in as <b style={{ color: "var(--text-primary)" }}>{user?.email}</b>. Forgot your current password?{" "}
+      <Link to="/forgot-password" className="underline">Reset it by email</Link>.
+    </p>
+    <div className="grid sm:grid-cols-3 gap-3">
+      <Row label="Current password"><input data-testid="cp-current" type="password" required autoComplete="current-password" value={cur} onChange={e=>setCur(e.target.value)} className="input"/></Row>
+      <Row label="New password"><input data-testid="cp-new" type="password" required minLength={8} autoComplete="new-password" value={pw} onChange={e=>setPw(e.target.value)} className="input"/></Row>
+      <Row label="Confirm new password"><input data-testid="cp-confirm" type="password" required minLength={8} autoComplete="new-password" value={pw2} onChange={e=>setPw2(e.target.value)} className="input"/></Row>
+    </div>
+    <button data-testid="cp-submit" disabled={busy} className="px-4 py-2 rounded-md text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50">
+      {busy ? "Saving…" : "Change password"}
+    </button>
+  </form>;
 }
 function Group({title, children}) {
   return <section className="rounded-md p-5 mb-5" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>

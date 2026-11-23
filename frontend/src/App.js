@@ -40,7 +40,7 @@ function Protected({ children }) {
       <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`} replace />;
   return children;
 }
 

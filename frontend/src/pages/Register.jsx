@@ -113,11 +113,13 @@ export default function Register() {
           </FloatLabel>
 
           <FloatLabel label="Password" focused={focus === "pw" || !!pw}>
-            <input data-testid="reg-password" type="password" required value={pw}
+            <input data-testid="reg-password" type="password" required minLength={8} autoComplete="new-password" value={pw}
               onFocus={() => setFocus("pw")} onBlur={() => setFocus(null)}
               onChange={e => setPw(e.target.value)}
               className="w-full bg-transparent text-white focus:outline-none pt-5 pb-1.5 px-0 border-0 placeholder-transparent" />
           </FloatLabel>
+
+          <p className="text-[11px] text-white/40 mt-1.5">At least 8 characters.</p>
 
           <motion.button whileHover={{ scale: 1.01, boxShadow: "0 0 32px rgba(255,255,255,0.3)" }}
             whileTap={{ scale: 0.99 }}

@@ -11,6 +11,21 @@ api.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+// A session that expired or was signed out (password changed/reset) sends you to login once,
+// instead of leaving every page half-broken with errors.
+const AUTH_FREE = /\/auth\/(login|register|forgot-password|reset-password)/;
+api.interceptors.response.use((r) => r, (err) => {
+  const url = err?.config?.url || "";
+  if (err?.response?.status === 401 && localStorage.getItem("showup_token") && !AUTH_FREE.test(url)) {
+    localStorage.removeItem("showup_token");
+    if (window.location.pathname.startsWith("/app")) {
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.assign(`/login?expired=1&next=${next}`);
+    }
+  }
+  return Promise.reject(err);
+});
+
 export const fmtDate = (iso) => {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); }
