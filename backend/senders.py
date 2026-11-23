@@ -39,7 +39,8 @@ def _brand_signature(brand: Optional[Dict[str, Any]]) -> str:
 
 
 def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI",
-                     unsubscribe_url: str = "", brand: Optional[Dict[str, Any]] = None) -> str:
+                     unsubscribe_url: str = "", brand: Optional[Dict[str, Any]] = None,
+                     unsubscribe_reason: str = "You're getting this because you registered for this session.") -> str:
     """Wrap the body in a plain, letter-style email.
 
     Deliberately no banner or coloured header: a reminder that looks like a note from
@@ -51,7 +52,7 @@ def build_email_html(body: str, subject: str = "", sender_name: str = "ShowUpAI"
     unsub_html = ""
     if unsubscribe_url:
         unsub_html = (f'<p style="color:#9ca3af;font-size:12px;margin:32px 0 0;">'
-                      f"You're getting this because you registered for this session. "
+                      f"{html.escape(unsubscribe_reason)} "
                       f'<a href="{unsubscribe_url}" style="color:#9ca3af;">Unsubscribe</a></p>')
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -553,15 +554,21 @@ CHANNEL_ALIASES = {"linkedin_page": "linkedin", "facebook_page": "facebook"}
 async def dispatch(channel: str, settings: Dict[str, Any], to_email: Optional[str], to_phone: Optional[str],
                    subject: str, body: str, ics_bytes: Optional[bytes] = None,
                    image_url: Optional[str] = None,
-                   link_labels: Optional[Dict[str, str]] = None) -> DeliveryResult:
-    """settings["_brand"] (brand_kit.resolve) styles emails in the host's brand."""
+                   link_labels: Optional[Dict[str, str]] = None,
+                   unsubscribe_url: str = "", unsubscribe_reason: str = "") -> DeliveryResult:
+    """settings["_brand"] (brand_kit.resolve) styles emails in the host's brand.
+
+    unsubscribe_url adds an unsubscribe line under the sign-off (invite-list emails)."""
     channel = CHANNEL_ALIASES.get(channel, channel)
     if channel == "email":
         if not to_email:
             return DeliveryResult(False, "email", "No recipient email")
         brand = settings.get("_brand")
+        extra = {"unsubscribe_url": unsubscribe_url}
+        if unsubscribe_reason:
+            extra["unsubscribe_reason"] = unsubscribe_reason
         html_doc = build_email_html(text_to_email_html(body, image_url, brand, link_labels), subject=subject,
-                                    brand=brand)
+                                    brand=brand, **extra)
         return await send_email(settings, to_email, subject, html_doc, ics_bytes=ics_bytes)
     if channel == "facebook":
         return await post_facebook_page(settings, body, image_url=image_url)

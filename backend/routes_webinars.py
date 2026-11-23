@@ -15,6 +15,7 @@ from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnet
 from config import TOUCH_DEFS
 import touch_visuals
 import brand_kit
+import invites
 import ai
 from ai import (generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule,
                 touch_reasoning, kit_from_lead_magnets)
@@ -321,6 +322,7 @@ async def public_register(wid: str, data: RegistrantIn, request: Request):
            "name": data.name, "email": data.email.lower(), "phone": data.phone,
            "source": data.source, "attended": False, "registered_at": now_iso()}
     await db.registrants.insert_one(reg)
+    await invites.mark_registered(db, wid, reg["email"])
     asyncio.create_task(_confirm_registrant(wid, reg["id"]))
     return {"ok": True, "id": reg["id"]}
 
@@ -342,6 +344,58 @@ async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(g
                                           "registered_at": now_iso()})
         inserted += 1
     return {"inserted": inserted, "deduped": deduped}
+
+
+@router.get("/webinars/{wid}/invitees")
+async def list_invitees(wid: str, user=Depends(get_user)):
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
+    items = await db.invitees.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(invites.MAX_INVITEES)
+    return {"summary": await invites.summary(db, wid), "items": items}
+
+
+@router.post("/webinars/{wid}/invitees/import")
+async def import_invitees(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+    """Add people who haven't registered yet. They get the warm-up emails (touches 2-7)
+    with the registration link and an unsubscribe link, and nothing after they sign up."""
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
+    existing = await db.invitees.count_documents({"webinar_id": wid})
+    if existing + len(items) > invites.MAX_INVITEES:
+        raise HTTPException(400, f"An invite list can hold up to {invites.MAX_INVITEES} people")
+    out = await invites.import_invitees(db, wid, user["id"], [{"name": i.name, "email": i.email} for i in items])
+    return {**out, "summary": await invites.summary(db, wid)}
+
+
+@router.delete("/webinars/{wid}/invitees")
+async def clear_invitees(wid: str, user=Depends(get_user)):
+    """Empty the invite list. Unsubscribes are kept so they stay suppressed next time."""
+    r = await db.invitees.delete_many({"webinar_id": wid, "owner_id": user["id"], "unsubscribed": {"$ne": True}})
+    return {"deleted": r.deleted_count}
+
+
+def _unsub_page(body: str):
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>Unsubscribe</title>"
+                        "</head><body style='font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:480px;"
+                        f"margin:80px auto;padding:0 20px;color:#111827;line-height:1.6'>{body}</body></html>")
+
+
+@router.get("/unsubscribe/{token}")
+async def unsubscribe_page(token: str):
+    """A confirm button, not an instant unsubscribe: mail scanners open every link in an email."""
+    return _unsub_page("<p>Stop getting invitations from this list?</p>"
+                       "<form method='post'><button type='submit' style='padding:10px 18px;border-radius:8px;"
+                       "border:1px solid #d1d5db;background:#fff;font-size:15px;cursor:pointer'>Unsubscribe</button></form>")
+
+
+@router.post("/unsubscribe/{token}")
+@limiter.limit("20/minute")
+async def unsubscribe_invitee(token: str, request: Request):
+    row = await invites.unsubscribe(db, token)
+    return _unsub_page("<p>You're unsubscribed. You won't get any more invitations from this list.</p>" if row
+                       else "<p>This link isn't valid any more. You're not on this list.</p>")
 
 
 @router.post("/webinars/{wid}/webhooks/circle")

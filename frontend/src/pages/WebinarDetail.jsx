@@ -727,6 +727,120 @@ function TouchCard({ touch, onChange }) {
   );
 }
 
+// One person per line, any column order: the email is found by its shape, a phone is
+// the field with mostly digits, and the rest is the name. A header row has no email,
+// so it's skipped. Quoted CSV fields ("Doe, Jane") are handled.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function splitCsvLine(line) {
+  const out = []; let cur = ""; let q = false;
+  for (const ch of line) {
+    if (ch === '"') { q = !q; continue; }
+    if ((ch === "," || ch === ";" || ch === "\t") && !q) { out.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+function parseContacts(text, source) {
+  const seen = new Set();
+  return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const cells = splitCsvLine(l).filter(Boolean);
+    const email = cells.find(c => EMAIL_RE.test(c));
+    if (!email) return null;
+    const phone = cells.find(c => c !== email && /^\+?[\d\s()-]{7,}$/.test(c));
+    const name = cells.filter(c => c !== email && c !== phone).join(" ").trim();
+    return { name: name || email, email: email.toLowerCase(), phone: phone || null, source };
+  }).filter(it => it && !seen.has(it.email) && seen.add(it.email));
+}
+
+function readFileInto(setter) {
+  return (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setter(String(reader.result || ""));
+    reader.readAsText(f);
+    e.target.value = "";
+  };
+}
+
+function InviteList({ webinar }) {
+  const { isDark } = useTheme();
+  const [summary, setSummary] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try { const r = await api.get(`/webinars/${webinar.id}/invitees`); setSummary(r.data.summary); } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); }, [webinar.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doImport = async () => {
+    const items = parseContacts(text, "invite");
+    if (!items.length) return toast.error("No email addresses found");
+    setBusy(true);
+    try {
+      const r = await api.post(`/webinars/${webinar.id}/invitees/import`, items);
+      const d = r.data;
+      toast.success(`Added ${d.inserted} to the invite list` +
+        (d.already_registered ? `, ${d.already_registered} already registered` : "") +
+        (d.unsubscribed_before ? `, ${d.unsubscribed_before} had unsubscribed` : ""));
+      setSummary(d.summary); setText(""); setOpen(false);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Import failed");
+    } finally { setBusy(false); }
+  };
+  const clear = async () => {
+    if (!window.confirm("Remove everyone from this invite list? Unsubscribes are kept.")) return;
+    await api.delete(`/webinars/${webinar.id}/invitees`); load();
+  };
+  const s = summary || { total: 0, reachable: 0, registered: 0, unsubscribed: 0 };
+  return (
+    <div className="rounded-2xl p-5 mb-5" data-testid="invite-list"
+      style={{ border: "1px solid var(--border)", background: "var(--bg-surface)", boxShadow: "var(--shadow-sm)" }}>
+      <div className="flex justify-between items-start gap-4 flex-wrap">
+        <div>
+          <div className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Invite list (not registered yet)</div>
+          <div className="text-xs text-gray-500 mt-1 max-w-xl">
+            Past attendees, your newsletter or member list. They get the warm-up emails (touches 2 to 7) with your
+            registration link and an unsubscribe link. Once they register they move to registrants and get the full sequence.
+          </div>
+          <div className="text-sm text-gray-500 mt-2" data-testid="invite-summary">
+            {s.total} invited · {s.reachable} still to convert · {s.registered} registered · {s.unsubscribed} unsubscribed
+          </div>
+        </div>
+        <div className="flex gap-3">
+          {s.total > 0 && <button onClick={clear} className="text-xs text-gray-500 hover:text-gray-300">Clear</button>}
+          <button data-testid="open-invite-import" onClick={() => setOpen(true)}
+            className="text-sm text-white font-semibold hover:text-gray-200 flex items-center gap-1.5 transition-colors">
+            <Upload size={13} /> Add people
+          </button>
+        </div>
+      </div>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.93 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.93 }}
+              className="rounded-2xl p-6 w-full max-w-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
+              <h3 className={`font-bold text-lg mb-2 ${isDark ? "text-white" : "text-gray-900"}`} style={{ fontFamily: 'Outfit' }}>Add to invite list</h3>
+              <p className="text-sm mb-3 text-gray-500">Upload a CSV or paste one person per line. Only add people who know you (they opted in to your list).</p>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={readFileInto(setText)} className="text-xs text-gray-500 mb-2" data-testid="invite-file" />
+              <textarea data-testid="invite-csv" rows={6} value={text} onChange={e => setText(e.target.value)}
+                className={`w-full rounded-xl p-3 text-sm font-mono focus:outline-none ${isDark ? "bg-black/40 border border-white/[0.1] text-gray-300" : "bg-gray-50 border border-gray-200 text-gray-700"}`}
+                placeholder="Jane Doe, jane@school.org.uk" />
+              <div className="text-xs text-gray-500 mt-1">{text ? `${parseContacts(text, "invite").length} people found` : ""}</div>
+              <div className="flex justify-end gap-2 mt-3">
+                <button onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-gray-500 border border-white/[0.08] rounded-xl hover:bg-white/[0.04] transition-colors">Cancel</button>
+                <button data-testid="do-invite-import" disabled={busy} onClick={doImport} className="px-4 py-2 bg-white hover:bg-gray-100 text-black text-sm rounded-xl font-semibold transition-colors disabled:opacity-50">{busy ? "Adding..." : "Add"}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function RegistrantsTab({ webinar, regs, onChange }) {
   const { isDark } = useTheme();
   const [importing, setImporting] = useState(false);
@@ -735,11 +849,8 @@ function RegistrantsTab({ webinar, regs, onChange }) {
   const toggleAttended = async (r) => { await api.patch(`/registrants/${r.id}`, { attended: !r.attended }); onChange(); };
   const toggleCommunityJoined = async (r) => { await api.patch(`/registrants/${r.id}`, { community_joined: !r.community_joined }); onChange(); };
   const doImport = async () => {
-    const items = csv.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
-      const [name, email, phone] = l.split(",").map(x => x?.trim());
-      return { name: name || email, email, phone, source: "linkedin_manual" };
-    }).filter(it => it.email);
-    if (!items.length) return toast.error("Provide name,email per line");
+    const items = parseContacts(csv, "import");
+    if (!items.length) return toast.error("No email addresses found");
     const r = await api.post(`/webinars/${webinar.id}/registrants/import`, items);
     toast.success(`Imported ${r.data.inserted}, deduped ${r.data.deduped}`);
     setImporting(false); setCsv(""); onChange();
@@ -747,6 +858,7 @@ function RegistrantsTab({ webinar, regs, onChange }) {
 
   return (
     <div>
+      <InviteList webinar={webinar} />
       <div className="flex justify-between items-center mb-4">
         <div className="text-sm text-gray-500">{regs.length} registrants · {regs.filter(r => r.attended).length} attended</div>
         <button data-testid="open-import" onClick={() => setImporting(true)}
@@ -764,7 +876,7 @@ function RegistrantsTab({ webinar, regs, onChange }) {
           <div className="col-span-2 text-right">Community</div>
         </div>
         {regs.length === 0 && (
-          <div className={`p-10 text-center text-sm ${isDark ? "text-gray-600" : "text-gray-400"}`}>No registrants yet. Share2 your public registration link.</div>
+          <div className={`p-10 text-center text-sm ${isDark ? "text-gray-600" : "text-gray-400"}`}>No registrants yet. Share your public registration link.</div>
         )}
         {regs.map(r => (
           <div key={r.id} className={`grid grid-cols-12 gap-2 px-6 py-3.5 border-b text-sm items-center transition-colors ${isDark ? "border-white/[0.04] hover:bg-white/[0.02]" : "border-gray-100 hover:bg-white/[0.02]"}`} data-testid={`reg-row-${r.id}`}>
@@ -800,7 +912,8 @@ function RegistrantsTab({ webinar, regs, onChange }) {
               className="rounded-2xl p-6 w-full max-w-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
             >
               <h3 className={`font-bold text-lg mb-2 ${isDark ? "text-white" : "text-gray-900"}`} style={{ fontFamily: 'Outfit' }}>Import LinkedIn / CSV</h3>
-              <p className={`text-sm mb-3 ${isDark ? "text-gray-500" : "text-gray-500"}`}>One per line: <code className="text-white">Name, email, phone (optional)</code></p>
+              <p className={`text-sm mb-3 ${isDark ? "text-gray-500" : "text-gray-500"}`}>People who already registered (e.g. on your own form). Upload a CSV or paste one per line: <code className="text-white">Name, email, phone (optional)</code></p>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={readFileInto(setCsv)} className="text-xs text-gray-500 mb-2" />
               <textarea data-testid="import-csv" rows={6} value={csv} onChange={e => setCsv(e.target.value)}
                 className={`w-full rounded-xl p-3 text-sm font-mono focus:outline-none focus:border-orange-500/50 ${isDark ? "bg-black/40 border border-white/[0.1] text-gray-300" : "bg-gray-50 border border-gray-200 text-gray-700"}`}
                 placeholder="Jane Doe, jane@school.uk" />

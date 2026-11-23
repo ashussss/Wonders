@@ -72,7 +72,8 @@ def first_name(registrant: Optional[Dict[str, Any]]) -> str:
 
 
 def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,
-           public: bool = False) -> Dict[str, str]:
+           public: bool = False, invite: bool = False) -> Dict[str, str]:
+    """invite: the reader is on the invite list, not registered, so "join" means sign up."""
     start = parse_start(w)
     local = start.astimezone(webinar_tz(w)) if start else None
     reg_url = registration_url(w)
@@ -81,7 +82,7 @@ def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,
         "webinar_title": w.get("title") or "",
         "webinar_date": f"{local:%A}, {local.day} {local:%B}" if local else "",
         "webinar_time": f"{local:%I:%M %p}".lstrip("0") + f" {local.tzname()}" if local else "",
-        "join_link": reg_url if public else (w.get("join_link") or reg_url),
+        "join_link": reg_url if public or invite else (w.get("join_link") or reg_url),
         "registration_link": reg_url,
         "calendar_link": calendar_url(w),
         "recording_link": w.get("recording_url") or reg_url,
@@ -102,12 +103,15 @@ def clean(text: str, channel: str) -> str:
 
 
 def render(text: str, w: Dict[str, Any], channel: str,
-           registrant: Optional[Dict[str, Any]] = None) -> str:
-    """Fill placeholders for one recipient (email/WhatsApp) or for a public post."""
+           registrant: Optional[Dict[str, Any]] = None, invite: bool = False) -> str:
+    """Fill placeholders for one recipient (email/WhatsApp) or for a public post.
+
+    invite=True is for someone on the invite list: personal greeting, but every
+    join link points to the registration page (the live room stays private)."""
     if not text:
         return ""
     public = channel not in PERSONAL_CHANNELS
-    vals = values(w, registrant, public=public)
+    vals = values(w, registrant, public=public, invite=invite)
     if not vals["first_name"]:
         text = _GREETING.sub("", text)
     text = _PLACEHOLDER.sub(lambda m: vals.get(m.group(1).lower(), ""), text)
