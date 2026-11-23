@@ -24,6 +24,8 @@ import EmailAnalytics from "@/pages/EmailAnalytics";
 import PublicRegister from "@/pages/PublicRegister";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
 import Compare, { CompareIndex, ToolPage, ToolsIndex, Guide, EmbedTool, BestList } from "@/pages/Compare";
@@ -53,6 +55,8 @@ export default function App() {
               {/* Public marketing pages */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/register" element={<Register />} />
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />

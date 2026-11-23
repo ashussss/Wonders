@@ -54,6 +54,56 @@ async def me(user=Depends(get_user)):
 
 
 # ══════════════════════════════════════════════
+# FORGOT / RESET PASSWORD
+# ══════════════════════════════════════════════
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, payload: dict = Body(default={})):
+    """Email a reset link. Same answer whether or not the email has an account."""
+    import password_reset as pr
+    email = (payload.get("email") or "").lower().strip()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Enter a valid email")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "email": 1, "name": 1, "agency_id": 1})
+    if user and not user.get("agency_id"):
+        token = await pr.create_reset(user["id"])
+        await pr.send_reset_email(user, token)
+    return {"ok": True}
+
+
+@router.get("/reset-password/check")
+@limiter.limit("20/minute")
+async def check_reset_token(request: Request, token: str = ""):
+    import password_reset as pr
+    return {"valid": bool(await pr.find_valid_reset(token))}
+
+
+@router.post("/reset-password")
+@limiter.limit("10/minute")
+async def reset_password(request: Request, payload: dict = Body(default={})):
+    """Set a new password from a reset link, sign out old sessions, and sign in here."""
+    import password_reset as pr
+    password = payload.get("password") or ""
+    if len(password) < pr.MIN_PASSWORD_LEN:
+        raise HTTPException(400, f"Password must be at least {pr.MIN_PASSWORD_LEN} characters")
+    reset = await pr.find_valid_reset(payload.get("token") or "")
+    if not reset:
+        raise HTTPException(400, "This reset link is invalid or has expired. Ask for a new one.")
+    claimed = await db.password_resets.update_one({"_id": reset["_id"], "used": False},
+                                                   {"$set": {"used": True, "used_at": now_iso()}})
+    if claimed.modified_count != 1:
+        raise HTTPException(400, "This reset link was already used. Ask for a new one.")
+    user = await db.users.find_one({"id": reset["user_id"]})
+    if not user:
+        raise HTTPException(400, "This reset link is invalid or has expired. Ask for a new one.")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(password),
+                                                             "password_changed_at": now_iso()}})
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    return {"token": make_token(user["id"]),
+            "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}}
+
+
+# ══════════════════════════════════════════════
 # ADMIN ROUTES
 # ══════════════════════════════════════════════
 

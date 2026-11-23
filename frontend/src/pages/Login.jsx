@@ -120,11 +120,16 @@ export default function Login() {
               className="w-full bg-transparent text-white focus:outline-none pt-5 pb-1.5 px-0 border-0 placeholder-transparent" />
           </FloatLabel>
 
+          <div className="flex justify-end mt-3">
+            <Link data-testid="goto-forgot" to="/forgot-password"
+              className="text-xs text-white/50 hover:text-white transition-colors">Forgot password?</Link>
+          </div>
+
           <motion.button
             whileHover={{ scale: 1.01, boxShadow: "0 0 32px rgba(255,255,255,0.3)" }}
             whileTap={{ scale: 0.99 }}
             data-testid="login-submit" disabled={busy}
-            className="mt-6 w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2" style={{ boxShadow: "0 0 20px rgba(234,88,12,0.4)" }}>
+            className="mt-4 w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2" style={{ boxShadow: "0 0 20px rgba(234,88,12,0.4)" }}>
             <AnimatePresence mode="wait">
               {busy
                 ? <motion.span key="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>Signing in…</motion.span>

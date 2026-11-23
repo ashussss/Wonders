@@ -12,6 +12,8 @@ async def create_indexes():
     # Users
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
+    await db.password_resets.create_index("token_hash", unique=True)
+    await db.password_resets.create_index("user_id")
     
     # Webinars - critical for multi-tenant isolation
     await db.webinars.create_index([("id", 1), ("owner_id", 1)], unique=True)
