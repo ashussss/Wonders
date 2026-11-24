@@ -11,6 +11,27 @@ api.interceptors.request.use((cfg) => {
   return cfg;
 });
 
+// A session that expired or was signed out (password changed/reset) sends you to login once,
+// instead of leaving every page half-broken with errors.
+const AUTH_FREE = /\/auth\/(login|register|forgot-password|reset-password)/;
+api.interceptors.response.use((r) => r, (err) => {
+  const url = err?.config?.url || "";
+  // Server down / offline: say so once instead of leaving a page stuck on "Loading…".
+  if (!err?.response && err?.code !== "ERR_CANCELED") {
+    import("sonner").then(({ toast }) => toast.error("Can't reach ShowUp right now. Check your internet, or try again in a minute.", { id: "net-down" }));
+  } else if (err?.response?.status >= 500 && (err?.config?.method || "get") === "get") {
+    import("sonner").then(({ toast }) => toast.error("Something went wrong on our side. Please try again.", { id: "server-err" }));
+  }
+  if (err?.response?.status === 401 && localStorage.getItem("showup_token") && !AUTH_FREE.test(url)) {
+    localStorage.removeItem("showup_token");
+    if (window.location.pathname.startsWith("/app")) {
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.assign(`/login?expired=1&next=${next}`);
+    }
+  }
+  return Promise.reject(err);
+});
+
 export const fmtDate = (iso) => {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); }
