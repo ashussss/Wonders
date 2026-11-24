@@ -80,64 +80,134 @@ def _wrap_text(draw, text, font, max_width, x, y, fill, line_gap=8):
 def _rr(draw, xy, r, fill, outline=None, ow=2):
     draw.rounded_rectangle(xy, radius=r, fill=fill, outline=outline, width=ow)
 
+# ── Customer brand ───────────────────────────────────
+# Webinar images are the customer's, so they wear the customer's Brand Kit: their
+# colours, their logo (or name), their webinar's date line, and only a small
+# "Powered by ShowUp AI" line. Without a kit they keep the ShowUp look.
+
+def _rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _palette(brand: Optional[dict]) -> dict:
+    t = (brand or {}).get("theme")
+    if t:
+        return {"bg": _rgb(t["bg"]), "fg": _rgb(t["fg"]), "muted": _rgb(t["muted"]),
+                "accent": _rgb(t["accent"]), "soft": _rgb(t["soft"]), "on_accent": _rgb(t["on_accent"]),
+                "branded": True}
+    return {"bg": DARK, "fg": WHITE, "muted": (180, 180, 200), "accent": ORANGE, "soft": (34, 34, 48),
+            "on_accent": WHITE, "branded": False}
+
+
+async def brand_context(db, w: dict) -> dict:
+    """Brand Kit + webinar facts the image makers need. Never raises."""
+    out: dict = {"date_line": "", "title": (w.get("title") or "").strip()}
+    try:
+        import brand_kit
+        from touch_visuals import footer_lines
+        b = await brand_kit.resolve(db, w.get("owner_id") or "")
+        out.update(theme=b.get("theme"), name=b.get("name") or "", tagline=b.get("tagline") or "",
+                   powered_by=b.get("powered_by", True), cta=b.get("cta_label") or "")
+        if b.get("logo_hash"):
+            out["logo_png"] = await brand_kit.logo_png(db, w.get("owner_id") or "")
+        out["date_line"] = footer_lines(w, False)[1]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"brand context failed: {e}")
+    return out
+
+
+def _mark(img, draw, brand: Optional[dict], P: dict, x: int, y: int, h: int = 56, max_w: int = 360,
+          color=None) -> int:
+    """Customer logo or name at (x, y), top-left anchored. Returns the right edge."""
+    from PIL import Image
+    b = brand or {}
+    if b.get("logo_png"):
+        try:
+            logo = Image.open(io.BytesIO(b["logo_png"])).convert("RGBA")
+            logo.thumbnail((max_w, h))
+            img.paste(logo, (x, y + (h - logo.height) // 2), logo)
+            return x + logo.width
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"logo unusable: {e}")
+    name = b.get("name") or ("ShowUp AI" if not P["branded"] else "")
+    if name:
+        f = _font(FONT_BOLD, int(h * 0.6))
+        draw.text((x, y + h // 2), name, font=f, fill=color or P["fg"], anchor="lm")
+        return x + int(draw.textlength(name, font=f))
+    return x
+
+
+def _fit_font(draw, text, max_w, size, min_size=18, bold=True):
+    while size > min_size:
+        f = _font(FONT_BOLD if bold else FONT_REG, size)
+        if draw.textlength(text, font=f) <= max_w:
+            return f
+        size -= 2
+    return _font(FONT_BOLD if bold else FONT_REG, min_size)
+
+
+def _powered(draw, brand: Optional[dict], P: dict, W: int, y: int, color=None):
+    b = brand or {}
+    if not b.get("powered_by", True):
+        return
+    from brand_kit import POWERED_BY_LINE
+    draw.text((W - 40, y), POWERED_BY_LINE, font=_font(FONT_REG, 20), fill=color or P["muted"], anchor="rm")
+
+
 # ── CAROUSEL SLIDE ───────────────────────────────────
 def make_slide(slide_num: int, total: int, heading: str, body: str,
-               is_cover: bool = False, is_last: bool = False) -> bytes:
+               is_cover: bool = False, is_last: bool = False, brand: Optional[dict] = None) -> bytes:
     from PIL import Image, ImageDraw
     W = H = 1080
-    img = Image.new("RGB", (W, H), DARK)
+    P = _palette(brand)
+    b = brand or {}
+    img = Image.new("RGB", (W, H), P["accent"] if is_last else P["bg"])
     draw = ImageDraw.Draw(img)
 
-    # Background gradient
-    for i in range(H):
-        r2 = i / H
-        draw.line([(0,i),(W,i)], fill=(
-            int(18 + 30*r2), int(18 + 10*r2), int(28 + 40*r2)
-        ))
-
     if is_cover:
-        # Cover slide — big title
-        _rr(draw, [0, 0, 10, H], 0, ORANGE)
-        f_num = _font(FONT_BOLD, 28)
-        draw.text((40, 60), "SWIPE →", font=f_num, fill=ORANGE)
+        _rr(draw, [0, 0, 10, H], 0, P["accent"])
+        _mark(img, draw, b, P, 40, 50)
+        draw.text((W - 40, 78), "SWIPE →", font=_font(FONT_BOLD, 28), fill=P["accent"], anchor="rm")
         f_title = _font(FONT_BOLD, 72 if len(heading) < 40 else 56)
-        _wrap_text(draw, heading, f_title, W-120, 40, 160, WHITE, 14)
-        f_sub = _font(FONT_REG, 36)
-        _wrap_text(draw, body, f_sub, W-120, 40, 700, (180,180,200), 8)
-        # Logo
-        _rr(draw, [40, H-110, 40+200, H-50], 30, ORANGE)
-        draw.text((60, H-98), "⚡ ShowUpAI", font=_font(FONT_BOLD, 32), fill=WHITE)
+        y = _wrap_text(draw, heading, f_title, W - 120, 40, 200, P["fg"], 14)
+        _wrap_text(draw, body, _font(FONT_REG, 36), W - 120, 40, max(y + 40, 640), P["muted"], 8)
+        if b.get("date_line"):
+            _wrap_text(draw, b["date_line"], _font(FONT_BOLD, 30), W - 120, 40, H - 170, P["accent"], 6)
+        _powered(draw, b, P, W, H - 40)
 
     elif is_last:
-        # CTA slide
-        _rr(draw, [0, 0, W, H], 0, ORANGE)
-        f_big = _font(FONT_BOLD, 88)
-        draw.text((80, 200), "Ready to double your\nattendance?", font=f_big, fill=WHITE)
-        f_sub = _font(FONT_REG, 40)
-        draw.text((80, 600), "ShowUpAI writes your entire pre-webinar sequence.", font=f_sub, fill=(255,220,200))
-        draw.text((80, 720), "showupai.app", font=_font(FONT_BOLD, 48), fill=WHITE)
+        on = P["on_accent"]
+        _mark(img, draw, b, P, 80, 80, color=on)
+        if P["branded"] or b.get("title"):
+            cta = b.get("cta") or "Save your spot"
+            draw.text((80, 260), cta, font=_font(FONT_BOLD, 88), fill=on)
+            y = _wrap_text(draw, b.get("title") or "", _font(FONT_BOLD, 44), W - 160, 80, 420, on, 10)
+            if b.get("date_line"):
+                _wrap_text(draw, b["date_line"], _font(FONT_REG, 36), W - 160, 80, y + 30, on, 8)
+            draw.text((80, H - 200), "Link in the post", font=_font(FONT_BOLD, 40), fill=on)
+        else:
+            draw.text((80, 200), "Ready to double your\nattendance?", font=_font(FONT_BOLD, 88), fill=on)
+            draw.text((80, 600), "ShowUpAI writes your entire pre-webinar sequence.", font=_font(FONT_REG, 40), fill=on)
+            draw.text((80, 720), "showupai.live", font=_font(FONT_BOLD, 48), fill=on)
+        _powered(draw, b, P, W, H - 40, color=on)
 
     else:
-        # Content slide
-        _rr(draw, [0, 0, 10, H], 0, ORANGE)
-        # Slide number
-        _rr(draw, [40, 40, 110, 100], 30, ORANGE)
-        draw.text((55, 50), f"{slide_num:02d}", font=_font(FONT_BOLD, 40), fill=WHITE)
-        draw.text((125, 52), f"/ {total-2:02d}", font=_font(FONT_REG, 28), fill=(120,120,140))
-        # Heading
+        _rr(draw, [0, 0, 10, H], 0, P["accent"])
+        _rr(draw, [40, 40, 110, 100], 30, P["accent"])
+        draw.text((75, 70), f"{slide_num:02d}", font=_font(FONT_BOLD, 40), fill=P["on_accent"], anchor="mm")
+        draw.text((125, 52), f"/ {total-2:02d}", font=_font(FONT_REG, 28), fill=P["muted"])
         f_h = _font(FONT_BOLD, 58 if len(heading) < 35 else 46)
-        y = _wrap_text(draw, heading, f_h, W-100, 40, 140, WHITE, 12)
-        # Divider
-        draw.line([(40, y+20), (W-40, y+20)], fill=ORANGE, width=3)
-        # Body
-        f_b = _font(FONT_REG, 38)
-        _wrap_text(draw, body, f_b, W-100, 40, y+50, (210,210,230), 10)
-        # Page indicator dots
-        dot_y = H - 50
-        dot_x = W//2 - (total*20)//2
+        y = _wrap_text(draw, heading, f_h, W-100, 40, 140, P["fg"], 12)
+        draw.line([(40, y+20), (W-40, y+20)], fill=P["accent"], width=3)
+        _wrap_text(draw, body, _font(FONT_REG, 38), W-100, 40, y+50, P["fg"], 10)
+        _mark(img, draw, b, P, 40, H - 110, h=48, max_w=260)
+        dot_y = H - 86
+        dot_x = W - 60 - total * 20
         for i in range(total):
-            color = ORANGE if i == slide_num else (60,60,80)
+            color = P["accent"] if i == slide_num else P["soft"]
             draw.ellipse([dot_x+i*20-6, dot_y-6, dot_x+i*20+6, dot_y+6], fill=color)
+        _powered(draw, b, P, W, H - 40)
 
     buf = io.BytesIO()
     img.save(buf, "PNG", quality=95)
@@ -145,7 +215,7 @@ def make_slide(slide_num: int, total: int, heading: str, body: str,
 
 
 async def make_carousel(title: str, audience: str = "", starts_at: str = "",
-                        touch_type: str = "insight") -> bytes:
+                        touch_type: str = "insight", brand: Optional[dict] = None) -> bytes:
     """Generate 6-slide carousel using Groq for content, return as ZIP."""
     # Generate slide content with Groq
     from groq import Groq as GroqClient
@@ -188,10 +258,10 @@ Return ONLY this JSON:
     # Fallback slides
     if not slides_content:
         slides_content = [
-            {"heading": "The Problem", "body": "Most webinar hosts lose 70% of registrants before the event even starts."},
-            {"heading": "The Root Cause", "body": "People aren't forgetting your webinar. They're losing the reason to care."},
-            {"heading": "The Fix", "body": "Send value, not reminders. Insight → Poll → Case Study → Join link."},
-            {"heading": "The Result", "body": "Attendance jumps from 31% to 62%+ with the right 8-touch sequence."},
+            {"heading": "Why it matters", "body": "What changes for you once this is sorted."},
+            {"heading": "Where it goes wrong", "body": "The mistake most people make, and how to spot it early."},
+            {"heading": "What works instead", "body": "A simple approach you can use straight away."},
+            {"heading": "Go further, live", "body": "We walk through it step by step in the session."},
         ]
     
     total = len(slides_content) + 2  # cover + content + CTA
@@ -201,20 +271,20 @@ Return ONLY this JSON:
     loop = asyncio.get_event_loop()
     
     # Cover
-    cover = await loop.run_in_executor(None, make_slide, 0, total, title, 
-                                        f"For {audience}" if audience else "Swipe to learn more", True, False)
+    cover = await loop.run_in_executor(None, make_slide, 0, total, title,
+                                        f"For {audience}" if audience else "Swipe to learn more", True, False, brand)
     all_slides.append(("slide_01_cover.png", cover))
     
     # Content slides
     for i, s in enumerate(slides_content):
         slide = await loop.run_in_executor(None, make_slide, i+1, total,
-                                           s["heading"], s["body"], False, False)
+                                           s["heading"], s["body"], False, False, brand)
         all_slides.append((f"slide_{i+2:02d}.png", slide))
-    
+
     # CTA
-    cta = await loop.run_in_executor(None, make_slide, total-1, total, "", "", False, True)
+    cta = await loop.run_in_executor(None, make_slide, total-1, total, "", "", False, True, brand)
     all_slides.append((f"slide_{total:02d}_cta.png", cta))
-    
+
     # Pack into ZIP
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w") as zf:
@@ -227,7 +297,7 @@ Return ONLY this JSON:
 
 # ── INFOGRAPHIC (Topic-based, 1080x1920) ─────────────
 async def make_infographic(title: str, audience: str = "", starts_at: str = "",
-                           touch_type: str = "case_study") -> bytes:
+                           touch_type: str = "case_study", brand: Optional[dict] = None) -> bytes:
     """Generate topic infographic with AI-generated key points."""
     from PIL import Image, ImageDraw
     
@@ -262,57 +332,51 @@ Return ONLY JSON:
     
     if not points:
         points = [
-            {"heading": "The Challenge", "detail": "70% of webinar registrants never show up to the live event."},
-            {"heading": "Root Cause", "detail": "Reminders don't re-engage — you need reasons, not repetition."},
-            {"heading": "The Solution", "detail": "8-touch value sequence from registration to post-event."},
-            {"heading": "Key Channels", "detail": "Email, LinkedIn, WhatsApp, Circle.so — all coordinated."},
-            {"heading": "The Result", "detail": "Average attendance jumps from 31% to 62%+ consistently."},
+            {"heading": "Why it matters", "detail": "What changes for you once this is sorted."},
+            {"heading": "The common mistake", "detail": "Where most people go wrong, and how to spot it early."},
+            {"heading": "What works instead", "detail": "A simple approach you can use straight away."},
+            {"heading": "Go further, live", "detail": "We walk through it step by step in the session."},
         ]
     
     W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), WHITE)
+    P = _palette(brand)
+    b = brand or {}
+    img = Image.new("RGB", (W, H), P["bg"])
     draw = ImageDraw.Draw(img)
-    
-    # Orange header
-    _rr(draw, [0, 0, W, 420], 0, ORANGE)
-    draw.text((50, 40), "⚡ ShowUpAI", font=_font(FONT_BOLD, 36), fill=(255,220,200))
-    _rr(draw, [50, 85, 280, 125], 20, (180,60,5))
-    draw.text((65, 90), touch_type.upper().replace("_"," "), font=_font(FONT_BOLD, 28), fill=WHITE)
+    on = P["on_accent"]
+
+    # Header in the brand colour
+    _rr(draw, [0, 0, W, 460], 0, P["accent"])
+    _mark(img, draw, b, P, 50, 40, h=60, color=on)
+    label = touch_type.upper().replace("_", " ")
+    lf = _font(FONT_BOLD, 26)
+    lw = int(draw.textlength(label, font=lf))
+    draw.rounded_rectangle([W - 50 - lw - 40, 50, W - 50, 94], radius=22, outline=on, width=2)
+    draw.text((W - 50 - lw - 20, 72), label, font=lf, fill=on, anchor="lm")
     f_title = _font(FONT_BOLD, 64 if len(title) < 35 else 50)
-    _wrap_text(draw, title, f_title, W-100, 50, 150, WHITE, 12)
+    y = _wrap_text(draw, title, f_title, W-100, 50, 150, on, 12)
     if audience:
-        draw.text((50, 375), f"For: {audience}", font=_font(FONT_REG, 32), fill=(255,200,160))
-    
-    # Stats bar
-    stats = [("62%+", "Attendance"), ("8", "Touches"), ("6", "Channels")]
-    for i, (val, lbl) in enumerate(stats):
-        x = 50 + i*340
-        _rr(draw, [x, 440, x+310, 560], 16, LIGHT)
-        draw.text((x+20, 450), val, font=_font(FONT_BOLD, 64), fill=ORANGE)
-        draw.text((x+20, 525), lbl, font=_font(FONT_REG, 28), fill=GRAY)
-    
+        draw.text((50, min(y + 20, 405)), f"For: {audience}", font=_font(FONT_REG, 32), fill=on)
+
     # Points
-    py = 590
-    colors = [ORANGE, PURPLE, (16,185,129), (245,158,11), (239,68,68)]
+    py = 510
     for i, pt in enumerate(points[:5]):
-        _rr(draw, [50, py, W-50, py+220], 20, LIGHT)
-        # Number circle
-        c = colors[i % len(colors)]
-        draw.ellipse([70, py+20, 130, py+80], fill=c)
-        draw.text((85, py+28), str(i+1), font=_font(FONT_BOLD, 44), fill=WHITE)
-        # Text
-        draw.text((150, py+20), pt["heading"], font=_font(FONT_BOLD, 40), fill=BLACK)
-        _wrap_text(draw, pt["detail"], _font(FONT_REG, 32), W-200, 150, py+75, GRAY, 6)
-        # Color bar on left
-        _rr(draw, [50, py, 58, py+220], 4, c)
+        _rr(draw, [50, py, W-50, py+220], 20, P["soft"])
+        draw.ellipse([70, py+20, 130, py+80], fill=P["accent"])
+        draw.text((100, py+50), str(i+1), font=_font(FONT_BOLD, 40), fill=on, anchor="mm")
+        draw.text((150, py+20), pt.get("heading", ""), font=_font(FONT_BOLD, 40), fill=P["fg"])
+        _wrap_text(draw, pt.get("detail", ""), _font(FONT_REG, 32), W-200, 150, py+75, P["muted"], 6)
         py += 240
-    
-    # Footer
-    _rr(draw, [0, H-120, W, H], 0, DARK)
-    draw.text((50, H-95), "⚡ showupai.app", font=_font(FONT_BOLD, 44), fill=ORANGE)
-    if starts_at:
-        draw.text((W-200, H-85), starts_at[:10], font=_font(FONT_REG, 28), fill=(140,140,160))
-    
+
+    # Footer: the webinar, then the small ShowUp line
+    draw.line([(50, H-210), (W-50, H-210)], fill=P["muted"], width=2)
+    _wrap_text(draw, b.get("title") or title, _font(FONT_BOLD, 34), W-100, 50, H-190, P["fg"], 6)
+    if b.get("date_line"):
+        draw.text((50, H-110), b["date_line"], font=_fit_font(draw, b["date_line"], W - 100, 28), fill=P["accent"])
+    elif starts_at:
+        draw.text((50, H-110), starts_at[:10], font=_font(FONT_BOLD, 28), fill=P["accent"])
+    _powered(draw, b, P, W, H - 40)
+
     buf = io.BytesIO()
     img.save(buf, "PNG", quality=95)
     return buf.getvalue()
@@ -320,32 +384,33 @@ Return ONLY JSON:
 
 # ── QUOTE CARD ───────────────────────────────────────
 def make_quote_card(title: str, audience: str = "", starts_at: str = "",
-                    touch_type: str = "thought_provoking") -> bytes:
+                    touch_type: str = "thought_provoking", brand: Optional[dict] = None) -> bytes:
     from PIL import Image, ImageDraw
     W = H = 1080
-    img = Image.new("RGB", (W, H), DARK)
+    P = _palette(brand)
+    b = brand or {}
+    img = Image.new("RGB", (W, H), P["bg"])
     draw = ImageDraw.Draw(img)
-    for i in range(H):
-        r2 = i/H
-        draw.line([(0,i),(W,i)], fill=(int(18+30*r2), int(18+8*r2), int(28+15*r2)))
-    
-    draw.text((50, -30), "“", font=_font(FONT_BOLD, 200), fill=ORANGE)
+    _mark(img, draw, b, P, 80, 60)
+    draw.text((60, 90), "“", font=_font(FONT_BOLD, 200), fill=P["accent"])
     f = _font(FONT_BOLD, 68 if len(title) < 60 else 52)
-    y = _wrap_text(draw, title, f, W-140, 80, 180, WHITE, 16)
-    draw.text((W-160, y-20), "”", font=_font(FONT_BOLD, 160), fill=ORANGE)
-    draw.line([(80, y+50), (380, y+50)], fill=ORANGE, width=4)
+    y = _wrap_text(draw, title, f, W-160, 80, 260, P["fg"], 16)
+    draw.line([(80, y+40), (380, y+40)], fill=P["accent"], width=4)
     if audience:
-        draw.text((80, y+75), f"For {audience}", font=_font(FONT_REG, 34), fill=(200,150,100))
-    _rr(draw, [0, H-110, W, H], 0, ORANGE)
-    draw.text((50, H-95), "⚡ ShowUpAI — webinar attendance, boosted", font=_font(FONT_BOLD, 38), fill=WHITE)
-    
+        draw.text((80, y+65), f"For {audience}", font=_font(FONT_REG, 34), fill=P["muted"])
+    _rr(draw, [0, H-150, W, H], 0, P["accent"])
+    line = b.get("date_line") or ("Webinar attendance, boosted" if not P["branded"] else "")
+    if line:
+        draw.text((60, H-105), line, font=_fit_font(draw, line, W - 120, 32), fill=P["on_accent"], anchor="lm")
+    _powered(draw, b, P, W, H - 40, color=P["on_accent"])
+
     buf = io.BytesIO()
     img.save(buf, "PNG", quality=95)
     return buf.getvalue()
 
 
 async def make_carousel_preview(title: str, audience: str = "", starts_at: str = "",
-                              touch_type: str = "insight") -> bytes:
+                              touch_type: str = "insight", brand: Optional[dict] = None) -> bytes:
     """Generate carousel and return first content slide as PNG preview."""
     # Generate content slides with Groq
     groq_key = os.environ.get("GROQ_API_KEY", "")
@@ -376,10 +441,10 @@ Return ONLY JSON:
 
     if not slides_content:
         slides_content = [
-            {"heading": "The Problem", "body": "70% of webinar registrants never show up to the live event."},
-            {"heading": "Root Cause", "body": "People lose the reason to care between registration and the event."},
-            {"heading": "The Fix", "body": "Send value not reminders — insight, poll, case study, join link."},
-            {"heading": "The Result", "body": "Attendance jumps from 31% to 62%+ with right 8-touch sequence."},
+            {"heading": "Why it matters", "body": "What changes for you once this is sorted."},
+            {"heading": "Where it goes wrong", "body": "The mistake most people make, and how to spot it early."},
+            {"heading": "What works instead", "body": "A simple approach you can use straight away."},
+            {"heading": "Go further, live", "body": "We walk through it step by step in the session."},
         ]
 
     loop = asyncio.get_event_loop()
@@ -387,31 +452,33 @@ Return ONLY JSON:
 
     # Return cover slide as preview
     cover = await loop.run_in_executor(None, make_slide, 0, total, title,
-                                        f"For {audience}" if audience else "Swipe to learn more →", True, False)
+                                        f"For {audience}" if audience else "Swipe to learn more →", True, False, brand)
     return cover
 
 
 # ── MASTER FUNCTION ──────────────────────────────────
 async def generate_webinar_social_image(
     webinar_id: str, title: str, audience: str = "",
-    starts_at: str = "", touch_type: str = "carousel", extra: dict = None
+    starts_at: str = "", touch_type: str = "carousel", extra: dict = None,
+    brand: Optional[dict] = None,
 ) -> Optional[Tuple[bytes, str]]:
     try:
         image_type = (extra or {}).get("image_type", touch_type)
         loop = asyncio.get_event_loop()
         
         if image_type == "infographic":
-            img_bytes = await make_infographic(title, audience, starts_at, touch_type)
+            img_bytes = await make_infographic(title, audience, starts_at, touch_type, brand)
             mime = "image/png"
         elif image_type == "quote_card":
-            img_bytes = await loop.run_in_executor(None, make_quote_card, title, audience, starts_at, touch_type)
+            quote = ((extra or {}).get("quote") or title).strip()
+            img_bytes = await loop.run_in_executor(None, make_quote_card, quote, audience, starts_at, touch_type, brand)
             mime = "image/png"
         elif image_type == "carousel":
             # Return first slide as PNG preview (full ZIP available separately)
-            img_bytes = await make_carousel_preview(title, audience, starts_at, touch_type)
+            img_bytes = await make_carousel_preview(title, audience, starts_at, touch_type, brand)
             mime = "image/png"
         else:
-            img_bytes = await make_infographic(title, audience, starts_at, touch_type)
+            img_bytes = await make_infographic(title, audience, starts_at, touch_type, brand)
             mime = "image/png"
         
         if not img_bytes:
