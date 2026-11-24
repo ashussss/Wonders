@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { useRestartTour } from "@/components/OnboardingTour";
 import StarField from "@/components/StarField";
+import ClientSwitcher from "@/components/ClientSwitcher";
 
 const NAV = [
   { to: "/app",            label: "Dashboard",     icon: LayoutDashboard, testId: "nav-dashboard" },
@@ -61,9 +62,11 @@ export default function Layout() {
         </a>
       </div>
 
+      <ClientSwitcher />
+
       {/* Nav */}
       <nav className="flex-1 px-3 py-3 space-y-0.5">
-        {NAV.map(({ to, label, icon: Icon, testId }, idx) => {
+        {NAV.filter(n => !(user?.acting_for_agency && n.to === "/app/billing")).map(({ to, label, icon: Icon, testId }, idx) => {
           const active = loc.pathname === to || (to !== "/app" && loc.pathname.startsWith(to));
           return (
             <motion.div key={to} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
@@ -144,19 +147,19 @@ export default function Layout() {
             <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{user?.email}</div>
           </div>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
           <button data-testid="logout-btn" onClick={() => { logout(); nav("/login"); }}
-            className="flex items-center gap-1.5 text-xs transition-colors"
-            style={{ color: "var(--text-muted)" }}
-            onMouseEnter={e => e.currentTarget.style.color = "var(--text-secondary)"}
-            onMouseLeave={e => e.currentTarget.style.color = "var(--text-muted)"}>
-            <LogOut size={12} /> Sign out
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
+            style={{ background: "var(--bg-sunken)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+            onMouseEnter={e => { e.currentTarget.style.color = "#EA580C"; e.currentTarget.style.borderColor = "rgba(234,88,12,0.5)"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.borderColor = "var(--border)"; }}>
+            <LogOut size={14} /> Log out
           </button>
           <button onClick={toggle}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
-            style={{ background: "var(--bg-sunken)", color: "var(--text-muted)" }}
+            className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all"
+            style={{ background: "var(--bg-sunken)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
             title="Toggle theme">
-            {isDark ? <Sun size={13} /> : <Moon size={13} />}
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
           </button>
         </div>
       </div>
@@ -190,7 +193,7 @@ export default function Layout() {
               className="lg:hidden fixed inset-0 bg-black/50 z-30" onClick={() => setOpenMobile(false)} />
             <motion.aside initial={{ x: -260 }} animate={{ x: 0 }} exit={{ x: -260 }}
               transition={{ type: "spring", stiffness: 300, damping: 32 }}
-              className="lg:hidden fixed inset-y-0 left-0 top-0 w-64 z-40 flex flex-col"
+              className="lg:hidden fixed inset-y-0 left-0 top-0 w-64 z-40 flex flex-col [&>nav]:min-h-0 [&>nav]:overflow-y-auto"
               style={{ background: "var(--bg-surface)", borderRight: "1px solid var(--border)" }}>
               <SidebarContent />
             </motion.aside>
@@ -199,7 +202,7 @@ export default function Layout() {
       </AnimatePresence>
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 flex-col shrink-0 sticky top-0 h-screen" data-testid="sidebar"
+      <aside className="hidden lg:flex w-60 flex-col shrink-0 sticky top-0 h-screen [&>nav]:min-h-0 [&>nav]:overflow-y-auto" data-testid="sidebar"
         style={{ background: "var(--bg-surface)", borderRight: "1px solid var(--border)" }}>
         <SidebarContent />
       </aside>

@@ -22,11 +22,15 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import Waitlist from "@/pages/Waitlist";
 import EmailAnalytics from "@/pages/EmailAnalytics";
 import PublicRegister from "@/pages/PublicRegister";
+import ClientConnect from "@/pages/ClientConnect";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import NotFound from "@/pages/NotFound";
 import Register from "@/pages/Register";
 import Blog from "@/pages/Blog";
-import Compare, { CompareIndex, ToolPage, ToolsIndex, Guide, EmbedTool } from "@/pages/Compare";
+import Compare, { CompareIndex, ToolPage, ToolsIndex, Guide, EmbedTool, BestList } from "@/pages/Compare";
 import About from "@/pages/About";
 import Privacy from "@/pages/Privacy";
 import BlogPost from "@/pages/BlogPost";
@@ -38,7 +42,7 @@ function Protected({ children }) {
       <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`} replace />;
   return children;
 }
 
@@ -53,9 +57,12 @@ export default function App() {
               {/* Public marketing pages */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/register" element={<Register />} />
             <Route path="/waitlist" element={<Waitlist />} />
               <Route path="/r/:wid" element={<PublicRegister />} />
+              <Route path="/connect/:token" element={<ClientConnect />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/checkout/:plan" element={<Checkout />} />
               <Route path="/about" element={<About />} />
@@ -67,6 +74,7 @@ export default function App() {
               <Route path="/tools" element={<ToolsIndex />} />
               <Route path="/tools/:tool" element={<ToolPage />} />
               <Route path="/webinar-attendance" element={<Guide />} />
+              <Route path="/best-webinar-reminder-software" element={<BestList />} />
               <Route path="/embed/:tool" element={<EmbedTool />} />
 
               {/* Protected app */}
@@ -89,6 +97,7 @@ export default function App() {
 
               {/* Legacy redirects */}
               <Route path="/dashboard" element={<Navigate to="/app" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
 
         </Suspense>

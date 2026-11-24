@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "@/components/Icons";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { wallToUtcISO, TIMEZONES } from "@/lib/tz";
 
 
 function detectPlatform(url) {
@@ -63,8 +64,7 @@ export default function CreateWebinarDialog({ open, onClose, onCreated }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const dt = new Date(form.starts_at);
-      const r = await api.post("/webinars", { ...form, starts_at: dt.toISOString() });
+      const r = await api.post("/webinars", { ...form, starts_at: wallToUtcISO(form.starts_at, form.timezone) });
       toast.success("Webinar created. AI is drafting touches and lead magnets…");
       onCreated(r.data.id);
     } catch (err) {
@@ -87,8 +87,8 @@ export default function CreateWebinarDialog({ open, onClose, onCreated }) {
           <Field label="Description" colSpan={2}><textarea data-testid="w-description" required rows={3} value={form.description} onChange={upd("description")} className="input"/></Field>
           <Field label="Speaker(s)"><input data-testid="w-speaker" value={form.speaker} onChange={upd("speaker")} className="input"/></Field>
           <Field label="Target Audience"><input data-testid="w-audience" value={form.target_audience} onChange={upd("target_audience")} className="input" placeholder="e.g. EdTech suppliers"/></Field>
-          <Field label="Starts At"><input data-testid="w-starts" required type="datetime-local" value={form.starts_at} onChange={upd("starts_at")} className="input"/></Field>
-          <Field label="Timezone"><input data-testid="w-tz" value={form.timezone} onChange={upd("timezone")} className="input"/></Field>
+          <Field label="Starts At (webinar's timezone)"><input data-testid="w-starts" required type="datetime-local" value={form.starts_at} onChange={upd("starts_at")} className="input"/></Field>
+          <Field label="Timezone"><select data-testid="w-tz" value={form.timezone} onChange={upd("timezone")} className="input">{TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}</select></Field>
           <Field label="Join Link"><JoinLinkInput value={form.join_link} onChange={upd("join_link")} /></Field>
           <Field label="Registration Link (optional)"><input data-testid="w-reg" value={form.registration_link} onChange={upd("registration_link")} className="input" placeholder="leave blank to use ShowUpAI form"/></Field>
         </div>

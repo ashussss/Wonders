@@ -24,7 +24,7 @@ _GREETING = re.compile(r"^\s*(hi|hey|hello|dear)\s+\{\{\s*first_name\s*\}\}\s*[,
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️⃣←-⇿]")
 _DASH = re.compile(r"\s*[—–]\s*")
 # Channels where people write plainly. Instagram and WhatsApp keep emojis if the copy has them.
-_NO_EMOJI = {"email", "linkedin", "linkedin_page", "linkedin_personal", "facebook", "facebook_page", "circle"}
+_NO_EMOJI = {"email", "email_invite", "linkedin", "linkedin_page", "linkedin_personal", "facebook", "facebook_page", "circle"}
 
 
 def webinar_tz(w: Dict[str, Any]) -> ZoneInfo:
@@ -47,6 +47,13 @@ def registration_url(w: Dict[str, Any]) -> str:
     return w.get("registration_link") or f"{FRONTEND_URL}/r/{w.get('id', '')}"
 
 
+def live_link(w: Dict[str, Any]) -> str:
+    """Where a registrant goes to watch. The join link; or, when the session runs on
+    the host's own event page (no separate room link), the page people are sent to
+    after signing up; else the registration page."""
+    return w.get("join_link") or w.get("after_signup_url") or registration_url(w)
+
+
 def calendar_url(w: Dict[str, Any]) -> str:
     """Google Calendar 'add event' link (works without the attached .ics)."""
     start = parse_start(w)
@@ -55,11 +62,12 @@ def calendar_url(w: Dict[str, Any]) -> str:
     end = start + timedelta(hours=1)
     fmt = "%Y%m%dT%H%M%SZ"
     details = (w.get("description") or "")[:500]
-    if w.get("join_link"):
-        details += f"\n\nJoin: {w['join_link']}"
+    live = live_link(w)
+    if live:
+        details += f"\n\nJoin: {live}"
     q = urlencode({"action": "TEMPLATE", "text": w.get("title") or "Webinar",
                    "dates": f"{start.astimezone(timezone.utc):{fmt}}/{end.astimezone(timezone.utc):{fmt}}",
-                   "details": details, "location": w.get("join_link") or ""})
+                   "details": details, "location": live or ""})
     return f"https://calendar.google.com/calendar/render?{q}"
 
 
@@ -72,7 +80,8 @@ def first_name(registrant: Optional[Dict[str, Any]]) -> str:
 
 
 def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,
-           public: bool = False) -> Dict[str, str]:
+           public: bool = False, invite: bool = False) -> Dict[str, str]:
+    """invite: the reader is on the invite list, not registered, so "join" means sign up."""
     start = parse_start(w)
     local = start.astimezone(webinar_tz(w)) if start else None
     reg_url = registration_url(w)
@@ -81,7 +90,7 @@ def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,
         "webinar_title": w.get("title") or "",
         "webinar_date": f"{local:%A}, {local.day} {local:%B}" if local else "",
         "webinar_time": f"{local:%I:%M %p}".lstrip("0") + f" {local.tzname()}" if local else "",
-        "join_link": reg_url if public else (w.get("join_link") or reg_url),
+        "join_link": reg_url if public or invite else live_link(w),
         "registration_link": reg_url,
         "calendar_link": calendar_url(w),
         "recording_link": w.get("recording_url") or reg_url,
@@ -102,12 +111,15 @@ def clean(text: str, channel: str) -> str:
 
 
 def render(text: str, w: Dict[str, Any], channel: str,
-           registrant: Optional[Dict[str, Any]] = None) -> str:
-    """Fill placeholders for one recipient (email/WhatsApp) or for a public post."""
+           registrant: Optional[Dict[str, Any]] = None, invite: bool = False) -> str:
+    """Fill placeholders for one recipient (email/WhatsApp) or for a public post.
+
+    invite=True is for someone on the invite list: personal greeting, but every
+    join link points to the registration page (the live room stays private)."""
     if not text:
         return ""
     public = channel not in PERSONAL_CHANNELS
-    vals = values(w, registrant, public=public)
+    vals = values(w, registrant, public=public, invite=invite)
     if not vals["first_name"]:
         text = _GREETING.sub("", text)
     text = _PLACEHOLDER.sub(lambda m: vals.get(m.group(1).lower(), ""), text)
@@ -123,6 +135,7 @@ def link_labels(w: Dict[str, Any], cta_label: str = "") -> Dict[str, str]:
     out[reg] = cta_label or "Save my seat"
     if w.get("recording_url"):
         out[w["recording_url"]] = "Watch the recording"
-    if w.get("join_link"):
-        out[w["join_link"]] = cta_label or "Join the session"
+    live = live_link(w)
+    if live != reg:
+        out[live] = cta_label or "Join the session"
     return out

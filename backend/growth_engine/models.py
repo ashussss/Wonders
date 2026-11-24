@@ -12,11 +12,11 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CampaignKind = Literal["blog", "news", "pain_point", "engagement", "competitor"]
+CampaignKind = Literal["blog", "news", "pain_point", "engagement", "competitor", "story", "sell"]
 FunnelStage = Literal["awareness", "consideration", "intent", "conversion", "retention"]
 VisualFormat = Literal[
     "carousel", "infographic", "stat_card", "checklist", "comparison", "quote", "poll",
-    "myth_fact", "timeline", "hot_take",
+    "myth_fact", "timeline", "hot_take", "text_card",
 ]
 Platform = Literal["linkedin", "facebook", "instagram"]
 

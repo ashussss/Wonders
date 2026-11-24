@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 
 // Mirrors backend config.TOUCH_DEFS.
 const TOUCHES = [
@@ -38,6 +39,7 @@ export default function Settings() {
     toast.success("Settings saved");
   };
   const set = (k, v) => setS({ ...s, [k]: v });
+  const provider = (s.email_provider || "").trim().toLowerCase();
   const toggleDefaultTouch = (n) => {
     const dt = { ...(s.default_touches || {}) };
     dt[n] = !dt[n];
@@ -60,21 +62,42 @@ export default function Settings() {
       <div className="text-xs font-bold uppercase tracking-[0.2em] text-white mb-2">Configuration</div>
       <h1 className="text-3xl sm:text-4xl font-bold mb-6 tracking-tight" style={{fontFamily:'Outfit', color: "var(--text-primary)"}}>Settings</h1>
 
+      <Group title="Account">
+        <ChangePassword />
+      </Group>
+
       <Group title="Email provider">
         <Row label="Active provider"><select data-testid="set-email-provider" value={s.email_provider||""} onChange={e=>set("email_provider", e.target.value)} className="input">
-          <option value="">— select —</option><option>Brevo</option><option>Mailchimp</option><option>SendHome</option><option>BuzzAI</option>
+          <option value="">— select —</option>
+          <option value="Brevo">Brevo</option>
+          <option value="SendGrid">SendGrid</option>
+          <option value="Mailchimp">Mailchimp (Mandrill)</option>
+          <option value="BuzzAI">Buzz.ai</option>
         </select></Row>
-        <Field label="Brevo API Key" k="brevo_api_key" s={s} set={set}/>
-        <Row label="Brevo Sender Email"><input data-testid="set-brevo_sender_email" type="email" value={s.brevo_sender_email||""} onChange={e=>set("brevo_sender_email", e.target.value)} placeholder="hello@yourbrand.com" className="input"/></Row>
-        <Row label="Brevo Sender Name"><input data-testid="set-brevo_sender_name" value={s.brevo_sender_name||""} onChange={e=>set("brevo_sender_name", e.target.value)} placeholder="ShowUpAI" className="input"/></Row>
-        <Field label="Mailchimp API Key" k="mailchimp_api_key" s={s} set={set} hint="Mandrill transactional API key (e.g. md-xxx)."/>
-        <Row label="Mailchimp Sender Email"><input data-testid="set-mailchimp_sender_email" type="email" value={s.mailchimp_sender_email||""} onChange={e=>set("mailchimp_sender_email", e.target.value)} className="input" placeholder="hello@yourbrand.com"/></Row>
-        <Field label="SendLayoutDashboard API Key" k="sendgrid_api_key" s={s} set={set} hint="Starts with 'SG.'"/>
-        <Row label="SendLayoutDashboard Sender Email"><input data-testid="set-sendgrid_sender_email" type="email" value={s.sendgrid_sender_email||""} onChange={e=>set("sendgrid_sender_email", e.target.value)} className="input" placeholder="hello@yourbrand.com"/></Row>
+        {/* Only the chosen provider's fields. Emails go out through that one provider; anything else, or nothing, means Brevo (senders.send_email). */}
+        {!["sendgrid", "mailchimp", "buzzai"].includes(provider) && <>
+          <Field label="Brevo API Key" k="brevo_api_key" s={s} set={set} hint="Starts with 'xkeysib-'. Brevo → SMTP & API → API keys."/>
+          <Row label="Brevo Sender Email"><input data-testid="set-brevo_sender_email" type="email" value={s.brevo_sender_email||""} onChange={e=>set("brevo_sender_email", e.target.value)} placeholder="hello@yourbrand.com" className="input"/></Row>
+          <Row label="Brevo Sender Name"><input data-testid="set-brevo_sender_name" value={s.brevo_sender_name||""} onChange={e=>set("brevo_sender_name", e.target.value)} placeholder="Your brand" className="input"/></Row>
+        </>}
+        {provider === "sendgrid" && <>
+          <Field label="SendGrid API Key" k="sendgrid_api_key" s={s} set={set} hint="Starts with 'SG.'"/>
+          <Row label="SendGrid Sender Email"><input data-testid="set-sendgrid_sender_email" type="email" value={s.sendgrid_sender_email||""} onChange={e=>set("sendgrid_sender_email", e.target.value)} className="input" placeholder="hello@yourbrand.com"/></Row>
+          <Row label="SendGrid Sender Name"><input data-testid="set-sendgrid_sender_name" value={s.sendgrid_sender_name||""} onChange={e=>set("sendgrid_sender_name", e.target.value)} placeholder="Your brand" className="input"/></Row>
+        </>}
+        {provider === "mailchimp" && <>
+          <Field label="Mailchimp API Key" k="mailchimp_api_key" s={s} set={set} hint="Mandrill transactional API key (e.g. md-xxx)."/>
+          <Row label="Mailchimp Sender Email"><input data-testid="set-mailchimp_sender_email" type="email" value={s.mailchimp_sender_email||""} onChange={e=>set("mailchimp_sender_email", e.target.value)} className="input" placeholder="hello@yourbrand.com"/></Row>
+          <Row label="Mailchimp Sender Name"><input data-testid="set-mailchimp_sender_name" value={s.mailchimp_sender_name||""} onChange={e=>set("mailchimp_sender_name", e.target.value)} placeholder="Your brand" className="input"/></Row>
+        </>}
+        {provider === "buzzai" && <div className="text-sm" style={{ color: "var(--text-secondary)" }}>Fill in the Buzz.ai section below.</div>}
+        <div className="text-xs mt-1 mb-2" style={{ color: "var(--text-secondary)" }}>
+          Verify your sending domain with the provider first (SPF/DKIM records), or emails land in spam.
+        </div>
         <TestSend label="Send test email to my account" channel="email" testId="test-send-email"/>
       </Group>
 
-      <Group title="Buzz.ai (custom outreach endpoint)">
+      {(provider === "buzzai" || s.linkedin_provider === "buzzai") && <Group title="Buzz.ai (custom outreach endpoint)">
         <Banner>Buzz.ai does not publish a public REST API. Ask Buzz support for the endpoint URL + auth header convention, then paste below. Same key is used for email and LinkedIn channels.</Banner>
         <Field label="Buzz.ai API Key" k="buzzai_api_key" s={s} set={set}/>
         <Row label="Email Endpoint URL"><input data-testid="set-buzzai_email_endpoint" value={s.buzzai_email_endpoint||""} onChange={e=>set("buzzai_email_endpoint", e.target.value)} placeholder="https://api.buzz.ai/v1/email/send" className="input"/></Row>
@@ -82,7 +105,7 @@ export default function Settings() {
         <Row label="Auth Header Name (default: Authorization)"><input data-testid="set-buzzai_auth_header_name" value={s.buzzai_auth_header_name||""} onChange={e=>set("buzzai_auth_header_name", e.target.value)} placeholder="Authorization" className="input"/></Row>
         <Row label="Auth Header Prefix (default: 'Bearer ')"><input data-testid="set-buzzai_auth_header_prefix" value={s.buzzai_auth_header_prefix||""} onChange={e=>set("buzzai_auth_header_prefix", e.target.value)} placeholder="Bearer " className="input"/></Row>
         <TestSend label="Test Buzz.ai email endpoint" channel="email" testId="test-buzzai-email"/>
-      </Group>
+      </Group>}
 
       <Group title="Social accounts">
         <div className="text-sm" style={{ color: "var(--text-secondary)" }} data-testid="settings-connect-social">
@@ -221,6 +244,40 @@ export default function Settings() {
         .input::placeholder{ color:var(--text-muted); }`}</style>
     </motion.div>
   );
+}
+function ChangePassword() {
+  const { user } = useAuth();
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (pw.length < 8) return toast.error("New password must be at least 8 characters");
+    if (pw !== pw2) return toast.error("New passwords don't match");
+    setBusy(true);
+    try {
+      const r = await api.post("/auth/change-password", { current_password: cur, new_password: pw });
+      localStorage.setItem("showup_token", r.data.token);
+      setCur(""); setPw(""); setPw2("");
+      toast.success("Password changed. Other devices are signed out.");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Could not change password"); }
+    finally { setBusy(false); }
+  };
+  return <form onSubmit={submit} data-testid="change-password-form" className="space-y-3">
+    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+      Signed in as <b style={{ color: "var(--text-primary)" }}>{user?.email}</b>. Forgot your current password?{" "}
+      <Link to="/forgot-password" className="underline">Reset it by email</Link>.
+    </p>
+    <div className="grid sm:grid-cols-3 gap-3">
+      <Row label="Current password"><input data-testid="cp-current" type="password" required autoComplete="current-password" value={cur} onChange={e=>setCur(e.target.value)} className="input"/></Row>
+      <Row label="New password"><input data-testid="cp-new" type="password" required minLength={8} autoComplete="new-password" value={pw} onChange={e=>setPw(e.target.value)} className="input"/></Row>
+      <Row label="Confirm new password"><input data-testid="cp-confirm" type="password" required minLength={8} autoComplete="new-password" value={pw2} onChange={e=>setPw2(e.target.value)} className="input"/></Row>
+    </div>
+    <button data-testid="cp-submit" disabled={busy} className="px-4 py-2 rounded-md text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50">
+      {busy ? "Saving…" : "Change password"}
+    </button>
+  </form>;
 }
 function Group({title, children}) {
   return <section className="rounded-md p-5 mb-5" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>

@@ -54,7 +54,16 @@ def card_spec(touch_num: int, kit: Optional[Dict[str, Any]], w: Dict[str, Any],
     else:
         tag = TAGS[kind]
     return {"kind": kind, "tag": tag, "data": data, "footer": footer_lines(w, touch_num in POST_EVENT),
-            "seed": w.get("id") or w.get("title") or "", "brand": brand_kit.card_brand(brand)}
+            "seed": w.get("id") or w.get("title") or "", "brand": event_brand(w, brand)}
+
+
+def event_brand(w: Dict[str, Any], brand: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The host's brand (logo, font, name), in the event's colours when the webinar has
+    a banner: cards then look like the event they promote."""
+    cb = brand_kit.card_brand(brand)
+    if w.get("event_theme"):
+        cb = {**cb, "theme": w["event_theme"]}
+    return cb
 
 
 def footer_lines(w: Dict[str, Any], post_event: bool) -> Tuple[str, str]:
@@ -269,6 +278,12 @@ async def ensure_visual(db, bucket, t: Dict[str, Any], w: Dict[str, Any],
                         brand: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """The stored card for this touch, rendering it if it's missing or out of date
     (content, date or the owner's brand kit changed)."""
+    import event_art
+    if t.get("touch_num") in event_art.TOUCH_CREATIVE:
+        # Confirmation, "starts in 1 hour" and "we're live" carry the event creative.
+        row = await event_art.ensure_creative(db, bucket, w, event_art.TOUCH_CREATIVE[t["touch_num"]], brand)
+        return {"touch_id": t["id"], "webinar_id": w["id"], "kind": row["kind"], "hash": row["hash"],
+                "file_id": row["file_id"]} if row else None
     if TOUCH_ASSET.get(t.get("touch_num")) is None:
         return None
     if kit is None:
@@ -311,4 +326,5 @@ def visual_url(base: str, row: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 def has_visual(touch_num: int) -> bool:
-    return touch_num in TOUCH_ASSET and touch_num != 9
+    from event_art import TOUCH_CREATIVE
+    return touch_num in TOUCH_CREATIVE or (touch_num in TOUCH_ASSET and touch_num != 9)

@@ -13,14 +13,18 @@ router = APIRouter(prefix="/api/auth")
 limiter = Limiter(key_func=get_remote_address)
 
 
-async def create_user(email: str, name: str, password: str) -> dict:
-    """Insert a user with default settings. Raises 400 if the email is taken."""
+async def create_user(email: str, name: str, password: str, agency_id: str = "") -> dict:
+    """Insert a user with default settings. Raises 400 if the email is taken.
+
+    agency_id makes it a client workspace of that agency account (agency mode)."""
     email = email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     uid = str(uuid.uuid4())
     user = {"id": uid, "email": email, "name": name,
             "password": hash_pw(password), "created_at": now_iso()}
+    if agency_id:
+        user["agency_id"] = agency_id
     await db.users.insert_one(user)
     await db.settings.insert_one({
         "owner_id": uid,
@@ -34,6 +38,8 @@ async def create_user(email: str, name: str, password: str) -> dict:
 @router.post("/register")
 @limiter.limit("5/minute")
 async def register(request: Request, data: UserSignup):
+    if len(data.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     user = await create_user(data.email, data.name, data.password)
     return {"token": make_token(user["id"]), "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": "user"}}
 
@@ -42,7 +48,7 @@ async def register(request: Request, data: UserSignup):
 @limiter.limit("10/minute")
 async def login(request: Request, data: UserLogin):
     user = await db.users.find_one({"email": data.email.lower()})
-    if not user or not verify_pw(data.password, user["password"]):
+    if not user or not verify_pw(data.password, user["password"]) or user.get("agency_id"):
         raise HTTPException(401, "Invalid credentials")
     return {"token": make_token(user["id"]),
             "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}}
@@ -50,7 +56,78 @@ async def login(request: Request, data: UserLogin):
 
 @router.get("/me")
 async def me(user=Depends(get_user)):
-    return {k: v for k, v in user.items() if k != "password"}
+    out = {k: v for k, v in user.items() if k != "password" and not k.startswith("_")}
+    agency = user.get("_agency")
+    if agency:
+        out["acting_for_agency"] = {"id": agency.get("id"), "name": agency.get("name"), "email": agency.get("email")}
+    return out
+
+
+# ══════════════════════════════════════════════
+# FORGOT / RESET PASSWORD
+# ══════════════════════════════════════════════
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, payload: dict = Body(default={})):
+    """Email a reset link. Same answer whether or not the email has an account."""
+    import password_reset as pr
+    email = (payload.get("email") or "").lower().strip()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Enter a valid email")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "email": 1, "name": 1, "agency_id": 1})
+    if user and not user.get("agency_id"):
+        token = await pr.create_reset(user["id"])
+        await pr.send_reset_email(user, token)
+    return {"ok": True}
+
+
+@router.get("/reset-password/check")
+@limiter.limit("20/minute")
+async def check_reset_token(request: Request, token: str = ""):
+    import password_reset as pr
+    return {"valid": bool(await pr.find_valid_reset(token))}
+
+
+@router.post("/reset-password")
+@limiter.limit("10/minute")
+async def reset_password(request: Request, payload: dict = Body(default={})):
+    """Set a new password from a reset link, sign out old sessions, and sign in here."""
+    import password_reset as pr
+    password = payload.get("password") or ""
+    if len(password) < pr.MIN_PASSWORD_LEN:
+        raise HTTPException(400, f"Password must be at least {pr.MIN_PASSWORD_LEN} characters")
+    reset = await pr.find_valid_reset(payload.get("token") or "")
+    if not reset:
+        raise HTTPException(400, "This reset link is invalid or has expired. Ask for a new one.")
+    claimed = await db.password_resets.update_one({"_id": reset["_id"], "used": False},
+                                                   {"$set": {"used": True, "used_at": now_iso()}})
+    if claimed.modified_count != 1:
+        raise HTTPException(400, "This reset link was already used. Ask for a new one.")
+    user = await db.users.find_one({"id": reset["user_id"]})
+    if not user:
+        raise HTTPException(400, "This reset link is invalid or has expired. Ask for a new one.")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(password),
+                                                             "password_changed_at": now_iso()}})
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    return {"token": make_token(user["id"]),
+            "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}}
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+async def change_password(request: Request, payload: dict = Body(default={}), user=Depends(get_user)):
+    """Logged-in password change. Other sessions are signed out; this one gets a fresh token."""
+    import password_reset as pr
+    new = payload.get("new_password") or ""
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_pw(payload.get("current_password") or "", full["password"]):
+        raise HTTPException(400, "Current password is wrong")
+    if len(new) < pr.MIN_PASSWORD_LEN:
+        raise HTTPException(400, f"Password must be at least {pr.MIN_PASSWORD_LEN} characters")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(new),
+                                                             "password_changed_at": now_iso()}})
+    await db.password_resets.delete_many({"user_id": user["id"]})
+    return {"ok": True, "token": make_token(user["id"])}
 
 
 # ══════════════════════════════════════════════

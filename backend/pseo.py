@@ -21,7 +21,7 @@ logger = logging.getLogger("showup.pseo")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 PSEO_MODEL = os.environ.get("PSEO_MODEL", "openai/gpt-oss-120b")
 PSEO_FALLBACK_MODEL = os.environ.get("PSEO_FALLBACK_MODEL", "openai/gpt-oss-20b")
-PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "4"))
+PSEO_POSTS_PER_DAY = int(os.environ.get("PSEO_POSTS_PER_DAY", "1"))
 PSEO_AUTO_TOPICS = os.environ.get("PSEO_AUTO_TOPICS", "false").lower() == "true"
 # when fewer keywords than this are pending, top the queue up from the "related topics" earlier posts suggested
 PSEO_QUEUE_MIN = int(os.environ.get("PSEO_QUEUE_MIN", "12"))
@@ -29,7 +29,7 @@ PSEO_QUEUE_MIN = int(os.environ.get("PSEO_QUEUE_MIN", "12"))
 PSEO_AUTO_SCHEDULE = os.environ.get("PSEO_AUTO_SCHEDULE", "true").lower() == "true"
 PSEO_PUBLISH_TIMES_IST = [t.strip() for t in os.environ.get("PSEO_PUBLISH_TIMES_IST", "10:00,13:00,16:00,19:00").split(",") if t.strip()]
 # Publishing cadence: a steady, human-looking rhythm instead of bursts at identical clock times.
-PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "4"))
+PSEO_MAX_PUBLISH_PER_DAY = int(os.environ.get("PSEO_MAX_PUBLISH_PER_DAY", "1"))
 PSEO_PUBLISH_JITTER_MIN = int(os.environ.get("PSEO_PUBLISH_JITTER_MIN", "90"))  # random 0..N min added to a base time
 PSEO_MIN_WORDS = int(os.environ.get("PSEO_MIN_WORDS", "1000"))  # quality gate floor for auto-scheduling
 # floor for the catch-up's last-resort pass, after unsupported sentences were cut
@@ -275,15 +275,37 @@ def clean_content(content: str, has_faq: bool) -> str:
     return c
 
 
+_TITLE_TAIL_WORDS = {"a", "an", "the", "to", "for", "with", "and", "or", "of", "in", "on", "that", "into", "from", "by", "at", "your", "how"}
+
+
 def make_seo_title(title: str, limit: int = 60) -> str:
-    """'<title> | ShowUpAI' when it fits, else the title alone, cut at a word boundary only if still too long."""
+    """'<title> | ShowUpAI' when it fits, else the title alone; a longer title keeps its part before a colon/dash when
+    that reads on its own, else it is cut at a word boundary without a dangling 'to'/'for'/'with' at the end."""
     title = (title or "").strip()
     branded = f"{title} | {BRAND}"
     if len(branded) <= limit:
         return branded
-    if len(title) <= 70:
+    if len(title) <= 70:  # Google shows ~60 chars but a whole title reads better than a cut one
         return title
-    return title[:70].rsplit(" ", 1)[0].rstrip(" :-,|")
+    head = re.split(r"\s*[:—–|]\s*|\s+-\s+", title, maxsplit=1)[0].strip()
+    if 25 <= len(head) <= 70 and head != title:
+        return head
+    words = title[:71].rsplit(" ", 1)[0].rstrip(" :-,|").split(" ")
+    while len(words) > 3 and (words[-1].lower().strip(",:") in _TITLE_TAIL_WORDS or words[-1] in "-—–&"):
+        words.pop()
+    return " ".join(words).rstrip(" :-,|")
+
+
+def needs_new_seo_title(post: dict) -> bool:
+    """True for an auto-made seo_title that is too long for Google or was cut mid-phrase (custom titles are kept)."""
+    seo, title = (post.get("seo_title") or "").strip(), (post.get("title") or "").strip()
+    if not title or not seo:
+        return bool(title)
+    auto = seo == title or seo == f"{title} | {BRAND}" or title.startswith(seo)
+    if not auto:
+        return False
+    last = seo.split(" ")[-1].lower().strip(",:")
+    return len(seo) > 70 or last in _TITLE_TAIL_WORDS
 
 
 _BLOG_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://(?:www\.)?showupai\.live)?/blog/([a-z0-9-]+)/?\)")
@@ -625,6 +647,9 @@ Suggest {n} NEW search keywords that webinar hosts, B2B marketers, community man
 customer-education teams actually type into Google. Each must be a different search intent from every topic above and
 from each other. Mix how-to, templates/examples, checklists, mistakes, by-industry and by-channel angles. Lowercase,
 3-9 words, no brand names except well-known webinar platforms, no years.
+Every keyword must be about getting registrants to show up and engage: webinar/virtual event/community event/workshop
+attendance, no-shows, reminders, invitations, promotion, follow-up, or comparing webinar platforms. Do NOT suggest
+in-person/conference logistics (badges, NFC, QR check-in, venues), HR/employee training, chatbots, ABM or pricing.
 
 Return ONLY JSON: {{"keywords": ["...", "..."]}}"""
 
@@ -645,9 +670,89 @@ async def brainstorm_keywords(n: int) -> list:
     return out[:max(n, 0)]
 
 
+# Topic guard: the blog only covers what ShowUpAI's buyers search for (getting registrants to show up to webinars,
+# virtual/community events, workshops and masterclasses, plus webinar-platform comparisons). The auto refill and
+# brainstorm drifted into conference badges, HR dashboards, chatbots and event pricing, and the GSC harvest picks up
+# junk operator queries; none of that brings buyers, so it is never queued, drafted or published.
+ON_TOPIC_TERMS = (
+    "webinar", "webinars", "attendance", "attend", "attendee", "attendees", "no-show", "no-shows", "no show",
+    "no shows", "noshow", "show up", "show-up", "registrant", "registrants", "registration", "registrations",
+    "reminder", "reminders", "rsvp", "masterclass", "workshop", "workshops", "live stream", "livestream",
+    "linkedin live", "virtual event", "virtual events", "online event", "online events", "community event",
+    "community events", "virtual summit", "demo no show", "meeting no shows", "event invitation", "event reminder",
+)
+OFF_TOPIC_TERMS = (
+    "nfc", "badge", "badges", "biometric", "qr", "rfid", "turnstile", "check-in kiosk", "conference entry",
+    "hr", "hris", "human resources", "employee", "employees", "payroll", "performance review", "l&d",
+    "learning and development", "learning path", "learning paths", "lms", "chatbot", "chatbots", "abm",
+    "dynamic pricing", "ticket pricing", "pricing strategy", "sponsorship", "sponsor", "venue", "catering",
+    "in-person", "trade show", "booth", "camera", "lighting", "microphone", "studio setup", "production crew",
+    "hybrid production", "nft", "crypto", "blockchain", "metaverse",
+)
+
+
+def off_topic_reason(keyword: str) -> str:
+    """Why a keyword is outside the blog's topic, or "" when it is on topic."""
+    k = " " + re.sub(r"\s+", " ", normalize_text(keyword or "").lower()).strip() + " "
+    if not k.strip():
+        return "empty keyword"
+    if ":" in k or '"' in k or not k.isascii():
+        return "search-operator or non-English query"
+    words = set(re.findall(r"[a-z0-9&]+(?:-[a-z0-9]+)*", k))
+
+    def has(term: str) -> bool:
+        term = term.strip()
+        return term in words if re.fullmatch(r"[a-z0-9&]+(?:-[a-z0-9]+)*", term) else f" {term} " in k
+
+    for t in OFF_TOPIC_TERMS:
+        if has(t):
+            return f"off-topic term '{t.strip()}'"
+    if competitors_in(k) or any(has(t) for t in ON_TOPIC_TERMS):
+        return ""
+    return "not about webinar/event attendance"
+
+
+def is_on_topic(keyword: str) -> bool:
+    return not off_topic_reason(keyword)
+
+
+def redirected_slugs() -> dict:
+    """Posts merged into another post or removed in the October refresh (301s in frontend/public/_redirects)."""
+    import blog_refresh  # lazy: blog_refresh imports pseo
+    return {**blog_refresh.MERGED, **blog_refresh.REMOVED}
+
+
+def index_status(post: dict) -> str:
+    """"" when the post should be in Google; "redirect" when its URL 301s elsewhere (leave it out of every list);
+    "noindex" when it is off-topic for the site (page stays reachable but asks search engines not to index it)."""
+    if post.get("redirect_to") or post.get("slug") in redirected_slugs():
+        return "redirect"
+    text = post.get("keyword") or post.get("title") or ""
+    if text and off_topic_reason(text):
+        return "noindex"
+    return ""
+
+
+async def hold_off_topic_drafts() -> int:
+    """Take already-scheduled (unpublished) off-topic drafts off the publish schedule."""
+    rows = await db.blog_posts.find(
+        {"published": {"$ne": True}, "publish_at": {"$ne": None}}, {"_id": 0, "slug": 1, "keyword": 1, "title": 1}
+    ).to_list(500)
+    n = 0
+    for r in rows:
+        text = r.get("keyword") or r.get("title") or ""
+        why = off_topic_reason(text) if text else ""
+        if why:
+            await db.blog_posts.update_one({"slug": r["slug"]}, {
+                "$set": {"publish_at": None, "status": "draft", "held_reason": why}})
+            logger.info(f"pSEO unscheduled off-topic draft {r['slug']}: {why}")
+            n += 1
+    return n
+
+
 async def add_keyword(keyword: str, intent: str = "informational", notes: str = "", created_at: str | None = None) -> int:
     keyword = normalize_text(keyword).strip().lower()
-    if not keyword:
+    if not keyword or not is_on_topic(keyword):
         return 0
     res = await db.seo_candidates.update_one(
         {"keyword": keyword},
@@ -1244,6 +1349,11 @@ async def auto_schedule(post: dict, when: str | None = None, last_resort: bool =
     A draft that still fails keeps the reason in `held_reason` for the admin drafts list."""
     if not PSEO_AUTO_SCHEDULE or post.get("published"):
         return {}
+    topic_text = post.get("keyword") or post.get("title") or ""
+    topic_why = off_topic_reason(topic_text) if topic_text else ""
+    if topic_why:
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {"held_reason": topic_why}})
+        return {"held": topic_why}
     ok, why = passes_quality_gate(post)
     if not ok:
         try:
@@ -1298,6 +1408,10 @@ async def run_pipeline(count: int | None = None) -> dict:
     count = count or PSEO_POSTS_PER_DAY
     await ensure_indexes()
     await seed_keywords()  # idempotent: only adds seeds that aren't queued yet
+    try:
+        await hold_off_topic_drafts()
+    except Exception as e:
+        logger.warning(f"pSEO off-topic hold skipped: {e}")
     await refill_keywords()
     try:
         await rewrite_competitor_posts()
@@ -1319,6 +1433,12 @@ async def run_pipeline(count: int | None = None) -> dict:
         if not cand:
             logger.warning("pSEO keyword queue is empty: no new blog drafts until keywords are added")
             break
+        why = off_topic_reason(cand["keyword"])
+        if why:
+            await db.seo_candidates.update_one({"_id": cand["_id"]}, {"$set": {
+                "status": "off_topic", "error": why, "done_at": now_iso()}})
+            results.append({"keyword": cand["keyword"], "skipped": why})
+            continue
         if PSEO_DEDUP:
             overlap = await find_overlap(cand["keyword"])
             if overlap:
@@ -1500,7 +1620,7 @@ async def seed_content_posts() -> int:
 # Static SEO pages prerendered by frontend/scripts/prerender-blog.mjs from frontend/src/lib/seoPages.js.
 # Keep in step with COMPARE and TOOLS there (tests/test_seo_pages_sitemap.py checks it).
 SEO_PAGES = [
-    "/webinar-attendance", "/compare", "/tools",
+    "/webinar-attendance", "/compare", "/tools", "/best-webinar-reminder-software",
     "/compare/zoom", "/compare/demio", "/compare/livestorm", "/compare/webinarjam", "/compare/on24",
     "/compare/gotowebinar", "/compare/activecampaign", "/compare/buffer",
     "/tools/webinar-no-show-calculator", "/tools/webinar-roi-calculator", "/tools/webinar-title-generator",
@@ -1515,8 +1635,10 @@ async def build_sitemap() -> str:
         for p, pr, f in static
     ]
     rows = await db.blog_posts.find(
-        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "published_at": 1, "updated_at": 1}
+        {"published": True}, {"_id": 0, "slug": 1, "title": 1, "keyword": 1, "redirect_to": 1, "published_at": 1, "updated_at": 1}
     ).sort("published_at", -1).to_list(5000)
+    # Only URLs we want indexed: no 301ed duplicates, no off-topic (noindex) posts
+    rows = [r for r in rows if not index_status(r)]
     for r in rows:
         last = (r.get("updated_at") or r.get("published_at") or "")[:10]
         lastmod = f"<lastmod>{last}</lastmod>" if last else ""

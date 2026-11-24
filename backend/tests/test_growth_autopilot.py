@@ -45,6 +45,8 @@ def test_hold_reason():
     assert queue.hold_reason(_doc(asset_ids=[])) == "no image"
     assert "incomplete" in queue.hold_reason(_doc(visual={"format": "checklist", "title": "Review needed"}))
     assert "instagram" in queue.hold_reason(_doc(platform_copy={"linkedin": {"caption": "x"}}))
+    flagged = {p: {"caption": "Ran 40 webinars last year [CONFIRM WITH ASHU]"} for p in ("linkedin", "facebook", "instagram")}
+    assert "confirm" in queue.hold_reason(_doc(platform_copy=flagged))
 
 
 # ── queue behaviour on an in-memory Mongo ────────────────────────────────────

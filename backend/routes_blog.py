@@ -10,6 +10,7 @@ Enhanced version with:
 
 """Blog, touches, registrants, and lead magnets endpoints — enhanced."""
 
+import logging
 import asyncio
 import uuid
 from typing import Dict, Any, List, Optional
@@ -55,17 +56,65 @@ async def _indexnow(urls, delay: int = 0):
         return None
 
 
+INDEXNOW_AFTER_BUILD_MIN = 15  # Netlify build + deploy takes ~5-10 min; ping once the new HTML is live
+
+
 def _indexnow_later(urls):
+    """Queue URLs for IndexNow. They are pinged by flush_indexnow() once a Netlify build that started after they
+    changed has had time to deploy, so Bing fetches the new prerendered HTML instead of the old page."""
     import asyncio
+    urls = [u for u in dict.fromkeys(urls or []) if u]
+    if not urls:
+        return
     try:
-        asyncio.get_running_loop().create_task(_indexnow(urls, delay=300))
+        asyncio.get_running_loop().create_task(_queue_indexnow(urls))
     except RuntimeError:
         pass
 
 
-# Netlify credit plans charge 15 credits per production deploy (Free: 300/month = 20 deploys, Personal: 1000).
-# One batched deploy a day (~30/month) fits Personal with room for bandwidth.
-REBUILD_MIN_MINUTES = int(os.environ.get("NETLIFY_REBUILD_MIN_MINUTES", "1440"))
+async def _queue_indexnow(urls):
+    at = now_iso()
+    await db.site_state.update_one({"_id": "indexnow"}, {"$push": {
+        "queue": {"$each": [{"url": u, "at": at} for u in urls], "$slice": -20000}}}, upsert=True)
+
+
+def _indexnow_ready(entries: list, last_fired_at: str, now: str, has_hook: bool) -> list:
+    """Queued URLs that are live by now: changed before (or within a minute after) the last build fired, and that
+    build is INDEXNOW_AFTER_BUILD_MIN old. Without a build hook pages render client-side, so wait 5 min after the change."""
+    from datetime import datetime, timedelta
+    t = datetime.fromisoformat
+    try:
+        n = t(now)
+        if not has_hook:
+            return [e for e in entries if n - t(e["at"]) >= timedelta(minutes=5)]
+        if not last_fired_at or n - t(last_fired_at) < timedelta(minutes=INDEXNOW_AFTER_BUILD_MIN):
+            return []
+        cut = t(last_fired_at) + timedelta(minutes=1)
+        return [e for e in entries if t(e["at"]) <= cut]
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+async def flush_indexnow():
+    """Ping IndexNow (Bing, Yandex, Seznam, Naver, Yep; ChatGPT search and Copilot read Bing) for queued URLs
+    whose new HTML is live. Run by the 10-minute publish job."""
+    state = await db.site_state.find_one({"_id": "indexnow"}) or {}
+    entries = state.get("queue") or []
+    if not entries:
+        return 0
+    build = await db.site_state.find_one({"_id": "netlify_rebuild"}) or {}
+    ready = _indexnow_ready(entries, build.get("last_fired_at"), now_iso(), bool(NETLIFY_BUILD_HOOK))
+    if not ready:
+        return 0
+    urls = list(dict.fromkeys(e["url"] for e in ready))
+    status = await _indexnow(urls)
+    if status in (200, 202):
+        await db.site_state.update_one({"_id": "indexnow"}, {
+            "$pull": {"queue": {"at": {"$in": list({e["at"] for e in ready})}}},
+            "$set": {"last_sent_at": now_iso(), "last_status": status, "last_count": len(urls)}})
+    else:
+        await db.site_state.update_one({"_id": "indexnow"}, {"$set": {"last_status": status, "last_error_at": now_iso()}})
+    return len(urls) if status in (200, 202) else 0
 
 
 async def _fire_rebuild(reason: str) -> bool:
@@ -152,6 +201,16 @@ async def publish_due() -> list:
         await pseo.seed_content_posts()
     except Exception:
         pass
+    try:  # exact on-page changes for queries Search Console shows at positions 5-40 (idempotent)
+        import keyword_boosts
+        await keyword_boosts.queue_priority_keywords()
+        boosted = (await keyword_boosts.apply_all() + await keyword_boosts.fix_seo_titles()
+                   + await keyword_boosts.apply_compare_links())
+        if boosted:
+            await _trigger_rebuild(f"keyword boosts: {', '.join(boosted)}"[:120])
+            _indexnow_later([f"{pseo.SITE_URL}/blog/{s}" for s in boosted])
+    except Exception as e:
+        logging.getLogger("showup.blog").warning(f"keyword boosts skipped: {e}")
     now = now_iso()
     due = await db.blog_posts.find(
         {"published": {"$ne": True}, "publish_at": {"$ne": None, "$lte": now}}, {"_id": 0, "slug": 1}
@@ -164,6 +223,10 @@ async def publish_due() -> list:
         await flush_rebuild()
     except Exception:
         pass
+    try:
+        await flush_indexnow()
+    except Exception as e:
+        logging.getLogger("showup.blog").warning(f"indexnow flush skipped: {e}")
     return done
 
 
@@ -255,10 +318,13 @@ async def seo_relink(request: Request):
 
 @router.post("/seo/indexnow")
 async def seo_indexnow(request: Request):
-    """Submit every published blog URL to IndexNow right now."""
+    """Submit every indexable URL (home, static pages, compare/tools, blog posts) to IndexNow right now."""
     _require_key(request)
-    rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1}).to_list(5000)
-    urls = [f"{pseo.SITE_URL}/blog"] + [f"{pseo.SITE_URL}/blog/{r['slug']}" for r in rows]
+    rows = await db.blog_posts.find({"published": True}, {"_id": 0, "slug": 1, "keyword": 1, "title": 1,
+                                                          "redirect_to": 1}).to_list(5000)
+    static = ["/", "/blog", "/about", "/waitlist", "/privacy"] + pseo.SEO_PAGES
+    urls = [f"{pseo.SITE_URL}{p}" for p in static] + [
+        f"{pseo.SITE_URL}/blog/{r['slug']}" for r in rows if not pseo.index_status(r)]
     status = await _indexnow(urls)
     return {"ok": status in (200, 202), "status": status, "submitted": len(urls)}
 
@@ -522,9 +588,14 @@ async def list_blog_posts():
     rows = await db.blog_posts.find({"published": True}, {"_id": 0, "content": 0, "faq_items": 0}).sort(
         [("published_at", -1), ("reading_time", -1)]
     ).to_list(500)
-    published = [r for r in rows if r.get("published")]
-    not_published = [r for r in rows if not r.get("published")]
-    return published + not_published
+    out = []
+    for r in rows:
+        status = pseo.index_status(r)
+        if status == "redirect":  # its URL 301s to the post it was merged into
+            continue
+        r["noindex"] = status == "noindex"
+        out.append(r)
+    return out
 
 
 @router.get("/blog/{slug}")
@@ -533,6 +604,7 @@ async def get_blog_post(slug: str):
     row = await db.blog_posts.find_one({"slug": slug, "published": True}, {"_id": 0})
     if not row:
         raise HTTPException(404, "Blog post not found")
+    row["noindex"] = pseo.index_status(row) != ""
     return row
 
 

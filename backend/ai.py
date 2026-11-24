@@ -15,9 +15,19 @@ from google.genai import types as genai_types
 from groq import Groq
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-3.5-flash-lite"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "openai/gpt-oss-20b"
+
+
+def _models(env: str, default: str) -> List[str]:
+    return [m.strip() for m in os.environ.get(env, default).split(",") if m.strip()]
+
+
+# Tried in order. A model that Google or Groq has retired (404 / model_not_found) is
+# skipped for the rest of the process, so a retirement no longer blanks every webinar.
+GEMINI_MODELS = _models("GEMINI_MODELS", os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite") + ",gemini-flash-lite-latest")
+GROQ_MODELS = _models("GROQ_MODELS", os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b") + ",openai/gpt-oss-120b")
+GEMINI_MODEL = GEMINI_MODELS[0]
+GROQ_MODEL = GROQ_MODELS[0]
 
 # Init clients
 try:
@@ -41,9 +51,25 @@ except Exception as e:
 # limited, and a timeout stops one hung call from holding up the rest.
 LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "6"))
 LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
+# Both providers' current models "think" before answering, and the thinking counts
+# against the output limit. With a 2000 token cap the JSON came back cut off or empty,
+# so the kit and the copy failed to parse. Give them room and ask for little thinking.
+LLM_MAX_OUTPUT = int(os.environ.get("LLM_MAX_OUTPUT", "8000"))
 GEMINI_COOLDOWN = 60.0
 _llm_sem: Optional[asyncio.Semaphore] = None
 _gemini_blocked_until = 0.0
+_dead_models: set = set()
+_no_lean: set = set()  # Gemini models that reject JSON mode / thinking settings
+
+# Last outcome per provider, for GET /api/ai/health and the logs.
+LLM_STATUS: Dict[str, Dict[str, Any]] = {"gemini": {}, "groq": {}}
+
+
+def _note(provider: str, ok: bool, model: str, error: str = "") -> None:
+    from datetime import datetime, timezone
+    st = LLM_STATUS.setdefault(provider, {})
+    key = "last_ok" if ok else "last_error"
+    st[key] = {"at": datetime.now(timezone.utc).isoformat(), "model": model, **({"error": error[:400]} if error else {})}
 
 
 def _sem() -> asyncio.Semaphore:
@@ -56,6 +82,12 @@ def _sem() -> asyncio.Semaphore:
 def _is_rate_limit(ex: Exception) -> bool:
     s = str(ex)
     return "429" in s or "RESOURCE_EXHAUSTED" in s or "rate limit" in s.lower()
+
+
+def _is_model_gone(ex: Exception) -> bool:
+    s = str(ex).lower()
+    return ("404" in s and "model" in s) or "model_not_found" in s or "does not exist" in s \
+        or "decommissioned" in s or "is not supported for generatecontent" in s
 
 
 def _clean_json(text: str) -> str:
@@ -73,60 +105,142 @@ async def _run_blocking(fn) -> str:
     return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=LLM_TIMEOUT)
 
 
-async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
-    """Call LLM — Gemini primary, Groq fallback on rate limit, error or timeout."""
+def _gemini_config(max_tokens: int, lean: bool):
+    kw = dict(max_output_tokens=max(max_tokens, LLM_MAX_OUTPUT), temperature=0.7)
+    if lean:
+        kw["response_mime_type"] = "application/json"
+        kw["thinking_config"] = genai_types.ThinkingConfig(thinking_level="low")
+    return genai_types.GenerateContentConfig(**kw)
+
+
+def _gemini_text(r) -> str:
+    text = (getattr(r, "text", None) or "").strip()
+    if not text:
+        reason = ""
+        try:
+            reason = str(r.candidates[0].finish_reason)
+        except Exception:
+            pass
+        raise RuntimeError(f"Gemini returned no text (finish_reason={reason or 'unknown'})")
+    return text
+
+
+async def _try_gemini(prompt: str, max_tokens: int) -> Optional[str]:
     global _gemini_blocked_until
+    import time
+    for model in [m for m in GEMINI_MODELS if m not in _dead_models]:
+        # lean = JSON mode + low thinking. If a model rejects either option, ask plainly.
+        for lean in ((False,) if model in _no_lean else (True, False)):
+            try:
+                def _gemini():
+                    r = gemini_client.models.generate_content(
+                        model=model, contents=prompt, config=_gemini_config(max_tokens, lean))
+                    return _gemini_text(r)
+                started = time.monotonic()
+                text = await _run_blocking(_gemini)
+                logger.info(f"Gemini OK ({model}): {len(text)} chars in {time.monotonic() - started:.1f}s")
+                _note("gemini", True, model)
+                return _clean_json(text)
+            except asyncio.TimeoutError:
+                logger.warning(f"Gemini {model} timed out after {LLM_TIMEOUT:.0f}s, trying Groq")
+                _note("gemini", False, model, "timeout")
+                return None
+            except Exception as ex:
+                _note("gemini", False, model, str(ex))
+                if _is_rate_limit(ex):
+                    _gemini_blocked_until = time.monotonic() + GEMINI_COOLDOWN
+                    logger.warning(f"Gemini rate limited ({ex}), using Groq for {GEMINI_COOLDOWN:.0f}s")
+                    return None
+                if _is_model_gone(ex):
+                    logger.error(f"Gemini model {model} is not available, skipping it from now on: {ex}")
+                    _dead_models.add(model)
+                    break
+                logger.error(f"Gemini {model} failed (lean={lean}): {ex}")
+                if lean and ("400" in str(ex) or "INVALID_ARGUMENT" in str(ex)):
+                    _no_lean.add(model)  # don't pay for the rejected request on every call
+    return None
+
+
+async def _try_groq(prompt: str, max_tokens: int) -> Optional[str]:
+    import time
+    for model in [m for m in GROQ_MODELS if m not in _dead_models]:
+        for attempt in range(3):
+            # JSON mode on the first try; plain mode after, in case the model rejects it.
+            json_mode = attempt == 0
+            try:
+                def _groq():
+                    kw = dict(model=model, messages=[{"role": "user", "content": prompt}],
+                              max_tokens=max(max_tokens, LLM_MAX_OUTPUT), temperature=0.7)
+                    if "gpt-oss" in model:
+                        kw["extra_body"] = {"reasoning_effort": "low"}
+                    if json_mode:
+                        kw["response_format"] = {"type": "json_object"}
+                    r = groq_client.chat.completions.create(**kw)
+                    text = (r.choices[0].message.content or "").strip()
+                    if not text:
+                        raise RuntimeError(f"Groq returned no text (finish_reason={r.choices[0].finish_reason})")
+                    return text
+                started = time.monotonic()
+                text = await _run_blocking(_groq)
+                logger.info(f"Groq OK ({model}): {len(text)} chars in {time.monotonic() - started:.1f}s")
+                _note("groq", True, model)
+                return _clean_json(text)
+            except asyncio.TimeoutError:
+                logger.warning(f"Groq {model} timed out after {LLM_TIMEOUT:.0f}s")
+                _note("groq", False, model, "timeout")
+                break
+            except Exception as ex:
+                _note("groq", False, model, str(ex))
+                if _is_model_gone(ex):
+                    logger.error(f"Groq model {model} is not available, skipping it from now on: {ex}")
+                    _dead_models.add(model)
+                    break
+                if _is_rate_limit(ex):
+                    if attempt < 2:
+                        await asyncio.sleep(5 * (attempt + 1))
+                        continue
+                    break  # this model's quota is spent: the next model has its own
+                logger.error(f"Groq {model} failed (json_mode={json_mode}): {ex}")
+    return None
+
+
+async def _call_llm(prompt: str, max_tokens: int = 1500) -> str:
+    """Call LLM: Gemini first, Groq on rate limit, error or timeout. Returns "{}" if all fail."""
     import time
     async with _sem():
         if gemini_client and time.monotonic() >= _gemini_blocked_until:
-            for attempt in range(2):
-                try:
-                    def _gemini():
-                        r = gemini_client.models.generate_content(
-                            model=GEMINI_MODEL,
-                            contents=prompt,
-                            config=genai_types.GenerateContentConfig(
-                                max_output_tokens=min(max_tokens, 2000), temperature=0.7))
-                        return r.text.strip()
-                    started = time.monotonic()
-                    text = await _run_blocking(_gemini)
-                    logger.info(f"Gemini OK: {len(text)} chars in {time.monotonic() - started:.1f}s")
-                    return _clean_json(text)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Gemini timed out after {LLM_TIMEOUT:.0f}s — trying Groq")
-                    break
-                except Exception as ex:
-                    if _is_rate_limit(ex):
-                        _gemini_blocked_until = time.monotonic() + GEMINI_COOLDOWN
-                        logger.info(f"Gemini rate limited — using Groq for {GEMINI_COOLDOWN:.0f}s")
-                        break
-                    logger.error(f"Gemini failed: {ex}")
-
+            out = await _try_gemini(prompt, max_tokens)
+            if out is not None:
+                return out
         if groq_client:
-            for attempt in range(3):
-                try:
-                    def _groq():
-                        r = groq_client.chat.completions.create(
-                            model=GROQ_MODEL,
-                            messages=[{"role": "user", "content": prompt}],
-                            max_tokens=min(max_tokens, 2000), temperature=0.7)
-                        return r.choices[0].message.content.strip()
-                    started = time.monotonic()
-                    text = await _run_blocking(_groq)
-                    logger.info(f"Groq OK: {len(text)} chars in {time.monotonic() - started:.1f}s")
-                    return _clean_json(text)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Groq timed out after {LLM_TIMEOUT:.0f}s")
-                    break
-                except Exception as ex:
-                    if _is_rate_limit(ex) and attempt < 2:
-                        await asyncio.sleep(5 * (attempt + 1))
-                        continue
-                    logger.error(f"Groq failed: {ex}")
-                    break
-
-    logger.error("Both Gemini and Groq failed")
+            out = await _try_groq(prompt, max_tokens)
+            if out is not None:
+                return out
+    if not gemini_client and not groq_client:
+        logger.error("No AI provider configured: set GEMINI_API_KEY and/or GROQ_API_KEY on Render")
+    else:
+        logger.error(f"Both Gemini and Groq failed: {LLM_STATUS}")
     return "{}"
+
+
+async def llm_health() -> Dict[str, Any]:
+    """One tiny real call per provider, so the admin can see which key or model is broken."""
+    out: Dict[str, Any] = {"gemini_key_set": bool(GEMINI_API_KEY), "groq_key_set": bool(GROQ_API_KEY),
+                           "gemini_models": GEMINI_MODELS, "groq_models": GROQ_MODELS,
+                           "skipped_models": sorted(_dead_models), "last": LLM_STATUS}
+    prompt = 'Return ONLY this JSON: {"ok": true}'
+    for name, client, fn in (("gemini", gemini_client, _try_gemini), ("groq", groq_client, _try_groq)):
+        if not client:
+            out[name] = {"ok": False, "error": "API key not set on Render"}
+            continue
+        try:
+            raw = await fn(prompt, 50)
+            out[name] = {"ok": bool(raw and json.loads(raw).get("ok")),
+                         **({} if raw else {"error": (LLM_STATUS.get(name, {}).get("last_error") or {}).get("error", "failed")})}
+        except Exception as e:
+            out[name] = {"ok": False, "error": str(e)[:400]}
+    out["ok"] = bool(out["gemini"].get("ok") or out["groq"].get("ok"))
+    return out
 
 
 # What each touch in config.TOUCH_DEFS has to do. Keyed by touch number, so the copy
@@ -205,6 +319,7 @@ SOCIAL POST RULES:
 
 CHANNEL_RULES = {
     "email": "An email to one registrant.",
+    "email_invite": "An email to one person on the host's own contact list who has NOT registered yet.",
     "linkedin": "A LinkedIn post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
     "linkedin_page": "A LinkedIn company Page post. 500 to 1200 characters. Exactly 3 relevant hashtags on the last line.",
     "linkedin_personal": "A personal LinkedIn post by the host, first person, a little more personal than a Page post. "
@@ -258,7 +373,40 @@ _SOCIAL_FALLBACK = ("{{webinar_title}}\n\n{{webinar_date}}, {{webinar_time}}.\n\
                     "Save your spot: {{join_link}}\n\nWhat's the one question you'd want answered on this? Tell me below.")
 
 
+_INVITE_FALLBACK = ("{{webinar_title}}, {{webinar_date}}",
+                    "Hi {{first_name}},\n\nI'm running a free live session, {{webinar_title}}, on {{webinar_date}} "
+                    "at {{webinar_time}}.\n\nIf it's useful for you, grab a seat here:\n{{join_link}}\n\n{{speaker}}")
+
+# Who reads each channel, and what the message has to make them do. Registrants get
+# show-up copy; everyone else (social feeds, the invite list) has not signed up yet,
+# so their copy has to earn the registration.
+REGISTRANT_CHANNELS = {"email", "whatsapp"}
+
+AUDIENCE_REGISTRANT = ("WHO READS THIS: someone who already registered. Your goal is that they actually show up. "
+                       "{{join_link}} is their link to the live session.")
+AUDIENCE_PROSPECT = (
+    "WHO READS THIS: people who have NOT registered yet ({who}). Your goal is that they register now.\n"
+    "- {{join_link}} is the registration page. Never say or imply they are already registered, never write "
+    "'see you there', 'your link' or 'you're in'.\n"
+    "- If the JOB above is written for registered people (a reminder, 'this time tomorrow', 'we start in an hour', "
+    "'we're live'), turn it into a last call to grab a seat: say when it starts and that it's free and live.\n"
+    "- Give them a concrete reason to come: what they'll be able to do after, in their words.\n"
+    "- Right before {{join_link}}, one short, confident call to action line that asks them to register "
+    "(free, live, {{webinar_date}}). Strong, not pushy, no hype words.")
+
+
+def audience_brief(channel: str) -> str:
+    if channel in REGISTRANT_CHANNELS:
+        return AUDIENCE_REGISTRANT
+    who = "the host's contacts" if channel == "email_invite" else "the host's followers and their network"
+    return AUDIENCE_PROSPECT.replace("{who}", who)
+
+
 def fallback_copy(channel: str, touch_type: str) -> dict:
+    if channel == "email_invite":
+        subject, body = _INVITE_FALLBACK
+        block = {"subject": subject, "body": body}
+        return {"safe": block, "casual": dict(block)}
     if channel in ("email", "whatsapp"):
         subject, body = FALLBACK_COPY.get(touch_type, _DEFAULT_FALLBACK)
         if channel == "whatsapp":
@@ -289,7 +437,7 @@ def _usable(copy: Any, is_email: bool) -> bool:
 async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, context: str, touch_type: str = "reminder",
                                    custom_instructions: str = "", content: str = "") -> tuple:
     """Generate copy for a single channel — runs in parallel."""
-    is_email = channel == "email"
+    is_email = channel in ("email", "email_invite")
     rules = EMAIL_RULES if is_email else ("" if channel == "whatsapp" else SOCIAL_RULES)
     schema = '{"subject": "...", "body": "..."}' if is_email else '{"body": "..."}'
 
@@ -306,12 +454,16 @@ async def _generate_single_channel(webinar: dict, touch_num: int, channel: str, 
     share = (f"CONTENT TO SHARE IN THIS MESSAGE (this is the point of the message, so a reader gets real value "
              f"even if they never attend; put it in your own words for this channel; the reminder comes after it):\n"
              f"{content}\n\n") if content else ""
-    prompt = f"""You write the messages that get people who registered for a webinar to actually show up.
+    goal = ("get people who registered for a webinar to actually show up" if channel in REGISTRANT_CHANNELS
+            else "get new people to register for a webinar, and then show up")
+    prompt = f"""You write the messages that {goal}.
 
 {facts}
 
 THIS MESSAGE: touch #{touch_num} ({touch_type})
 JOB: {context}
+
+{audience_brief(channel)}
 
 {share}CHANNEL: {CHANNEL_RULES.get(channel, "A short social post.")}
 {VOICE_RULES}
@@ -355,6 +507,11 @@ async def generate_touch_copy(webinar: dict, touch_num: int, channels: list, cus
     content = kit_brief(kit, touch_num)
 
     touch_type = TOUCH_TYPE.get(touch_num, "reminder")
+    # Touches that also email the invite list get their own version written for people
+    # who haven't registered (routes_delivery._email_invitees sends it).
+    from invites import INVITE_TOUCHES
+    if "email" in channels and touch_num in INVITE_TOUCHES and "email_invite" not in channels:
+        channels = list(channels) + ["email_invite"]
     
     # Semaphore to limit concurrent calls (avoid rate limits but stay fast)
     sem = asyncio.Semaphore(3)
@@ -496,7 +653,12 @@ def kit_from_lead_magnets(lm: Optional[dict]) -> dict:
     kit = normalize_kit(lm.get("ai_content") or {})
     edited = lm.get("edited_content") or {}
     if isinstance(edited.get("case_study"), str) and edited["case_study"].strip():
-        kit["case_study"] = edited["case_study"].strip()
+        mine = edited["case_study"].strip()
+        if mine != (lm.get("ai_content") or {}).get("case_study", "").strip():
+            # The host wrote or pasted their own (e.g. a real customer story): it replaces
+            # the AI's illustrative story on the case-study touch.
+            kit["case_study"] = mine
+            kit.pop("story", None)
     return kit
 
 
@@ -585,6 +747,34 @@ def _warmup_days(lead_days: float) -> Dict[int, int]:
     return days
 
 
+def _weekday_warmups(days: Dict[int, int], local_start, now) -> Dict[int, int]:
+    """Move warm-ups that land on a Saturday or Sunday to the nearest free weekday.
+
+    Webinar audiences are mostly people at work: a 9am Sunday email sits under
+    Monday's pile. A touch only moves if the new day is free, still at least 2 days
+    before the session and not already past; otherwise it stays where it was.
+    """
+    from datetime import timedelta
+    out = dict(days)
+    taken = set(out.values())
+    for n in sorted(out):
+        d = out[n]
+        day = (local_start - timedelta(days=d)).date()
+        if day.weekday() < 5:
+            continue
+        # Saturday: Friday, then Monday. Sunday: Monday, then Friday.
+        shifts = (1, -2) if day.weekday() == 5 else (-1, 2)
+        for sh in shifts:
+            cand = d + sh
+            when = (local_start - timedelta(days=cand)).replace(hour=SEND_HOUR_LOCAL, minute=0, second=0, microsecond=0)
+            if cand >= 2 and cand not in taken and when > now:
+                taken.discard(d)
+                taken.add(cand)
+                out[n] = cand
+                break
+    return out
+
+
 async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total_touches: int = 12,
                                    tz: str = "") -> str | None:
     """Send time (UTC ISO) for a touch, or None when it has no fixed time.
@@ -629,7 +819,8 @@ async def compute_dynamic_schedule(webinar_starts_at: str, touch_num: int, total
         send = start - timedelta(hours=24)
     elif touch_num in NOMINAL_DAYS_BEFORE:
         lead_days = (start - now).total_seconds() / 86400
-        send = at_local(-_warmup_days(lead_days)[touch_num], SEND_HOUR_LOCAL)
+        days = _weekday_warmups(_warmup_days(lead_days), local_start, now)
+        send = at_local(-days[touch_num], SEND_HOUR_LOCAL)
     else:
         return None
 

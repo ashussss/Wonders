@@ -66,6 +66,15 @@ def render_hot_take(spec: VisualSpec, seed: str = "") -> bytes:
     return design.hot_take(spec.title or spec.quote, spec.subtitle, seed=seed or spec.title)
 
 
+def render_text_card(spec: VisualSpec, seed: str = "") -> bytes:
+    from . import GROWTH_LINKEDIN_VOICE
+    if GROWTH_LINKEDIN_VOICE == "archana":
+        name, role = "Archana Singh", "Growth Manager at ShowUpAI"
+    else:
+        name, role = BRAND_NAME, "Fuller rooms. Fewer no-shows."
+    return design.text_card(spec.title or spec.quote, name, role, seed=seed or spec.title)
+
+
 RENDERERS = {
     "stat_card": render_stat_card,
     "carousel": render_carousel,
@@ -77,6 +86,7 @@ RENDERERS = {
     "myth_fact": render_myth_fact,
     "timeline": render_timeline,
     "hot_take": render_hot_take,
+    "text_card": render_text_card,
 }
 
 MULTI_IMAGE = {"carousel"}
@@ -84,12 +94,18 @@ MULTI_IMAGE = {"carousel"}
 
 # ── storage (own collection + own GridFS bucket) ─────────────────────────────
 
-def asset_url(asset_id: str) -> str:
+# Formats that also get an animated GIF version (single image, not the LinkedIn native poll).
+GIF_FORMATS = {"stat_card", "infographic", "checklist", "comparison", "quote", "myth_fact",
+               "timeline", "hot_take", "text_card"}
+
+
+def asset_url(asset_id: str, ext: str = "jpg") -> str:
     from config import PUBLIC_BACKEND_URL
-    return f"{PUBLIC_BACKEND_URL.rstrip('/')}/api/growth/asset/{asset_id}.jpg"
+    return f"{PUBLIC_BACKEND_URL.rstrip('/')}/api/growth/asset/{asset_id}.{ext}"
 
 
-async def store_assets(db, spec: VisualSpec, seed: str = "", theme_index: Optional[int] = None) -> dict:
+async def store_assets(db, spec: VisualSpec, seed: str = "", theme_index: Optional[int] = None,
+                       gif_style: str = "") -> dict:
     """Render + persist a spec into growth_assets / growth_assets_fs.
 
     Returns {"asset_ids": [...], "asset_urls": [...]}. Never raises on a single
@@ -112,6 +128,12 @@ async def store_assets(db, spec: VisualSpec, seed: str = "", theme_index: Option
         return {"asset_ids": [], "asset_urls": [], "error": str(e)[:200]}
 
     pages = out if isinstance(out, list) else [out]
+    gif = b""
+    if gif_style and spec.format in GIF_FORMATS and len(pages) == 1:
+        try:
+            gif = design.animate(pages[0], gif_style)
+        except Exception as e:                                   # noqa: BLE001
+            logger.warning(f"visual_engine: gif failed ({gif_style}): {e}")
     ids: list = []
     for b in pages:
         # Store bytes in the Growth Engine's own collection, mirroring how
@@ -122,10 +144,12 @@ async def store_assets(db, spec: VisualSpec, seed: str = "", theme_index: Option
         aid = uuid.uuid4().hex
         await db[COLLECTIONS["assets"]].insert_one({
             "id": aid, "jpg": Binary(b), "bytes": len(b),
+            **({"gif": Binary(gif)} if gif else {}),
             "format": spec.format, "created_at": _now(),
         })
         ids.append(aid)
-    return {"asset_ids": ids, "asset_urls": [asset_url(i) for i in ids]}
+    return {"asset_ids": ids, "asset_urls": [asset_url(i) for i in ids],
+            "gif_urls": [asset_url(i, "gif") for i in ids] if gif else []}
 
 
 def _now() -> str:
@@ -133,9 +157,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def read_asset(db, asset_id: str) -> bytes | None:
+async def read_asset(db, asset_id: str, kind: str = "jpg") -> bytes | None:
     doc = await db[COLLECTIONS["assets"]].find_one({"id": asset_id})
-    return bytes(doc["jpg"]) if doc and doc.get("jpg") is not None else None
+    return bytes(doc[kind]) if doc and doc.get(kind) is not None else None
 
 
 __all__ = [

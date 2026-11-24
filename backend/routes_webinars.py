@@ -15,6 +15,8 @@ from models import WebinarIn, WebinarPatch, RegistrantIn, TouchPatch, LeadMagnet
 from config import TOUCH_DEFS
 import touch_visuals
 import brand_kit
+import invites
+import ai
 from ai import (generate_touch_copy, generate_lead_magnets, compute_send_time, compute_dynamic_schedule,
                 touch_reasoning, kit_from_lead_magnets)
 
@@ -37,6 +39,8 @@ def _webinar_doc(uid: str, data: WebinarIn) -> dict:
         "timezone": data.timezone,
         "join_link": data.join_link,
         "registration_link": data.registration_link,
+        "after_signup_url": data.after_signup_url or "",
+        "share_targets": data.share_targets or "",
         "status": "scheduled",
         "created_at": now_iso(),
         "enabled_touches": {str(t["num"]): True for t in TOUCH_DEFS},
@@ -47,38 +51,169 @@ import logging
 logger = logging.getLogger("showup.webinars")
 
 
-async def _bg_generate_all(webinar_id: str):
-    """Background task fired after webinar creation — generates AI copy for
-    lead magnets and every touch in parallel. Errors are logged, not swallowed,
-    so failures are visible instead of silently doing nothing."""
+# Running generation jobs, by webinar id. asyncio only keeps a weak reference to a task,
+# so a fire-and-forget create_task() could be garbage collected halfway through and the
+# webinar's touches stayed empty for good. Keeping them here also stops two jobs for the
+# same webinar running at once.
+_jobs: Dict[str, asyncio.Task] = {}
+RETRY_FAILED_AFTER = 300  # seconds before a page load retries a failed generation
+STALE_RUNNING_AFTER = 900  # a "running" job this old died (restart/deploy) and may be restarted
+
+
+_bg: set = set()  # strong refs for small background tasks (banner import)
+
+
+def _start_cover_import(w: Dict[str, Any], url: str) -> None:
+    import event_art
+    from database import social_images_fs
+    task = asyncio.create_task(event_art.import_cover(db, social_images_fs, w, url))
+    _bg.add(task)
+    task.add_done_callback(_bg.discard)
+
+
+def generation_running(webinar_id: str) -> bool:
+    t = _jobs.get(webinar_id)
+    return bool(t and not t.done())
+
+
+def start_generation(webinar_id: str, only_missing: bool = False) -> bool:
+    """Start (or keep) the background job that writes the kit and every touch's copy."""
+    if generation_running(webinar_id):
+        return False
+    task = asyncio.create_task(_bg_generate_all(webinar_id, only_missing=only_missing))
+    _jobs[webinar_id] = task
+    task.add_done_callback(lambda _t, wid=webinar_id: _jobs.pop(wid, None) if _jobs.get(wid) is _t else None)
+    return True
+
+
+def _has_copy(t: Dict[str, Any]) -> bool:
+    return bool((t.get("ai_copy") or {}).get("channels"))
+
+
+def _llm_ok_since(started: str) -> bool:
+    for st in ai.LLM_STATUS.values():
+        ok = (st or {}).get("last_ok") or {}
+        if ok.get("at", "") >= started:
+            return True
+    return False
+
+
+def _llm_last_error() -> str:
+    errs = [(st or {}).get("last_error") or {} for st in ai.LLM_STATUS.values()]
+    errs = [e for e in errs if e.get("error")]
+    if not errs:
+        return "No AI provider answered. Check GEMINI_API_KEY / GROQ_API_KEY on Render."
+    e = max(errs, key=lambda e: e.get("at", ""))
+    return f"{e.get('model')}: {e.get('error')}"
+
+
+async def _set_gen(webinar_id: str, owner_id: str, **fields) -> None:
+    await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id},
+                                 {"$set": {f"generation.{k}": v for k, v in fields.items()}})
+
+
+async def _bg_generate_all(webinar_id: str, only_missing: bool = False):
+    """Background job fired after webinar creation (and by Regenerate all, and by a page
+    load that finds touches without copy): writes the content kit, then every touch's
+    copy. Progress and the outcome are kept on webinar.generation for the UI."""
+    started = now_iso()
+    owner_id = None
     try:
         w = await db.webinars.find_one({"id": webinar_id}, {"_id": 0})
         if not w:
             logger.warning(f"_bg_generate_all: webinar {webinar_id} not found")
             return
+        owner_id = w["owner_id"]
+        touches = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+        if only_missing:
+            touches = [t for t in touches if not _has_copy(t)]
+        await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id}, {"$set": {"generation": {
+            "status": "running", "started_at": started, "finished_at": None,
+            "total": len(touches), "done": 0, "error": None}}})
 
-        lm_data = await generate_lead_magnets(w)
-        await db.lead_magnets.update_one({"webinar_id": webinar_id},
-                                          {"$set": {"ai_content": lm_data, "generated_at": now_iso()}})
-
-        touches = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0}).to_list(50)
-
+        kit = await _ensure_kit(w)
         # The host's brand voice (Brand Kit, plus the older Settings brand fields)
         global_instructions = await brand_kit.voice_brief(db, w["owner_id"])
 
         async def _gen_one(t):
             try:
                 copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]),
-                                                  custom_instructions=global_instructions, kit=lm_data)
-                reasoning = await touch_reasoning(t["touch_num"], t["channels"])
-                await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]},
-                                             {"$set": {"ai_copy": copy, "ai_reasoning": reasoning}})
+                                                  custom_instructions=global_instructions, kit=kit)
+                upd = {"ai_copy": copy}
+                if not only_missing:
+                    upd["approval_status"] = "pending"
+                if not t.get("ai_reasoning"):
+                    upd["ai_reasoning"] = await touch_reasoning(t["touch_num"], t.get("channels", []))
+                await db.touches.update_one({"id": t["id"], "owner_id": w["owner_id"]}, {"$set": upd})
             except Exception as e:
-                logger.error(f"_bg_generate_all: touch {t.get('touch_num')} for {webinar_id} failed: {e}")
+                logger.exception(f"_bg_generate_all: touch {t.get('touch_num')} for {webinar_id} failed: {e}")
+            finally:
+                await db.webinars.update_one({"id": webinar_id, "owner_id": owner_id}, {"$inc": {"generation.done": 1}})
 
         await asyncio.gather(*[_gen_one(t) for t in touches], return_exceptions=True)
+
+        rows = await db.touches.find({"webinar_id": webinar_id}, {"_id": 0, "ai_copy": 1}).to_list(50)
+        missing = sum(1 for t in rows if not _has_copy(t))
+        if missing:
+            await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(),
+                           error=f"{missing} touches have no copy. {_llm_last_error()}")
+        elif touches and not _llm_ok_since(started):
+            # Every call failed, so the touches carry the generic fallback text.
+            await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(),
+                           error=f"AI was unavailable, so basic template copy was used. {_llm_last_error()}")
+        else:
+            await _set_gen(webinar_id, owner_id, status="done", finished_at=now_iso(), error=None)
+        logger.info(f"_bg_generate_all: webinar {webinar_id}: {len(touches)} touches, {missing} without copy")
     except Exception as e:
-        logger.error(f"_bg_generate_all: webinar {webinar_id} failed entirely: {e}")
+        logger.exception(f"_bg_generate_all: webinar {webinar_id} failed entirely: {e}")
+        try:
+            if owner_id:
+                await _set_gen(webinar_id, owner_id, status="failed", finished_at=now_iso(), error=str(e)[:300])
+        except Exception:
+            pass
+
+
+def _should_heal(w: Dict[str, Any], touches: List[Dict[str, Any]]) -> bool:
+    """A page load restarts generation when touches have no copy and nothing is writing it:
+    the job died in a restart or deploy, or it failed more than 5 minutes ago."""
+    if generation_running(w["id"]) or all(_has_copy(t) for t in touches):
+        return False
+    gen = w.get("generation") or {}
+
+    def _age(key: str) -> float:
+        try:
+            return (datetime.now(timezone.utc) - datetime.fromisoformat(gen[key])).total_seconds()
+        except Exception:
+            return float("inf")
+    # Running in another worker process (or just started): leave it alone.
+    if gen.get("status") == "running" and _age("started_at") < STALE_RUNNING_AFTER:
+        return False
+    if gen.get("status") == "failed":
+        return _age("finished_at") >= RETRY_FAILED_AFTER
+    return True
+
+
+async def resume_stuck_generations() -> int:
+    """On startup: webinars whose job was cut off by a restart or deploy get it again."""
+    now = now_iso()
+    wids = await db.touches.distinct("webinar_id", {"$or": [{"ai_copy": {}}, {"ai_copy": None},
+                                                             {"ai_copy.channels": {}}]})
+    started = 0
+    for wid in wids:
+        w = await db.webinars.find_one({"id": wid}, {"_id": 0, "id": 1, "starts_at": 1})
+        if w and (w.get("starts_at") or "") >= now and start_generation(wid, only_missing=True):
+            started += 1
+    if started:
+        logger.info(f"resume_stuck_generations: restarted copy for {started} webinars")
+    return started
+
+
+@router.get("/ai/health")
+async def ai_health(user=Depends(get_user)):
+    """Admin: one tiny real call to Gemini and to Groq, with the error if one fails."""
+    if user.get("role") not in {"admin", "superadmin"}:
+        raise HTTPException(403, "Admin only")
+    return await ai.llm_health()
 
 
 # --------- Webinars ---------
@@ -118,7 +253,9 @@ async def create_webinar(data: WebinarIn, user=Depends(get_user)):
         "id": str(uuid.uuid4()), "webinar_id": doc["id"], "owner_id": user["id"],
         "ai_content": {}, "edited_content": {}, "approval_status": "pending", "created_at": now_iso(),
     })
-    asyncio.create_task(_bg_generate_all(doc["id"]))
+    start_generation(doc["id"])
+    if data.cover_image_url:
+        _start_cover_import(doc, data.cover_image_url)
     return {"id": doc["id"]}
 
 
@@ -130,6 +267,7 @@ async def get_webinar(wid: str, user=Depends(get_user)):
     w["registrant_count"] = await db.registrants.count_documents({"webinar_id": wid})
     w["attendee_count"] = await db.registrants.count_documents({"webinar_id": wid, "attended": True})
     w["attendance_rate"] = round((w["attendee_count"]/w["registrant_count"])*100, 1) if w["registrant_count"] else 0
+    w["generation"] = {**(w.get("generation") or {}), "running": generation_running(wid)}
     return w
 
 
@@ -181,13 +319,37 @@ async def public_register(wid: str, data: RegistrantIn, request: Request):
         raise HTTPException(404, "Webinar not found")
     existing = await db.registrants.find_one({"webinar_id": wid, "email": data.email.lower()})
     if existing:
-        return {"ok": True, "deduped": True}
+        return {"ok": True, "deduped": True, "next_url": _safe_url(w.get("after_signup_url"))}
     reg = {"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": w["owner_id"],
            "name": data.name, "email": data.email.lower(), "phone": data.phone,
            "source": data.source, "attended": False, "registered_at": now_iso()}
     await db.registrants.insert_one(reg)
+    await invites.mark_registered(db, wid, reg["email"])
     asyncio.create_task(_confirm_registrant(wid, reg["id"]))
-    return {"ok": True, "id": reg["id"]}
+    return {"ok": True, "id": reg["id"], "next_url": _safe_url(w.get("after_signup_url"))}
+
+
+def _safe_url(url) -> str:
+    url = (url or "").strip()
+    return url if url.startswith("https://") or url.startswith("http://") else ""
+
+
+@router.get("/webinars/{wid}/public")
+async def public_webinar(wid: str):
+    """What the public sign-up page shows: no owner data, no join link."""
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w:
+        raise HTTPException(404, "Webinar not found")
+    brand = await brand_kit.resolve(db, w.get("owner_id") or "", "")
+    has_banner = bool(await db.banners.find_one({"webinar_id": wid}, {"_id": 1}))
+    return {"id": wid, "title": w.get("title") or "", "starts_at": w.get("starts_at") or "",
+            "timezone": w.get("timezone") or "UTC",
+            "speaker": (w.get("speakers") or w.get("speaker") or ""),
+            "description": (w.get("description") or "")[:600],
+            "has_banner": has_banner, "next_url": _safe_url(w.get("after_signup_url")),
+            "brand_name": brand.get("name") or "", "cta_label": brand.get("cta_label") or "",
+            "button_color": brand.get("button_color") or "",
+            "button_text_color": brand_kit.readable_on(brand["button_color"]) if brand.get("button_color") else ""}
 
 
 @router.post("/webinars/{wid}/registrants/import")
@@ -207,6 +369,59 @@ async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(g
                                           "registered_at": now_iso()})
         inserted += 1
     return {"inserted": inserted, "deduped": deduped}
+
+
+@router.get("/webinars/{wid}/invitees")
+async def list_invitees(wid: str, user=Depends(get_user)):
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
+    items = await db.invitees.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(invites.MAX_INVITEES)
+    return {"summary": await invites.summary(db, wid), "items": items}
+
+
+@router.post("/webinars/{wid}/invitees/import")
+async def import_invitees(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+    """Add people who haven't registered yet. They get every email touch except the
+    confirmation and the attendee thank-you (invites.INVITE_TOUCHES), with the registration
+    link and an unsubscribe link, until they sign up and become registrants."""
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404)
+    existing = await db.invitees.count_documents({"webinar_id": wid})
+    if existing + len(items) > invites.MAX_INVITEES:
+        raise HTTPException(400, f"An invite list can hold up to {invites.MAX_INVITEES} people")
+    out = await invites.import_invitees(db, wid, user["id"], [{"name": i.name, "email": i.email} for i in items])
+    return {**out, "summary": await invites.summary(db, wid)}
+
+
+@router.delete("/webinars/{wid}/invitees")
+async def clear_invitees(wid: str, user=Depends(get_user)):
+    """Empty the invite list. Unsubscribes are kept so they stay suppressed next time."""
+    r = await db.invitees.delete_many({"webinar_id": wid, "owner_id": user["id"], "unsubscribed": {"$ne": True}})
+    return {"deleted": r.deleted_count}
+
+
+def _unsub_page(body: str):
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>Unsubscribe</title>"
+                        "</head><body style='font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:480px;"
+                        f"margin:80px auto;padding:0 20px;color:#111827;line-height:1.6'>{body}</body></html>")
+
+
+@router.get("/unsubscribe/{token}")
+async def unsubscribe_page(token: str):
+    """A confirm button, not an instant unsubscribe: mail scanners open every link in an email."""
+    return _unsub_page("<p>Stop getting invitations from this list?</p>"
+                       "<form method='post'><button type='submit' style='padding:10px 18px;border-radius:8px;"
+                       "border:1px solid #d1d5db;background:#fff;font-size:15px;cursor:pointer'>Unsubscribe</button></form>")
+
+
+@router.post("/unsubscribe/{token}")
+@limiter.limit("20/minute")
+async def unsubscribe_invitee(token: str, request: Request):
+    row = await invites.unsubscribe(db, token)
+    return _unsub_page("<p>You're unsubscribed. You won't get any more invitations from this list.</p>" if row
+                       else "<p>This link isn't valid any more. You're not on this list.</p>")
 
 
 @router.post("/webinars/{wid}/webhooks/circle")
@@ -302,6 +517,10 @@ async def _ensure_kit(w: Dict[str, Any]) -> Dict[str, Any]:
 async def list_touches(wid: str, user=Depends(get_user)):
     asyncio.create_task(_backfill_touches(wid, user["id"]))
     rows = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).sort("touch_num", 1).to_list(50)
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0, "id": 1, "generation": 1})
+    if w and rows and _should_heal(w, rows):
+        logger.info(f"list_touches: {wid} has touches without copy and no job, restarting generation")
+        start_generation(wid, only_missing=True)
     for r in rows:
         r["has_visual"] = touch_visuals.has_visual(r["touch_num"])
     return rows
@@ -427,31 +646,18 @@ async def approval_queue(user=Depends(get_user), webinar_id: str = None):
 # --------- Regenerate ALL touches for a webinar ---------
 @router.post("/webinars/{wid}/regenerate-all")
 async def regen_all_touches(wid: str, user=Depends(get_user)):
-    import asyncio
-    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    """Starts the rewrite in the background and returns at once. Doing ~40 AI calls inside
+    the request ran past the browser/Render timeout, so the button showed "Regeneration
+    failed" while the work was still going (or was cut off)."""
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not w:
         raise HTTPException(404)
-    touches = await db.touches.find({"webinar_id": wid, "owner_id": user["id"]}, {"_id": 0}).to_list(20)
-    if not touches:
+    total = await db.touches.count_documents({"webinar_id": wid, "owner_id": user["id"]})
+    if not total:
         raise HTTPException(404, "No touches found for this webinar")
-    kit = await _ensure_kit(w)
-    voice = await brand_kit.voice_brief(db, user["id"])
-
-    async def regen_one(t):
-        try:
-            copy = await generate_touch_copy(w, t["touch_num"], t.get("channels", ["email"]), kit=kit,
-                                              custom_instructions=voice)
-            await db.touches.update_one(
-                {"id": t["id"], "owner_id": user["id"]},
-                {"$set": {"ai_copy": copy, "approval_status": "pending"}}
-            )
-            return True
-        except Exception:
-            return False
-
-    results = await asyncio.gather(*[regen_one(t) for t in touches], return_exceptions=True)
-    count = sum(1 for r in results if r is True)
-    return {"ok": True, "regenerated": count, "total": len(touches)}
+    started = start_generation(wid)
+    return {"ok": True, "started": started, "already_running": not started,
+            "regenerated": total, "total": total}
 
 
 # ══════════════════════════════════════════════
@@ -637,46 +843,77 @@ async def upload_banner(wid: str, file: UploadFile = File(...), user=Depends(get
     if not w:
         raise HTTPException(404)
 
-    # Validate file type
-    if not file.content_type.startswith("image/"):
+    if not (file.content_type or "").startswith("image/"):
         raise HTTPException(400, "Only image files allowed")
-
-    # Max 5MB
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
-        raise HTTPException(400, "Image must be under 5MB")
+    if len(contents) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Image must be under 8MB")
+    import event_art
+    try:
+        out = await event_art.store_banner(db, social_images_fs, w, contents, source="upload",
+                                           filename=file.filename or "banner")
+    except event_art.BannerError as e:
+        raise HTTPException(400, str(e))
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$unset": {"banner_error": ""}})
+    return {"ok": True, "url": out["url"], "event_theme": out["event_theme"], "size": len(contents)}
 
-    # Delete old banner if exists
-    old = await db.banners.find_one({"webinar_id": wid}, {"_id": 0})
-    if old and old.get("file_id"):
-        try:
-            await social_images_fs.delete(old["file_id"])
-        except: pass
 
-    # Store in GridFS
-    from bson import ObjectId
-    file_id = await social_images_fs.upload_from_stream(
-        f"banner-{wid}{file.filename[-4:]}",
-        contents,
-        metadata={"webinar_id": wid, "owner_id": user["id"], "mime": file.content_type}
-    )
+@router.post("/webinars/{wid}/banner/from-url")
+async def banner_from_url(wid: str, payload: dict = Body(default={}), user=Depends(get_user)):
+    """Use an image link (or the event page's cover) as the banner."""
+    import event_art
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    url = (payload.get("url") or w.get("cover_image_url") or "").strip()
+    if not url:
+        raise HTTPException(400, "Paste the image link")
+    try:
+        data = await event_art.download_image(url)
+        out = await event_art.store_banner(db, social_images_fs, w, data, source=url)
+    except event_art.BannerError as e:
+        raise HTTPException(400, str(e))
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
+                                 {"$set": {"cover_image_url": url}, "$unset": {"banner_error": ""}})
+    return {"ok": True, "url": out["url"], "event_theme": out["event_theme"]}
 
-    await db.banners.update_one(
-        {"webinar_id": wid},
-        {"$set": {"webinar_id": wid, "owner_id": user["id"],
-                  "file_id": file_id, "mime": file.content_type,
-                  "filename": file.filename, "size": len(contents),
-                  "uploaded_at": now_iso()}},
-        upsert=True
-    )
 
-    # Store banner URL reference on webinar
-    await db.webinars.update_one(
-        {"id": wid},
-        {"$set": {"banner_url": f"/api/webinars/{wid}/banner.img"}}
-    )
+@router.get("/webinars/{wid}/creatives")
+async def list_creatives(wid: str, user=Depends(get_user)):
+    """The event's ready-to-post creatives, in the event banner's look."""
+    import event_art
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    brand = await brand_kit.resolve(db, user["id"])
+    out = []
+    for kind in event_art.DOWNLOADS:
+        row = await event_art.ensure_creative(db, social_images_fs, w, kind, brand)
+        if row:
+            out.append({"kind": kind, "label": event_art.LABELS[kind], "size": row["size"],
+                        "url": event_art.creative_url("", row)})
+    return {"has_banner": bool(w.get("banner_hash")), "event_theme": w.get("event_theme"),
+            "banner_error": w.get("banner_error"), "creatives": out}
 
-    return {"ok": True, "url": f"/api/webinars/{wid}/banner.img", "size": len(contents)}
+
+@router.get("/webinars/{wid}/creatives/{kind}.jpg")
+async def get_creative(wid: str, kind: str):
+    """Public, like touch cards: social networks and email clients fetch it by URL."""
+    import event_art
+    from fastapi.responses import StreamingResponse
+    w = await db.webinars.find_one({"id": wid}, {"_id": 0})
+    if not w or kind not in event_art.SIZES:
+        raise HTTPException(404)
+    row = await event_art.ensure_creative(db, social_images_fs, w, kind)
+    if not row:
+        raise HTTPException(404)
+    try:
+        stream = await social_images_fs.open_download_stream(row["file_id"])
+    except Exception:
+        raise HTTPException(404)
+    return StreamingResponse(stream, media_type="image/jpeg",
+                             headers={"Cache-Control": "public, max-age=300",
+                                      "Content-Disposition": f'inline; filename="{kind}.jpg"'})
 
 
 @router.get("/webinars/{wid}/banner.img")
@@ -702,7 +939,8 @@ async def delete_banner(wid: str, user=Depends(get_user)):
         try: await social_images_fs.delete(old["file_id"])
         except: pass
     await db.banners.delete_one({"webinar_id": wid})
-    await db.webinars.update_one({"id": wid, "owner_id": user["id"]}, {"$unset": {"banner_url": ""}})
+    await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
+                                 {"$unset": {"banner_url": "", "banner_hash": "", "event_theme": ""}})
     return {"ok": True}
 
 

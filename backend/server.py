@@ -9,7 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from config import CORS_ORIGINS
 from database import client, scheduler
-from routes_webinars import router as webinars_router, limiter as web_limiter
+from routes_webinars import router as webinars_router, limiter as web_limiter, resume_stuck_generations
 from routes_auth import router as auth_router
 from routes_settings import router as settings_router
 from routes_delivery import router as delivery_router, scheduler_tick
@@ -25,6 +25,7 @@ import seo_autopilot
 from growth_engine.routes import router as growth_router
 from billing import router as billing_router
 from routes_brand import router as brand_router
+from routes_clients import router as clients_router, public_router as connect_router
 from growth_engine import scheduler as growth_scheduler
 from datetime import datetime, timedelta, timezone
 
@@ -58,6 +59,9 @@ async def lifespan(_app: FastAPI):
                       replace_existing=True, misfire_grace_time=12 * 3600, coalesce=True)
     scheduler.add_job(seo_autopilot.refresh, "cron", hour=7, minute=45, id="seo-autopilot-refresh",
                       replace_existing=True, misfire_grace_time=6 * 3600, coalesce=True)
+    # Webinar copy cut off by a restart or deploy: write it again (1 min after boot)
+    scheduler.add_job(resume_stuck_generations, "date", id="webinar-copy-resume", replace_existing=True,
+                      run_date=datetime.now(timezone.utc) + timedelta(minutes=1))
     # Growth Engine: own daily draft job + own dispatch tick (approval-gated)
     growth_scheduler.register()
     scheduler.start()
@@ -94,6 +98,8 @@ app.include_router(growth_router)
 app.include_router(billing_router)
 app.include_router(brand_router)
 app.include_router(leads_router)
+app.include_router(clients_router)
+app.include_router(connect_router)
 
 
 @app.get("/api/")

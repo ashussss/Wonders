@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft, CalendarDays, Check, Clock, Copy, FileDown, Link, Plus, RefreshCcw, Send, Share2, Star, Trash2, Upload, User, X, Zap } from "@/components/Icons";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, fmtDate, CHANNEL_META, API_BASE } from "@/lib/api";
+import { wallToUtcISO, utcToWall, fmtInTz, TIMEZONES } from "@/lib/tz";
 import { useTheme } from "@/lib/theme";
 import TouchVisual from "@/components/TouchVisual";
 import { motion, AnimatePresence } from "framer-motion";
@@ -43,13 +44,13 @@ export default function WebinarDetail() {
   const uploadBanner = async (file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) { toast.error("Only image files allowed"); return; }
-    if (file.size > 5 * 1024 * 1024) { toast.error("Max 5MB"); return; }
+    if (file.size > 8 * 1024 * 1024) { toast.error("Max 8MB"); return; }
     setBannerUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
       await api.post(`/webinars/${id}/banner`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Banner uploaded!");
+      toast.success("Banner saved. Cards and creatives now use its colours.");
       reload();
     } catch (e) { toast.error(e?.response?.data?.detail || "Upload failed"); }
     finally { setBannerUploading(false); }
@@ -76,6 +77,17 @@ export default function WebinarDetail() {
   };
   useEffect(() => { reload(); }, [id]);
 
+  // AI copy is written in the background after a webinar is created (and by Regen All).
+  // Keep refreshing while it runs, so touches fill in without a manual page reload.
+  const gen = w?.generation || {};
+  const missingCopy = touches.some(t => !t.ai_copy?.channels || Object.keys(t.ai_copy.channels).length === 0);
+  const generatingNow = gen.running || gen.status === "running" || (missingCopy && gen.status !== "failed");
+  useEffect(() => {
+    if (!generatingNow) return;
+    const timer = setInterval(() => { reload().catch(() => {}); }, 5000);
+    return () => clearInterval(timer);
+  }, [generatingNow, id]);
+
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -92,8 +104,9 @@ export default function WebinarDetail() {
     setRegenAllBusy(true);
     try {
       const r = await api.post(`/webinars/${id}/regenerate-all`);
-      toast.success(`Regenerating ${r.data.regenerated} touches — refresh in a moment`);
-      setTimeout(() => reload(), 3000);
+      toast.success(r.data.already_running ? "Already writing the copy. It fills in here as it's ready."
+                                           : `Rewriting ${r.data.total} touches. They fill in here as they're ready.`);
+      setTimeout(() => reload(), 1500);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Regeneration failed");
     } finally {
@@ -199,7 +212,7 @@ export default function WebinarDetail() {
               <Clock size={14} className="text-white shrink-0" />
               <div>
                 <div className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? "text-gray-600" : "text-gray-400"}`}>Date & Time</div>
-                <div className="font-semibold text-sm">{fmtDate(w.starts_at)}</div>
+                <div className="font-semibold text-sm">{fmtInTz(w.starts_at, w.timezone)}</div>
               </div>
             </div>
             {w.speaker && (
@@ -255,12 +268,20 @@ export default function WebinarDetail() {
                   onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
                   {bannerUploading
                     ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Uploading…</>
-                    : <><Upload size={13} /> Upload webinar banner (recommended: 1200×630px, max 5MB)</>}
+                    : <><Upload size={13} /> Upload event banner (1200×630px, max 8MB): creatives use its colours</>}
                 </div>
                 <input type="file" accept="image/*" className="hidden" onChange={e => uploadBanner(e.target.files?.[0])} />
               </label>
             )}
           </div>
+
+          {!w.banner_url && w.banner_error && (
+            <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              We couldn't use the event page's banner ({w.banner_error}). Upload it above and the creatives will use it.
+            </div>
+          )}
+
+          <EventCreatives webinar={w} />
 
           {/* Description */}
           {w.description && (
@@ -287,6 +308,21 @@ export default function WebinarDetail() {
           } />
         </div>
 
+
+          {/* ── AI copy progress / failure ── */}
+          {generatingNow && (
+            <div data-testid="generation-progress" className="rounded-xl px-4 py-3 mb-5 text-sm flex items-center gap-3" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+              <span className="w-3.5 h-3.5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span>Writing your reminders{gen.total ? ` (${Math.min(gen.done || 0, gen.total)} of ${gen.total} touches done)` : ""}. This takes a minute or two.</span>
+            </div>
+          )}
+          {!generatingNow && gen.status === "failed" && (
+            <div data-testid="generation-failed" className="rounded-xl px-4 py-3 mb-5 text-sm flex flex-wrap items-center gap-3 border border-red-500/30 bg-red-500/10">
+              <AlertTriangle size={14} className="text-red-500 shrink-0" />
+              <span className="flex-1 min-w-[200px]">Some reminder copy couldn't be written. {gen.error}</span>
+              <button onClick={handleRegenAll} disabled={regenAllBusy} className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg text-white bg-orange-600 disabled:opacity-50">Try again</button>
+            </div>
+          )}
 
           {/* ── AI Health Score ── */}
           {insights && (
@@ -613,13 +649,13 @@ function TouchCard({ touch, onChange }) {
         </div>
       ) : (
         <div className={`grid lg:grid-cols-2 divide-x ${isDark ? "divide-white/[0.04]" : "divide-gray-100"}`}>
-          {channels.map(ch => {
+          {[...channels, ...(channels.includes("email") && aiCh.email_invite ? ["email_invite"] : [])].map(ch => {
             const channelCopy = aiCh[ch]?.[variantKey];
-            const isManual = CHANNEL_META[ch].manualOnly;
+            const isManual = CHANNEL_META[ch]?.manualOnly;
             return (
               <div key={ch} className={`p-5 ${isManual ? "bg-amber-500/5" : ""}`}>
                 <div className="flex items-center justify-between mb-2.5">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.18em] ${isDark ? "text-gray-500" : "text-gray-400"}`}>{CHANNEL_META[ch].label}</div>
+                  <div className={`text-[10px] font-bold uppercase tracking-[0.18em] ${isDark ? "text-gray-500" : "text-gray-400"}`}>{CHANNEL_META[ch]?.label || "Email · invite list (not registered)"}</div>
                   {isManual && (
                     <span className="text-[9px] bg-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">⚠ Manual</span>
                   )}
@@ -692,6 +728,121 @@ function TouchCard({ touch, onChange }) {
   );
 }
 
+// One person per line, any column order: the email is found by its shape, a phone is
+// the field with mostly digits, and the rest is the name. A header row has no email,
+// so it's skipped. Quoted CSV fields ("Doe, Jane") are handled.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function splitCsvLine(line) {
+  const out = []; let cur = ""; let q = false;
+  for (const ch of line) {
+    if (ch === '"') { q = !q; continue; }
+    if ((ch === "," || ch === ";" || ch === "\t") && !q) { out.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+function parseContacts(text, source) {
+  const seen = new Set();
+  return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const cells = splitCsvLine(l).filter(Boolean);
+    const email = cells.find(c => EMAIL_RE.test(c));
+    if (!email) return null;
+    const phone = cells.find(c => c !== email && /^\+?[\d\s()-]{7,}$/.test(c));
+    const name = cells.filter(c => c !== email && c !== phone).join(" ").trim();
+    return { name: name || email, email: email.toLowerCase(), phone: phone || null, source };
+  }).filter(it => it && !seen.has(it.email) && seen.add(it.email));
+}
+
+function readFileInto(setter) {
+  return (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setter(String(reader.result || ""));
+    reader.readAsText(f);
+    e.target.value = "";
+  };
+}
+
+function InviteList({ webinar }) {
+  const { isDark } = useTheme();
+  const [summary, setSummary] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try { const r = await api.get(`/webinars/${webinar.id}/invitees`); setSummary(r.data.summary); } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); }, [webinar.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doImport = async () => {
+    const items = parseContacts(text, "invite");
+    if (!items.length) return toast.error("No email addresses found");
+    setBusy(true);
+    try {
+      const r = await api.post(`/webinars/${webinar.id}/invitees/import`, items);
+      const d = r.data;
+      toast.success(`Added ${d.inserted} to the invite list` +
+        (d.already_registered ? `, ${d.already_registered} already registered` : "") +
+        (d.unsubscribed_before ? `, ${d.unsubscribed_before} had unsubscribed` : ""));
+      setSummary(d.summary); setText(""); setOpen(false);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Import failed");
+    } finally { setBusy(false); }
+  };
+  const clear = async () => {
+    if (!window.confirm("Remove everyone from this invite list? Unsubscribes are kept.")) return;
+    await api.delete(`/webinars/${webinar.id}/invitees`); load();
+  };
+  const s = summary || { total: 0, reachable: 0, registered: 0, unsubscribed: 0 };
+  return (
+    <div className="rounded-2xl p-5 mb-5" data-testid="invite-list"
+      style={{ border: "1px solid var(--border)", background: "var(--bg-surface)", boxShadow: "var(--shadow-sm)" }}>
+      <div className="flex justify-between items-start gap-4 flex-wrap">
+        <div>
+          <div className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Invite list (not registered yet)</div>
+          <div className="text-xs text-gray-500 mt-1 max-w-xl">
+            Past attendees, your newsletter or member list. They get every email in the Send Plan (lead magnets, nudges, day-before,
+            1 hour, live now and the recap) with your registration link and an unsubscribe link. Once they register they move to
+            registrants and get the join link instead. A touch reaches them only if Email is one of its channels.
+          </div>
+          <div className="text-sm text-gray-500 mt-2" data-testid="invite-summary">
+            {s.total} invited · {s.reachable} still to convert · {s.registered} registered · {s.unsubscribed} unsubscribed
+          </div>
+        </div>
+        <div className="flex gap-3">
+          {s.total > 0 && <button onClick={clear} className="text-xs text-gray-500 hover:text-gray-300">Clear</button>}
+          <button data-testid="open-invite-import" onClick={() => setOpen(true)}
+            className="text-sm text-white font-semibold hover:text-gray-200 flex items-center gap-1.5 transition-colors">
+            <Upload size={13} /> Add people
+          </button>
+        </div>
+      </div>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.93 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.93 }}
+              className="rounded-2xl p-6 w-full max-w-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
+              <h3 className={`font-bold text-lg mb-2 ${isDark ? "text-white" : "text-gray-900"}`} style={{ fontFamily: 'Outfit' }}>Add to invite list</h3>
+              <p className="text-sm mb-3 text-gray-500">Upload a CSV or paste one person per line. Only add people who know you (they opted in to your list).</p>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={readFileInto(setText)} className="text-xs text-gray-500 mb-2" data-testid="invite-file" />
+              <textarea data-testid="invite-csv" rows={6} value={text} onChange={e => setText(e.target.value)}
+                className={`w-full rounded-xl p-3 text-sm font-mono focus:outline-none ${isDark ? "bg-black/40 border border-white/[0.1] text-gray-300" : "bg-gray-50 border border-gray-200 text-gray-700"}`}
+                placeholder="Jane Doe, jane@school.org.uk" />
+              <div className="text-xs text-gray-500 mt-1">{text ? `${parseContacts(text, "invite").length} people found` : ""}</div>
+              <div className="flex justify-end gap-2 mt-3">
+                <button onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-gray-500 border border-white/[0.08] rounded-xl hover:bg-white/[0.04] transition-colors">Cancel</button>
+                <button data-testid="do-invite-import" disabled={busy} onClick={doImport} className="px-4 py-2 bg-white hover:bg-gray-100 text-black text-sm rounded-xl font-semibold transition-colors disabled:opacity-50">{busy ? "Adding..." : "Add"}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function RegistrantsTab({ webinar, regs, onChange }) {
   const { isDark } = useTheme();
   const [importing, setImporting] = useState(false);
@@ -700,11 +851,8 @@ function RegistrantsTab({ webinar, regs, onChange }) {
   const toggleAttended = async (r) => { await api.patch(`/registrants/${r.id}`, { attended: !r.attended }); onChange(); };
   const toggleCommunityJoined = async (r) => { await api.patch(`/registrants/${r.id}`, { community_joined: !r.community_joined }); onChange(); };
   const doImport = async () => {
-    const items = csv.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
-      const [name, email, phone] = l.split(",").map(x => x?.trim());
-      return { name: name || email, email, phone, source: "linkedin_manual" };
-    }).filter(it => it.email);
-    if (!items.length) return toast.error("Provide name,email per line");
+    const items = parseContacts(csv, "import");
+    if (!items.length) return toast.error("No email addresses found");
     const r = await api.post(`/webinars/${webinar.id}/registrants/import`, items);
     toast.success(`Imported ${r.data.inserted}, deduped ${r.data.deduped}`);
     setImporting(false); setCsv(""); onChange();
@@ -712,6 +860,7 @@ function RegistrantsTab({ webinar, regs, onChange }) {
 
   return (
     <div>
+      <InviteList webinar={webinar} />
       <div className="flex justify-between items-center mb-4">
         <div className="text-sm text-gray-500">{regs.length} registrants · {regs.filter(r => r.attended).length} attended</div>
         <button data-testid="open-import" onClick={() => setImporting(true)}
@@ -729,7 +878,7 @@ function RegistrantsTab({ webinar, regs, onChange }) {
           <div className="col-span-2 text-right">Community</div>
         </div>
         {regs.length === 0 && (
-          <div className={`p-10 text-center text-sm ${isDark ? "text-gray-600" : "text-gray-400"}`}>No registrants yet. Share2 your public registration link.</div>
+          <div className={`p-10 text-center text-sm ${isDark ? "text-gray-600" : "text-gray-400"}`}>No registrants yet. Share your public registration link.</div>
         )}
         {regs.map(r => (
           <div key={r.id} className={`grid grid-cols-12 gap-2 px-6 py-3.5 border-b text-sm items-center transition-colors ${isDark ? "border-white/[0.04] hover:bg-white/[0.02]" : "border-gray-100 hover:bg-white/[0.02]"}`} data-testid={`reg-row-${r.id}`}>
@@ -765,7 +914,8 @@ function RegistrantsTab({ webinar, regs, onChange }) {
               className="rounded-2xl p-6 w-full max-w-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
             >
               <h3 className={`font-bold text-lg mb-2 ${isDark ? "text-white" : "text-gray-900"}`} style={{ fontFamily: 'Outfit' }}>Import LinkedIn / CSV</h3>
-              <p className={`text-sm mb-3 ${isDark ? "text-gray-500" : "text-gray-500"}`}>One per line: <code className="text-white">Name, email, phone (optional)</code></p>
+              <p className={`text-sm mb-3 ${isDark ? "text-gray-500" : "text-gray-500"}`}>People who already registered (e.g. on your own form). Upload a CSV or paste one per line: <code className="text-white">Name, email, phone (optional)</code></p>
+              <input type="file" accept=".csv,.txt,text/csv" onChange={readFileInto(setCsv)} className="text-xs text-gray-500 mb-2" />
               <textarea data-testid="import-csv" rows={6} value={csv} onChange={e => setCsv(e.target.value)}
                 className={`w-full rounded-xl p-3 text-sm font-mono focus:outline-none focus:border-orange-500/50 ${isDark ? "bg-black/40 border border-white/[0.1] text-gray-300" : "bg-gray-50 border border-gray-200 text-gray-700"}`}
                 placeholder="Jane Doe, jane@school.uk" />
@@ -1170,6 +1320,9 @@ function ContentCard({ touch, webinar, onChange }) {
                   </button>
                 )}
               </div>
+              {!["email", "email_invite", "whatsapp", "sms"].includes(expandChannel) && (
+                <ManualShare touchId={touch.id} channel={expandChannel} />
+              )}
             </div>
           );
         })()}
@@ -1265,13 +1418,23 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     speakers:       webinar.speakers || "",
     description:    webinar.description || "",
     target_audience:webinar.target_audience || "",
-    starts_at:      webinar.starts_at ? webinar.starts_at.slice(0,16) : "",
+    starts_at:      utcToWall(webinar.starts_at, webinar.timezone || "Europe/London"),
     timezone:       webinar.timezone || "Europe/London",
     join_link:      webinar.join_link || "",
+    registration_link: webinar.registration_link || "",
+    after_signup_url:  webinar.after_signup_url || "",
+    share_targets:     webinar.share_targets || "",
     key_topics:     webinar.key_topics || "",
     custom_context: webinar.custom_context || "",
   });
   const [saving, setSaving] = useState(false);
+  const [ws, setWs] = useState(null);           // agency mode: workspaces this webinar can move to
+  const [moveTo, setMoveTo] = useState("");
+  useEffect(() => {
+    api.get("/clients").then(r => {
+      if (r.data.clients.length) { setWs(r.data); setMoveTo(r.data.current); }
+    }).catch(() => {});
+  }, []);
 
   const upd = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -1280,8 +1443,16 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
     try {
       await api.patch(`/webinars/${webinar.id}`, {
         ...form,
-        starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : webinar.starts_at,
+        starts_at: (form.starts_at && wallToUtcISO(form.starts_at, form.timezone)) || webinar.starts_at,
       });
+      if (ws && moveTo && moveTo !== ws.current) {
+        await api.post("/clients/move-webinar", { webinar_id: webinar.id, to: moveTo });
+        const name = moveTo === ws.agency.id ? (ws.agency.name || "your account")
+                   : (ws.clients.find(c => c.id === moveTo)?.name || "the client");
+        toast.success(`Moved to ${name}. Switch to ${name} (top left) to see it.`);
+        window.location.href = "/app";
+        return;
+      }
       toast.success("Webinar updated!");
       onSaved();
       onClose();
@@ -1341,13 +1512,13 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label style={labelStyle}>Date & Time</label>
+              <label style={labelStyle}>Date & Time (in the webinar's timezone)</label>
               <input type="datetime-local" value={form.starts_at} onChange={upd("starts_at")} style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Timezone</label>
               <select value={form.timezone} onChange={upd("timezone")} style={inputStyle}>
-                {["Europe/London","Europe/Paris","America/New_York","America/Chicago","America/Los_Angeles","Asia/Kolkata","Asia/Singapore","Australia/Sydney"].map(tz => (
+                {(TIMEZONES.includes(form.timezone) ? TIMEZONES : [form.timezone, ...TIMEZONES]).map(tz => (
                   <option key={tz} value={tz}>{tz}</option>
                 ))}
               </select>
@@ -1363,6 +1534,51 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
             <label style={labelStyle}>Join Link</label>
             <input value={form.join_link} onChange={upd("join_link")} style={inputStyle} placeholder="https://zoom.us/j/..." />
           </div>
+
+          <div>
+            <label style={labelStyle}>Registration link (in every post and invite email)</label>
+            <input value={form.registration_link} onChange={upd("registration_link")} style={inputStyle}
+              placeholder={`Blank = ShowUp sign-up page (${window.location.origin}/r/${webinar.id})`} />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Keep it blank to collect registrants here, so they get every reminder. If you paste your own page,
+              people who sign up there must be imported in the Registrants tab.
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>After sign-up, send people to (optional)</label>
+            <input value={form.after_signup_url} onChange={upd("after_signup_url")} style={inputStyle}
+              placeholder="https://your-site.com/events/..." />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Your own event page (e.g. a community or portal RSVP). People register on the ShowUp page first, so
+              you get their details and reminders go out, then they are sent here to confirm.
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Company pages and groups you post in by hand (one link per line)</label>
+            <textarea value={form.share_targets} onChange={upd("share_targets")} rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+              placeholder={"https://www.linkedin.com/company/your-company/admin/\nhttps://www.linkedin.com/groups/1234567/\nhttps://www.facebook.com/groups/your-group"} />
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              LinkedIn company pages and groups (LinkedIn and Facebook) can't be posted to automatically. Each social
+              touch gets a "Post by hand" box with the finished text, the image and these links.
+            </div>
+          </div>
+
+          {ws && (
+            <div>
+              <label style={labelStyle}>Client</label>
+              <select value={moveTo} onChange={e => setMoveTo(e.target.value)} style={inputStyle}>
+                <option value={ws.agency.id}>{ws.agency.name || "My account"} (agency)</option>
+                {ws.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Moving takes the send plan, registrants and invite list with it. It then sends with that
+                client's email, LinkedIn, Facebook and brand kit.
+              </div>
+            </div>
+          )}
 
           <div>
             <label style={labelStyle}>Description</label>
@@ -1399,5 +1615,105 @@ function EditWebinarModal({ webinar, onClose, onSaved }) {
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+
+// Company pages and groups have no posting API: the finished post (links filled in),
+// the card, and one-click links to each place the host listed in Edit Webinar.
+function ManualShare({ touchId, channel }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setD(null); setErr("");
+    api.get(`/touches/${touchId}/share-copy`, { params: { channel } })
+      .then(r => setD(r.data)).catch(e => setErr(e?.response?.data?.detail || ""));
+  }, [touchId, channel]);
+  if (err || !d) return null;
+  const label = (u) => {
+    if (u.includes("linkedin.com/company")) return "LinkedIn page";
+    if (u.includes("linkedin.com/groups")) return "LinkedIn group";
+    if (u.includes("facebook.com/groups")) return "Facebook group";
+    if (u.includes("facebook.com")) return "Facebook";
+    return u.replace(/^https?:\/\//, "").slice(0, 28);
+  };
+  const btn = { background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" };
+  return (
+    <div className="mt-4 p-3 rounded-xl" style={{ background: "var(--bg-sunken)", border: "1px dashed var(--border)" }}>
+      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>
+        Post by hand: company page and groups
+      </div>
+      <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+        Copy the finished post (sign-up link already in), download the image, then open each place and paste.
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => { navigator.clipboard.writeText(d.text); toast.success("Post copied"); }}
+          className="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1"
+          style={{ background: "#EA580C", color: "#fff" }}>
+          <Copy size={11} /> Copy post
+        </button>
+        {d.image_url && (
+          <a href={d.image_url} target="_blank" rel="noreferrer" download
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1" style={btn}>
+            <FileDown size={11} /> Image
+          </a>
+        )}
+        {d.targets.map(u => (
+          <a key={u} href={u} target="_blank" rel="noreferrer"
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={btn}>
+            {label(u)} ↗
+          </a>
+        ))}
+        {!d.targets.length && (
+          <span className="text-[11px] self-center" style={{ color: "var(--text-muted)" }}>
+            Add your company page and group links in Edit Webinar.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// Ready-to-post creatives in the event banner's colours: feed post, square, story,
+// plus the "You're in", "Tomorrow", "Starts in 1 hour" and "We're live" visuals.
+function EventCreatives({ webinar }) {
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(false);
+  const key = `${webinar.id}:${webinar.banner_hash || ""}:${webinar.title}:${webinar.starts_at}`;
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    api.get(`/webinars/${webinar.id}/creatives`).then(r => { if (alive) setData(r.data); }).catch(() => {});
+    return () => { alive = false; };
+  }, [key, open]);
+  const src = (u) => `${API_BASE}${u.replace(/^\/api/, "")}`;
+  return (
+    <div className="mb-4 rounded-xl p-4" data-testid="event-creatives" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-left">
+        <span className="text-sm font-bold">Event creatives</span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {webinar.banner_url ? "In your event banner's colours" : "Add a banner to match your event's look"} · {open ? "Hide" : "Show"}
+        </span>
+      </button>
+      {open && !data && <div className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>Designing…</div>}
+      {open && data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+          {data.creatives.map(c => (
+            <div key={c.kind} className="flex flex-col gap-1.5">
+              <a href={src(c.url)} target="_blank" rel="noreferrer" className="block rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                <img src={src(c.url)} alt={c.label} loading="lazy" className="w-full object-cover" style={{ aspectRatio: `${c.size[0]} / ${c.size[1]}` }} />
+              </a>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold truncate">{c.label}</span>
+                <a href={src(c.url)} download={`${c.kind}.jpg`} className="text-[11px] font-bold text-orange-500 inline-flex items-center gap-1 shrink-0">
+                  <FileDown size={11} /> Save
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

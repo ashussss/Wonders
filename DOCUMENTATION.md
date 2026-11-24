@@ -211,7 +211,7 @@ curl -X POST $B/seo/generate -H "$K" -H "Content-Type: application/json" -d '{"k
 ### Settings (Render env)
 | Var | Default | Meaning |
 |---|---|---|
-| `PSEO_POSTS_PER_DAY` | `4` | Drafts written per daily run |
+| `PSEO_POSTS_PER_DAY` | `1` | Drafts written per daily run (`PSEO_MAX_PUBLISH_PER_DAY`, default `1`, caps posts published per IST day). Off-topic keywords are never queued or published (`pseo.off_topic_reason`) |
 | `PSEO_AUTO_TOPICS` | `false` | `true` lets AI-suggested related topics join the queue |
 | `AUTHOR_NAME`, `AUTHOR_BIO`, `AUTHOR_URL` | see pseo.py | Byline, author box and Person schema on every post (E-E-A-T) |
 | `NETLIFY_BUILD_HOOK` | — | Netlify build hook URL; publish/unpublish/edit triggers a rebuild so prerendered pages update |

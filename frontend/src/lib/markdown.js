@@ -100,6 +100,21 @@ export function parseMarkdown(md) {
     i++;
   }
   flushPara();
+  return normalizeHeadings(blocks);
+}
+
+// The page title is the only h1, so body headings start at h2 and never skip a level
+// (a post written with only ### headings would otherwise jump h1 -> h3).
+function normalizeHeadings(blocks) {
+  const levels = blocks.filter((b) => b.type === "h").map((b) => b.level);
+  if (!levels.length) return blocks;
+  const shift = Math.min(...levels) - 2;
+  let prev = 1;
+  for (const b of blocks) {
+    if (b.type !== "h") continue;
+    b.level = Math.min(b.level - shift, prev + 1, 4);
+    prev = b.level;
+  }
   return blocks;
 }
 

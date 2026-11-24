@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import ReminderKit from "@/components/ReminderKit";
 import {
   SITE, COMPARE, COMPARE_ROWS, SHOWUP, compareFaq, TOOLS, titleIdeas, GUIDE, BENCHMARKS, COMPARE_INDEX, TOOLS_INDEX,
-  buildPlan, planToIcs, planToText,
+  buildPlan, planToIcs, planToText, pageTitle, BEST,
 } from "@/lib/seoPages";
 
 function setMeta(name, content, attr = "name") {
@@ -116,7 +116,7 @@ export default function Compare() {
   const { competitor } = useParams();
   const key = (competitor || "").toLowerCase();
   const c = COMPARE[key];
-  usePageMeta(c && `${c.title} | ShowUpAI`, c && c.description, `/compare/${key}`);
+  usePageMeta(c && pageTitle(c.title), c && c.description, `/compare/${key}`);
   if (!c) return <Shell><h1 className="text-white text-3xl font-bold mb-4">Comparison not found</h1><Link to="/compare" className="text-orange-500">See all comparisons</Link></Shell>;
   return (
     <Shell>
@@ -152,11 +152,12 @@ export default function Compare() {
 }
 
 export function CompareIndex() {
-  usePageMeta(`${COMPARE_INDEX.title} | ShowUpAI`, COMPARE_INDEX.description, "/compare");
+  usePageMeta(pageTitle(COMPARE_INDEX.title), COMPARE_INDEX.description, "/compare");
   return (
     <Shell>
       <h1 className="text-white text-3xl md:text-5xl font-bold mb-6">{COMPARE_INDEX.title}</h1>
-      <p className="text-gray-300 mb-10">ShowUpAI doesn't host webinars. It works alongside your webinar platform and handles what happens between registration and start time. Here's how it compares with the tools people usually use for that.</p>
+      <p className="text-gray-300 mb-4">ShowUpAI doesn't host webinars. It works alongside your webinar platform and handles what happens between registration and start time. Here's how it compares with the tools people usually use for that.</p>
+      <p className="text-gray-300 mb-10">Comparing several tools at once? See <Link to={`/${BEST.slug}`} className="text-orange-400 hover:underline">the best webinar reminder software, compared</Link>.</p>
       <div className="grid sm:grid-cols-2 gap-4">
         {Object.entries(COMPARE).map(([k, v]) => (
           <Link key={k} to={`/compare/${k}`} className="rounded-2xl p-5 border border-white/10 hover:border-orange-500/50">
@@ -171,6 +172,46 @@ export function CompareIndex() {
 }
 
 // ── /tools and /tools/:tool ──────────────────────────────────────────────────
+// ── /best-webinar-reminder-software ───────────────────────────────────────────
+export function BestList() {
+  usePageMeta(BEST.seoTitle, BEST.description, `/${BEST.slug}`);
+  const label = Object.fromEntries(COMPARE_ROWS);
+  const keys = ["channels", "sequence", "copy", "noshow", "price"];
+  const entries = [["ShowUpAI", "webinar attendance software", SHOWUP,
+    "you already have a webinar platform and want more registrants to join, with reminders on several channels and your approval on every message.", null, null]]
+    .concat(Object.entries(COMPARE).map(([k, c]) => [c.name, c.kind, c.them, c.chooseThem, c.intro, k]));
+  return (
+    <Shell>
+      <h1 className="text-white text-3xl md:text-5xl font-bold mb-4">{BEST.title}</h1>
+      <p className="text-sm text-gray-500 mb-6">Updated {BEST.updated}</p>
+      <p className="text-lg text-gray-300 mb-4 border-l-4 border-orange-600 pl-4"><strong className="text-white">Short answer:</strong> {BEST.answer}</p>
+      <p className="text-sm text-gray-400 italic mb-8">{BEST.disclosure}</p>
+      <h2 className="text-white text-2xl font-bold mb-3">The 9 tools at a glance</h2>
+      <div className="overflow-x-auto mb-10"><table className="w-full text-sm text-left text-gray-300">
+        <thead><tr className="border-b border-white/10"><th className="py-2 pr-3">Tool</th><th className="py-2 pr-3">Type</th><th className="py-2 pr-3">Reminder channels</th><th className="py-2">Who writes reminders</th></tr></thead>
+        <tbody>{entries.map(([name, kind, rows]) => (
+          <tr key={name} className="border-b border-white/5"><td className="py-2 pr-3 text-white">{name}</td><td className="py-2 pr-3">{kind}</td><td className="py-2 pr-3">{rows.channels}</td><td className="py-2">{rows.copy}</td></tr>
+        ))}</tbody>
+      </table></div>
+      <h2 className="text-white text-2xl font-bold mb-3">How we compared them</h2>
+      <ul className="list-disc pl-6 space-y-1 text-gray-300 mb-10">{BEST.howWeCompared.map((h) => <li key={h}>{h}</li>)}</ul>
+      <h2 className="text-white text-2xl font-bold mb-4">The tools</h2>
+      {entries.map(([name, kind, rows, best, intro, key], i) => (
+        <section key={name} className="mb-8">
+          <h3 className="text-white text-xl font-bold mb-2">{i + 1}. {name}</h3>
+          <p className="text-gray-300 mb-2"><strong className="text-white">{name}</strong> is a {kind}.{intro ? ` ${intro}` : ""}</p>
+          <ul className="list-disc pl-6 space-y-1 text-gray-300 mb-2">{keys.map((k) => <li key={k}><strong className="text-white">{label[k]}:</strong> {rows[k]}</li>)}</ul>
+          <p className="text-gray-300"><strong className="text-white">Pick it if</strong> {best}</p>
+          {key ? <Link to={`/compare/${key}`} className="text-orange-400 hover:underline text-sm">ShowUpAI vs {name}: full comparison</Link>
+               : <Link to="/register" className="text-orange-400 hover:underline text-sm">Try ShowUpAI free for 14 days</Link>}
+        </section>
+      ))}
+      <Faq items={BEST.faq} />
+      <Cta />
+    </Shell>
+  );
+}
+
 const inputCls = "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white";
 function Field({ label, value, onChange, type = "number", step }) {
   return (
@@ -358,7 +399,7 @@ export function ToolPage() {
   const { tool } = useParams();
   const t = TOOLS[tool];
   const Widget = WIDGETS[tool];
-  usePageMeta(t && `${t.title} | ShowUpAI`, t && t.description, `/tools/${tool}`);
+  usePageMeta(t && pageTitle(t.title), t && t.description, `/tools/${tool}`);
   if (!t) return <Shell><h1 className="text-white text-3xl font-bold mb-4">Tool not found</h1><Link to="/tools" className="text-orange-500">See all free tools</Link></Shell>;
   return (
     <Shell>
@@ -381,7 +422,7 @@ export function ToolPage() {
 }
 
 export function ToolsIndex() {
-  usePageMeta(`${TOOLS_INDEX.title} | ShowUpAI`, TOOLS_INDEX.description, "/tools");
+  usePageMeta(pageTitle(TOOLS_INDEX.title), TOOLS_INDEX.description, "/tools");
   return (
     <Shell>
       <h1 className="text-white text-3xl md:text-5xl font-bold mb-6">Free webinar tools</h1>
@@ -391,6 +432,12 @@ export function ToolsIndex() {
           <h2 className="text-white font-bold mb-2">{v.name}</h2><p className="text-gray-400 text-sm">{v.description}</p>
         </Link>
       ))}</div>
+      {(TOOLS_INDEX.sections || []).map((x) => (
+        <section key={x.h} className="mt-10">
+          <h2 className="text-white text-2xl font-bold mb-3">{x.h}</h2>
+          <p className="text-gray-300">{x.p}</p>
+        </section>
+      ))}
       <ReminderKit source="tools-index" placement="tools-index" />
       <Cta />
     </Shell>
