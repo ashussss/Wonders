@@ -212,9 +212,9 @@ export default function Landing() {
         <div className="relative z-10 w-full max-w-7xl mx-auto grid lg:grid-cols-[1fr_1.1fr] gap-y-10 lg:gap-x-14 lg:gap-y-10">
         <div className="text-center lg:text-left lg:col-start-1 lg:row-start-1 lg:self-end">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <Link to="/waitlist" className="inline-flex items-center gap-2 bg-orange-500/10 border border-orange-500/25 rounded-full px-4 py-1.5 text-xs font-semibold text-orange-400 uppercase tracking-widest mb-8 hover:bg-orange-500/20 transition-colors">
+            <Link to="/register" className="inline-flex items-center gap-2 bg-orange-500/10 border border-orange-500/25 rounded-full px-4 py-1.5 text-xs font-semibold text-orange-400 uppercase tracking-widest mb-8 hover:bg-orange-500/20 transition-colors">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-              Early Access Open — 3 Months Free →
+              14-day free trial · No card needed →
             </Link>
           </motion.div>
 

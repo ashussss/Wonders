@@ -290,6 +290,7 @@ export const TOOLS = {
     faq: [
       ["What is a good webinar show-up rate?", "Published platform averages range from about 38% (Demio/Banzai, live sessions, 2022) to 51.3% (Livestorm) and 60% (ON24, 2025). Compare each webinar against your own previous ones first."],
       ["Why do people register for webinars and not show up?", "Common reasons are forgetting, a clash with work, losing the join link, or the topic feeling less urgent on the day. A reminder plan that builds interest and sends the join link at the right time addresses most of them."],
+      ["How do I calculate my webinar attendance rate?", "Divide the number of people who joined live by the number who registered, then multiply by 100. 70 attendees from 200 registrants is a 35% attendance rate and a 65% no-show rate."],
       ["How do I reduce webinar no-shows?", "Start reminders earlier, use more than one channel, send the join link an hour before, add a calendar invite on registration, and follow up with no-shows with the replay."],
     ],
   },
@@ -459,6 +460,56 @@ export const TOOLS_INDEX = {
     { h: "Private by design", p: "Every tool runs in your browser. Nothing you type is stored or sent to us, and you don't need an account. When you want the reminders themselves handled, ShowUpAI writes and schedules the whole attendance sequence for you." },
   ],
 };
+
+// ── Lead magnet: a dated 11-touch attendance plan for the visitor's own webinar ──────────────
+// offsetH = hours relative to the webinar start (negative = before). "On registration" has no fixed time.
+export const PLAN_TOUCHES = [
+  { offsetH: null, channel: "Email + calendar invite", title: "Confirmation + calendar invite", tip: "Send the .ics on registration so the slot is held in their calendar." },
+  { offsetH: -21 * 24, channel: "LinkedIn / social", title: "Awareness post", tip: "Why the topic matters now. One problem, one promise." },
+  { offsetH: -19 * 24, channel: "Email", title: "Insight / newsletter touch", tip: "Teach one useful thing from the session. No hard sell." },
+  { offsetH: -14 * 24, channel: "LinkedIn poll / email", title: "Engagement poll", tip: "Ask which question they want answered. People show up for their own question." },
+  { offsetH: -10 * 24, channel: "Email / social", title: "Case study", tip: "A short before/after that shows the result the webinar promises." },
+  { offsetH: -8 * 24, channel: "Instagram / LinkedIn", title: "Infographic teaser", tip: "One idea from the session as a visual." },
+  { offsetH: -5 * 24, channel: "Email", title: "Urgency message", tip: "What they miss if they only wait for the replay (live Q&A, bonus)." },
+  { offsetH: -24, channel: "Email", title: "Final warm-up + agenda", tip: "Subject with the time: 'Tomorrow, 11am: ...'." },
+  { offsetH: -1, channel: "WhatsApp / SMS", title: "Join link", tip: "Just the link and the start time, in the channel they check most." },
+  { offsetH: 3, channel: "Email", title: "Thank-you for attendees", tip: "Slides, replay and the one next step." },
+  { offsetH: 48, channel: "Email", title: "No-show follow-up", tip: "Replay + one highlight + invite to the next live session." },
+];
+
+export function buildPlan(startIso) {
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return [];
+  return PLAN_TOUCHES.map((t, i) => ({
+    n: i + 1, ...t,
+    at: t.offsetH === null ? null : new Date(start.getTime() + t.offsetH * 3600 * 1000),
+  }));
+}
+
+const icsDate = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const icsText = (s) => String(s).replace(/[\\,;]/g, (m) => "\\" + m).replace(/\n/g, "\\n");
+
+export function planToIcs(plan, webinarName = "My webinar") {
+  const stamp = icsDate(new Date());
+  const ev = plan.filter((p) => p.at).map((p) => [
+    "BEGIN:VEVENT",
+    `UID:showupai-plan-${p.n}-${p.at.getTime()}@showupai.live`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${icsDate(p.at)}`,
+    `DTEND:${icsDate(new Date(p.at.getTime() + 15 * 60 * 1000))}`,
+    `SUMMARY:${icsText(`Touch ${p.n}: ${p.title} (${webinarName})`)}`,
+    `DESCRIPTION:${icsText(`${p.channel}. ${p.tip} Plan by ShowUpAI: https://showupai.live/webinar-attendance`)}`,
+    "END:VEVENT",
+  ].join("\r\n"));
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ShowUpAI//Attendance plan//EN", "CALSCALE:GREGORIAN", ...ev, "END:VCALENDAR"].join("\r\n");
+}
+
+export function planToText(plan, webinarName = "My webinar") {
+  const f = (d) => d ? d.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "On registration";
+  return [`11-touch attendance plan for: ${webinarName}`, "", ...plan.map((p) => `${p.n}. ${f(p.at)} | ${p.channel} | ${p.title}\n   ${p.tip}`), "",
+    "Made with the free ShowUpAI planner: https://showupai.live/tools/webinar-no-show-calculator",
+    "Want this written and sent for you? https://showupai.live/register"].join("\n");
+}
 
 // <title> for a page: adds " | ShowUpAI" only when it fits in ~60 characters and the title doesn't already name the brand.
 export function pageTitle(title) {

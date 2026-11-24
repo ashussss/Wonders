@@ -452,6 +452,15 @@ def _link_first(content: str, phrase: str, url: str) -> tuple:
     return content, False
 
 
+# Anchor phrases that link a blog post to the free tools and the pillar guide (tried in order).
+TOOL_LINKS = [
+    ("/tools/webinar-no-show-calculator", ["webinar attendance rate", "no-show rate", "show-up rate", "attendance rate"]),
+    ("/tools/webinar-roi-calculator", ["webinar ROI", "return on investment"]),
+    ("/webinar-attendance", ["increase webinar attendance", "improve webinar attendance", "boost webinar attendance"]),
+    ("/tools/webinar-title-generator", ["webinar title", "webinar titles"]),
+]
+
+
 def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> str:
     """Guarantee a link to showupai.live and contextual links to other published posts.
     others: [{"slug", "title", "keyword"}] of published posts (self excluded here). Idempotent."""
@@ -462,6 +471,19 @@ def autolink(content: str, slug: str, others: list, max_internal: int = 4) -> st
         c, done = _link_first(c, BRAND, home)
         if not done:
             c = c.rstrip() + f"\n\nWant more of your registrants to actually show up? [Try {BRAND}]({home})."
+    # 1b) free tools + pillar guide (frontend/src/lib/seoPages.js): at most 2 per post, first match wins
+    tool_links = 0
+    for url, phrases in TOOL_LINKS:
+        if tool_links >= 2:
+            break
+        if f"]({home}{url})" in c:
+            tool_links += 1
+            continue
+        for phrase in phrases:
+            c, done = _link_first(c, phrase, home + url)
+            if done:
+                tool_links += 1
+                break
     # 2) contextual internal links
     others = [o for o in others if o.get("slug") and o["slug"] != slug]
     linked = {o["slug"] for o in others if f"/blog/{o['slug']})" in c}
@@ -697,7 +719,8 @@ def is_on_topic(keyword: str) -> bool:
 def redirected_slugs() -> dict:
     """Posts merged into another post or removed in the October refresh (301s in frontend/public/_redirects)."""
     import blog_refresh  # lazy: blog_refresh imports pseo
-    return {**blog_refresh.MERGED, **blog_refresh.REMOVED}
+    import keyword_boosts  # lazy: keyword_boosts imports pseo
+    return {**blog_refresh.MERGED, **blog_refresh.REMOVED, **keyword_boosts.DUPLICATE_REDIRECTS}
 
 
 def index_status(post: dict) -> str:
@@ -705,6 +728,9 @@ def index_status(post: dict) -> str:
     "noindex" when it is off-topic for the site (page stays reachable but asks search engines not to index it)."""
     if post.get("redirect_to") or post.get("slug") in redirected_slugs():
         return "redirect"
+    import keyword_boosts  # lazy: keyword_boosts imports pseo
+    if post.get("slug") in keyword_boosts.NOINDEX_SLUGS:
+        return "noindex"
     text = post.get("keyword") or post.get("title") or ""
     if text and off_topic_reason(text):
         return "noindex"

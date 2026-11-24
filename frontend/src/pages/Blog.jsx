@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, fmtDate, API_BASE } from "@/lib/api";
-import SubscribeBox from "@/components/SubscribeBox";
+import ReminderKit from "@/components/ReminderKit";
 import BlogHeader from "@/components/BlogHeader";
 
 function setMeta(name, content, attr = "name") {
@@ -64,7 +64,7 @@ export default function BlogPage() {
         </p>
       </div>
 
-      <SubscribeBox variant="card" placement="blog-index" />
+      <ReminderKit source="blog-index" placement="blog-index" />
 
       {(error || posts.length === 0) && (
         <div className="p-8 text-center text-muted-foreground">

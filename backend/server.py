@@ -17,6 +17,7 @@ from routes_blog import router as blog_router
 from routes_gsc import router as gsc_router
 from routes_blog import publish_due
 from routes_social import router as social_router
+from routes_leads import router as leads_router
 import social
 import pseo
 import seo_autopilot
@@ -96,6 +97,7 @@ app.include_router(social_router)
 app.include_router(growth_router)
 app.include_router(billing_router)
 app.include_router(brand_router)
+app.include_router(leads_router)
 app.include_router(clients_router)
 app.include_router(connect_router)
 

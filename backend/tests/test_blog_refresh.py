@@ -39,7 +39,8 @@ def test_every_post_gets_its_own_example_and_valid_facts():
 def test_redirects_match_plan():
     text = open(os.path.join(ROOT, "frontend/public/_redirects")).read()
     rules = dict(re.findall(r"^/blog/(\S+)\s+/blog/(\S+)\s+301!", text, re.M))
-    assert rules == {**br.MERGED, **br.REMOVED}
+    import keyword_boosts as kb
+    assert rules == {**br.MERGED, **br.REMOVED, **kb.DUPLICATE_REDIRECTS}
     assert text.index("/blog/") < text.index("/*")  # must come before the SPA catch-all
 
 

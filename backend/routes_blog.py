@@ -205,7 +205,7 @@ async def publish_due() -> list:
         import keyword_boosts
         await keyword_boosts.queue_priority_keywords()
         boosted = (await keyword_boosts.apply_all() + await keyword_boosts.fix_seo_titles()
-                   + await keyword_boosts.apply_compare_links())
+                   + await keyword_boosts.apply_compare_links() + await keyword_boosts.apply_cleanup())
         if boosted:
             await _trigger_rebuild(f"keyword boosts: {', '.join(boosted)}"[:120])
             _indexnow_later([f"{pseo.SITE_URL}/blog/{s}" for s in boosted])

@@ -71,3 +71,36 @@ def test_compare_links_first_plain_mention_only_and_idempotent():
     assert "[Livestorm](https://livestorm.co) or [Livestorm](https://showupai.live/compare/livestorm)" in out
     assert "compare/webinarjam" not in out  # max 3 per post
     assert kb.link_compare_pages(out) == out
+
+
+def test_cleanup_noindex_and_duplicate_redirects():
+    assert pseo.index_status({"slug": "zero-knowledge-proof-certificates-for-webinars", "title": "Webinar certificates"}) == "noindex"
+    assert pseo.index_status({"slug": "building-a-webinar-content-hub-for-lead-nurturing", "title": "x"}) == "redirect"
+    assert pseo.index_status({"slug": "webinar-content-hubs-for-lead-nurturing", "title": "Webinar content hubs"}) == ""
+    for dup, kept in kb.DUPLICATE_REDIRECTS.items():
+        assert kept not in kb.DUPLICATE_REDIRECTS and dup not in kb.NOINDEX_SLUGS
+
+
+def test_cleanup_title_fix_and_links_are_idempotent():
+    post = {"slug": "international-webinar-localization-tactics", "keyword": "webinar localization tactics",
+            "title": "International Webinar Localization Tactics That Actually Boost",
+            "seo_title": "International Webinar Localization Tactics That Actually Boost", "content": "Plain."}
+    ch = kb.cleanup_changes(post)
+    assert ch["title"].endswith("Boost Attendance") and len(ch["seo_title"]) <= 60
+    assert kb.cleanup_changes({**post, **ch}) == {}
+
+    body = ("We moved from Hopin and Crowdcast to BigMarker.\n\n## Hopin pricing\n| Hopin | x |\n"
+            "See [old](https://showupai.live/blog/building-a-webinar-content-hub-for-lead-nurturing).")
+    p = {"slug": "demio-alternatives", "keyword": "demio alternatives", "title": "Demio alternatives", "content": body}
+    new = kb.cleanup_changes(p)["content"]
+    assert "[Hopin](https://showupai.live/blog/airmeet-vs-hopin) and [Crowdcast](https://showupai.live/blog/crowdcast-alternatives)" in new
+    assert "[BigMarker]" not in new.split("\n")[0]  # max 2 in-text links per post
+    assert "## Hopin pricing" in new and "| Hopin | x |" in new
+    assert "/blog/webinar-content-hubs-for-lead-nurturing)" in new
+    assert new.count(kb._RELATED_MARK) == 1 and "/blog/demio-vs-webinarjam)" in new
+    assert kb.cleanup_changes({**p, "content": new}) == {}
+    # the target post does not link to itself; noindexed posts get no new links
+    own = kb.cleanup_changes({"slug": "crowdcast-alternatives", "keyword": "crowdcast alternatives", "title": "t",
+                              "content": "Crowdcast is fine."})
+    assert "crowdcast-alternatives)" not in own.get("content", "").split("**Related")[0]
+    assert kb.cleanup_changes({"slug": "leveraging-webinar-polls-for-seo", "title": "t", "content": "Hopin."}) == {}
