@@ -9,6 +9,9 @@
 /blog/webinar-registration-optimization  /blog/how-to-increase-webinar-registrations  301!
 /blog/effective-webinar-promotion-tactics  /blog/webinar-promotion-checklist  301!
 /blog/webinar-attendance-benchmarks-by-industry  /blog/webinar-statistics  301!
+# Near-duplicate posts (Nov 2026 cleanup, backend/keyword_boosts.py DUPLICATE_REDIRECTS)
+/blog/building-a-webinar-content-hub-for-lead-nurturing  /blog/webinar-content-hubs-for-lead-nurturing  301!
+/blog/optimizing-webinar-cta-placement-for-sales  /blog/optimizing-webinar-cta-placement-for-maximum-click-through  301!
 
 /sitemap.xml  https://showup-backend-2bfj.onrender.com/api/sitemap.xml  200
 /*    /spa.html   200

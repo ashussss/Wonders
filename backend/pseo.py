@@ -719,7 +719,8 @@ def is_on_topic(keyword: str) -> bool:
 def redirected_slugs() -> dict:
     """Posts merged into another post or removed in the October refresh (301s in frontend/public/_redirects)."""
     import blog_refresh  # lazy: blog_refresh imports pseo
-    return {**blog_refresh.MERGED, **blog_refresh.REMOVED}
+    import keyword_boosts  # lazy: keyword_boosts imports pseo
+    return {**blog_refresh.MERGED, **blog_refresh.REMOVED, **keyword_boosts.DUPLICATE_REDIRECTS}
 
 
 def index_status(post: dict) -> str:
@@ -727,6 +728,9 @@ def index_status(post: dict) -> str:
     "noindex" when it is off-topic for the site (page stays reachable but asks search engines not to index it)."""
     if post.get("redirect_to") or post.get("slug") in redirected_slugs():
         return "redirect"
+    import keyword_boosts  # lazy: keyword_boosts imports pseo
+    if post.get("slug") in keyword_boosts.NOINDEX_SLUGS:
+        return "noindex"
     text = post.get("keyword") or post.get("title") or ""
     if text and off_topic_reason(text):
         return "noindex"

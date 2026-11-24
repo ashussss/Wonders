@@ -347,3 +347,137 @@ async def apply_compare_links() -> list:
     if changed:
         logger.info(f"compare links added to {len(changed)} posts")
     return changed
+
+
+# ── 2026-11-24 cleanup (OpenSEO audit + GSC) ─────────────────────────────────────────────────────────────────────────
+# Near-duplicate posts that split the same query: the duplicate 301s to the kept post (also in frontend/public/_redirects),
+# drops out of the sitemap, and links to it in other posts are pointed at the kept post.
+DUPLICATE_REDIRECTS = {
+    "building-a-webinar-content-hub-for-lead-nurturing": "webinar-content-hubs-for-lead-nurturing",
+    "optimizing-webinar-cta-placement-for-sales": "optimizing-webinar-cta-placement-for-maximum-click-through",
+}
+
+# Posts that pass the keyword topic guard (they say "webinar") but are not something ShowUpAI's buyers search for.
+# They stay reachable but carry noindex and leave the sitemap, so Google spends its crawl on the attendance posts.
+NOINDEX_SLUGS = frozenset({
+    "zero-knowledge-proof-certificates-for-webinars",
+    "scaling-on-demand-webinar-libraries-with-auto-generated-micro-certificates",
+    "tiered-content-delivery-for-hybrid-webinars",
+    "measuring-partner-brand-lift-from-joint-webinars",
+    "linking-webinar-poll-data-to-skill-gap-analysis",
+    "dynamic-video-thumbnail-generation-for-webinars",
+    "using-ai-to-generate-webinar-slide-alt-text",
+    "leveraging-webinar-polls-for-seo",
+    "automating-webinar-video-seo-metadata",
+    "multi-language-ai-moderation-for-global-webinars",
+    "benchmarking-webinar-poll-response-rates-across-platforms",
+})
+
+# Titles that were cut mid-phrase by the generator ("... Tactics That Actually Boost").
+TITLE_FIXES = {
+    "international-webinar-localization-tactics": (
+        "International Webinar Localization Tactics That Boost Attendance",
+        "Webinar Localization Tactics That Boost Attendance",
+    ),
+}
+
+# Pages Search Console shows closest to page 1 (positions ~5-45, 2026-11-24). The first plain mention of the name in
+# another indexable post links to them, so they get internal links from the rest of the blog.
+NEAR_PAGE1_LINKS = [
+    ("Hopin", "airmeet-vs-hopin"),
+    ("Crowdcast", "crowdcast-alternatives"),
+    ("BigMarker", "bigmarker-alternatives"),
+    ("EasyWebinar", "easywebinar-alternatives"),
+    ("ClickMeeting", "clickmeeting-alternatives"),
+]
+_MAX_NEAR_PAGE1_LINKS = 2
+# Comparison posts also get one "Related comparisons" line pointing at these (minus themselves).
+RELATED_COMPARISONS = [
+    ("Airmeet vs Hopin", "airmeet-vs-hopin"),
+    ("Demio vs WebinarJam", "demio-vs-webinarjam"),
+    ("Crowdcast alternatives", "crowdcast-alternatives"),
+    ("BigMarker alternatives", "bigmarker-alternatives"),
+    ("EasyWebinar alternatives", "easywebinar-alternatives"),
+]
+_RELATED_MARK = "**Related comparisons:**"
+
+
+def _is_comparison(slug: str) -> bool:
+    return slug.endswith("-alternatives") or "-vs-" in slug
+
+
+def link_near_page1(content: str, own_slug: str) -> str:
+    """Link the first plain mention of each NEAR_PAGE1_LINKS name (body text only, not headings, tables, code or
+    existing links) to its post; skips the post's own slug and posts it already links to. At most 2 per post."""
+    import re
+    content = content or ""
+    done = {s for _, s in NEAR_PAGE1_LINKS if s == own_slug or f"/blog/{s})" in content or f"/blog/{s}/)" in content}
+    added = 0
+    lines = content.split("\n")
+    in_code = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+        if in_code or added >= _MAX_NEAR_PAGE1_LINKS or line.lstrip().startswith(("#", "|", ">")) or not line.strip():
+            continue
+        for name, slug in NEAR_PAGE1_LINKS:
+            if slug in done or added >= _MAX_NEAR_PAGE1_LINKS:
+                continue
+            spans = [m.span() for m in re.finditer(r"\[[^\]]*\]\([^)]*\)|`[^`]*`", line)]
+            for m in re.finditer(rf"(?<![\w/.-]){re.escape(name)}(?![\w-])", line):
+                if any(a <= m.start() < b for a, b in spans):
+                    continue
+                line = f"{line[:m.start()]}[{name}]({SITE}/blog/{slug}){line[m.end():]}"
+                done.add(slug)
+                added += 1
+                break
+        lines[i] = line
+    return "\n".join(lines)
+
+
+def add_related_comparisons(content: str, own_slug: str) -> str:
+    """Append one 'Related comparisons' line to a comparison post (once)."""
+    content = content or ""
+    if not _is_comparison(own_slug) or _RELATED_MARK in content:
+        return content
+    links = [f"[{t}]({SITE}/blog/{s})" for t, s in RELATED_COMPARISONS if s != own_slug]
+    return content.rstrip() + f"\n\n{_RELATED_MARK} " + " · ".join(links) + "\n"
+
+
+def cleanup_changes(post: dict) -> dict:
+    """Fields to change on `post` for the 2026-11-24 cleanup ({} when nothing is left to do)."""
+    import blog_refresh
+    slug = post.get("slug", "")
+    changes = {}
+    if slug in TITLE_FIXES:
+        title, seo = TITLE_FIXES[slug]
+        if post.get("title") != title:
+            changes["title"] = title
+        if post.get("seo_title") != seo:
+            changes["seo_title"] = seo
+    if slug in DUPLICATE_REDIRECTS:
+        return changes
+    content = post.get("content") or ""
+    new = blog_refresh.retarget_links(content, DUPLICATE_REDIRECTS)
+    if not pseo.index_status(post):
+        new = add_related_comparisons(link_near_page1(new, slug), slug)
+    if new != content:
+        changes["content"] = new
+    return changes
+
+
+async def apply_cleanup() -> list:
+    """Apply cleanup_changes to every published post. Idempotent; backs a post up before its first change."""
+    changed = []
+    async for post in db.blog_posts.find({"published": True}, {"_id": 0}):
+        changes = cleanup_changes(post)
+        if not changes:
+            continue
+        if not await db.blog_posts_backup.find_one({"run_id": RUN_ID, "slug": post["slug"]}, {"_id": 1}):
+            await db.blog_posts_backup.insert_one({"run_id": RUN_ID, "slug": post["slug"], "reason": "cleanup 2026-11-24",
+                                                   "saved_at": pseo.now_iso(), "post": post})
+        await db.blog_posts.update_one({"slug": post["slug"]}, {"$set": {**changes, "updated_at": pseo.now_iso()}})
+        changed.append(post["slug"])
+    if changed:
+        logger.info(f"cleanup applied to {len(changed)} posts")
+    return changed
