@@ -19,10 +19,12 @@ def verify_pw(pw: str, hashed: str) -> bool:
     return bcrypt.checkpw(pw.encode(), hashed.encode())
 
 
-def make_token(uid: str) -> str:
-    return jwt.encode(
-        {"sub": uid, "exp": datetime.now(timezone.utc) + timedelta(days=14)},
-        JWT_SECRET, algorithm=JWT_ALG)
+def make_token(uid: str, agency_id: str = "") -> str:
+    """agency_id: the agency account working inside this client account (agency mode)."""
+    claims = {"sub": uid, "exp": datetime.now(timezone.utc) + timedelta(days=14)}
+    if agency_id:
+        claims["agency"] = agency_id
+    return jwt.encode(claims, JWT_SECRET, algorithm=JWT_ALG)
 
 
 async def get_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
@@ -35,6 +37,11 @@ async def get_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    if user.get("agency_id"):
+        # A client workspace: only its own agency may act in it, and it runs on the agency's plan.
+        if payload.get("agency") != user["agency_id"]:
+            raise HTTPException(401, "Switch to this client from your agency account")
+        user["_agency"] = await db.users.find_one({"id": user["agency_id"]}, {"_id": 0, "password": 0}) or {}
     return user
 
 
