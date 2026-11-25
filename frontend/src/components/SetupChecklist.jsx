@@ -32,10 +32,10 @@ export default function SetupChecklist({ webinarCount, onNewWebinar }) {
 
   if (hidden || !state) return null;
   const steps = [
-    { done: state.email, label: "Connect your email sender", hint: "Brevo, SendGrid or Mailchimp, so reminders reach registrants.", to: "/app/settings", cta: "Open Settings" },
-    { done: state.brand, label: "Add your logo and colours", hint: "Emails and post images go out in your brand.", to: "/app/brand", cta: "Open Brand Kit" },
-    { done: state.social, label: "Connect LinkedIn or Facebook", hint: "Promo posts publish on schedule without copy-paste.", to: "/app/integrations", cta: "Connect" },
-    { done: webinarCount > 0, label: "Create your first webinar", hint: "Paste the event link and AI writes every touch.", onClick: onNewWebinar, cta: "New webinar" },
+    { done: state.email, label: "Connect your email sender", hint: "Settings → Email: paste your Brevo (or SendGrid / Mailchimp) API key and a verified send-from address. About 3 minutes.", to: "/app/settings", cta: "Open Settings" },
+    { done: state.brand, label: "Add your logo and colours", hint: "Upload your logo and pick 2 colours. Every email and post image then uses them. About 1 minute.", to: "/app/brand", cta: "Open Brand Kit" },
+    { done: state.social, label: "Connect LinkedIn or Facebook", hint: "Click Connect, log in, press Allow. Stuck? Each card has a \"How to connect\" section with fixes.", to: "/app/integrations", cta: "Connect" },
+    { done: webinarCount > 0, label: "Create your first webinar", hint: "Paste your Zoom, Luma or event page link. AI writes every reminder and post for you to approve.", onClick: onNewWebinar, cta: "New webinar" },
   ];
   const doneCount = steps.filter(s => s.done).length;
   if (doneCount === steps.length) return null;

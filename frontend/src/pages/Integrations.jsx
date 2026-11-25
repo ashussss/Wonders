@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Check, Facebook, Instagram, Linkedin, Loader2, Plug, Unplug } from "@/components/Icons";
 import { useSearchParams } from "react-router-dom";
+import ConnectHelp, { friendlyConnectError } from "@/components/ConnectHelp";
 
 /**
  * Integrations — each user's own social OAuth connections.
@@ -18,6 +19,7 @@ export default function Integrations() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [failed, setFailed] = useState(""); // which card's help to open after a failed connect
   const [params, setParams] = useSearchParams();
 
   const load = useCallback(async () => {
@@ -25,7 +27,6 @@ export default function Integrations() {
       setLoading(true);
       const { data: d } = await api.get("/growth/integrations");
       setData(d);
-      setError("");
     } catch (e) {
       setError(e?.response?.data?.detail || "Could not load integrations.");
     } finally {
@@ -40,7 +41,10 @@ export default function Integrations() {
     const status = params.get("li_status");
     if (!status) return;
     if (status === "connected") setNotice("LinkedIn connected.");
-    if (status === "error") setError(params.get("li_detail") || params.get("li_error") || "LinkedIn connection failed.");
+    if (status === "error") {
+      setError(friendlyConnectError("linkedin", params.get("li_detail") || params.get("li_error")) || "LinkedIn connection failed.");
+      setFailed("linkedin");
+    }
     params.delete("li_status"); params.delete("li_error"); params.delete("li_detail");
     params.delete("li_name"); params.delete("li_sub");
     setParams(params, { replace: true });
@@ -50,7 +54,10 @@ export default function Integrations() {
     const status = params.get("meta_status");
     if (!status) return;
     if (status === "connected") setNotice("Facebook and Instagram connected.");
-    if (status === "error") setError(params.get("meta_error") || "Facebook connection failed.");
+    if (status === "error") {
+      setError(friendlyConnectError("facebook", params.get("meta_error")) || "Facebook connection failed.");
+      setFailed("facebook");
+    }
     params.delete("meta_status"); params.delete("meta_error");
     setParams(params, { replace: true });
   }, [params, setParams]);
@@ -135,6 +142,7 @@ export default function Integrations() {
         </h1>
         <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
           Connect your accounts once. Your webinar touches post to them automatically at their scheduled time.
+          Each connection takes under a minute. Open "How to connect" on a card if anything looks different.
         </p>
       </div>
 
@@ -217,6 +225,8 @@ export default function Integrations() {
             )}
           </div>
         )}
+
+        <ConnectHelp key={`li-${failed}`} which="linkedin" open={failed === "linkedin"} />
       </div>
 
       <div className="mt-6 rounded-2xl p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
@@ -295,6 +305,8 @@ export default function Integrations() {
             )}
           </div>
         )}
+
+        <ConnectHelp key={`fb-${failed}`} which="facebook" open={failed === "facebook"} />
       </div>
 
       {caps && (

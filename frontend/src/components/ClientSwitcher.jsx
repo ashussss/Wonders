@@ -49,7 +49,10 @@ export default function ClientSwitcher() {
     try {
       const r = await api.post(`/clients/${cid}/connect-link`);
       await navigator.clipboard.writeText(r.data.url).catch(() => {});
-      toast.success(`Connect link copied. Send it to the client (valid ${r.data.expires_in_days} days).`);
+      toast.success("Connect link copied", {
+        description: `Send it to the client on WhatsApp or email. They open it, click Connect on LinkedIn and Facebook, and paste their Brevo key. No ShowUp login needed. Works for ${r.data.expires_in_days} days.`,
+        duration: 9000,
+      });
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Couldn't make a link");
     }

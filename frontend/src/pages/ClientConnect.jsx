@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { API_BASE } from "@/lib/api";
+import ConnectHelp, { friendlyConnectError } from "@/components/ConnectHelp";
 
 // The page an agency's client opens to connect their own LinkedIn, Facebook Page
 // and email sender. No ShowUp login: the link itself says whose workspace it is.
@@ -44,7 +45,10 @@ export default function ClientConnect() {
   };
 
   const back = params.get("li_status") || params.get("meta_status");
-  const backErr = params.get("li_error") || params.get("meta_error");
+  const backWhich = params.get("li_status") ? "linkedin" : "facebook";
+  const backErr = friendlyConnectError(backWhich, params.get("li_detail") || params.get("li_error") || params.get("meta_error"));
+  const failed = back === "error" ? backWhich : "";
+  const doneCount = info ? [info.linkedin.connected, info.facebook.connected, info.email.connected].filter(Boolean).length : 0;
 
   const card = { background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "16px", padding: "18px" };
   const input = { width: "100%", padding: "9px 12px", borderRadius: "8px", fontSize: "14px", marginTop: "6px",
@@ -67,6 +71,17 @@ export default function ClientConnect() {
                 {info.agency_name || "Your agency"} runs your webinar promotion on ShowUp AI. Connect your accounts
                 here so posts and emails go out from you. Nothing is posted without being approved first.
               </p>
+              <div style={{ ...card, padding: "14px", marginTop: "14px" }}>
+                <div className="text-sm font-bold">3 quick steps, about 5 minutes ({doneCount} of 3 done)</div>
+                <ol className="text-xs mt-2 space-y-1" style={{ color: "var(--text-secondary)" }}>
+                  <li>1. LinkedIn: click Connect, log in, press Allow.</li>
+                  <li>2. Facebook Page: click Connect, tick your Page (and Instagram), keep every permission on.</li>
+                  <li>3. Email: paste your Brevo API key and the address you send from.</li>
+                </ol>
+                <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                  Each box has "How to connect, and fixes if it's stuck" if anything looks different. You can skip a step and come back to this link later.
+                </p>
+              </div>
             </div>
             {back === "connected" && <div style={{ ...card, ...done }}>Connected.</div>}
             {back === "error" && <div style={{ ...card, color: "#dc2626", fontSize: "13px" }}>{backErr || "That didn't connect. Try again."}</div>}
@@ -83,6 +98,7 @@ export default function ClientConnect() {
                   : <button style={btn} disabled={!!busy || !info.linkedin.configured} onClick={() => oauth("linkedin")}>
                       {busy === "linkedin" ? "Opening…" : "Connect"}</button>}
               </div>
+              {!info.linkedin.connected && <ConnectHelp which="linkedin" open={failed === "linkedin"} />}
             </div>
 
             <div style={card}>
@@ -98,6 +114,7 @@ export default function ClientConnect() {
                   : <button style={btn} disabled={!!busy || !info.facebook.configured} onClick={() => oauth("facebook")}>
                       {busy === "facebook" ? "Opening…" : "Connect"}</button>}
               </div>
+              {!info.facebook.connected && <ConnectHelp which="facebook" open={failed === "facebook"} />}
             </div>
 
             <form style={card} onSubmit={saveEmail}>
@@ -106,9 +123,9 @@ export default function ClientConnect() {
                 {info.email.connected && <span style={done}>✓ {info.email.sender_email}</span>}
               </div>
               <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                Emails go out from your own address through your Brevo account (the free plan is fine). In Brevo,
-                verify your domain first, then create an API key under SMTP & API.
+                Emails go out from your own address through your Brevo account (the free plan is fine).
               </p>
+              {!info.email.connected && <ConnectHelp which="email" />}
               <label className="block text-xs font-semibold mt-3">Brevo API key
                 <input style={input} type="password" autoComplete="off" value={email.api_key} placeholder="xkeysib-…"
                   onChange={e => setEmail({ ...email, api_key: e.target.value })} required /></label>

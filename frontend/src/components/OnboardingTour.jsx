@@ -39,7 +39,7 @@ const ALL_STEPS = [
   {
     id: "integrations",
     title: "4. Connect LinkedIn and Facebook",
-    body: "Integrations: click Connect and log in. Each card has a \"Stuck?\" section with fixes for the usual errors (password, missing Page, Instagram not linked).",
+    body: "Integrations: click Connect and log in. Each card has a \"How to connect\" section with fixes for the usual errors (password, missing Page, Instagram not linked).",
     target: "[data-testid='nav-integrations']",
     position: "right",
   },
@@ -86,12 +86,9 @@ function getTargetRect(selector) {
   const el = document.querySelector(selector);
   if (!el) return null;
   const rect = el.getBoundingClientRect();
-  return {
-    top: rect.top + window.scrollY,
-    left: rect.left + window.scrollX,
-    width: rect.width,
-    height: rect.height,
-  };
+  // Viewport coordinates: the highlight and tooltip are position: fixed, so they
+  // line up with the target no matter which container the tour is rendered in.
+  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
 function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) {
@@ -109,17 +106,17 @@ function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) 
     };
   } else if (step.position === "right" && targetRect) {
     style = {
-      position: "absolute",
-      top: targetRect.top + targetRect.height / 2 - 80,
+      position: "fixed",
+      top: Math.max(16, Math.min(window.innerHeight - 280, targetRect.top + targetRect.height / 2 - 80)),
       left: targetRect.left + targetRect.width + 16,
       zIndex: 10001,
       width: "300px",
     };
   } else if (step.position === "bottom" && targetRect) {
     style = {
-      position: "absolute",
+      position: "fixed",
       top: targetRect.top + targetRect.height + 12,
-      left: Math.max(16, targetRect.left - 80),
+      left: Math.max(16, Math.min(window.innerWidth - 336, targetRect.left - 80)),
       zIndex: 10001,
       width: "320px",
     };
@@ -223,12 +220,24 @@ export default function OnboardingTour({ forceShow = false }) {
     const rect = getTargetRect(step.target);
     setTargetRect(rect);
 
-    // Scroll element into view
+    // Scroll element into view, then re-measure once it has settled.
+    let t;
     if (step.target) {
       const el = document.querySelector(step.target);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        t = setTimeout(() => setTargetRect(getTargetRect(step.target)), 450);
+      }
     }
-  }, [index, active]);
+    const remeasure = () => setTargetRect(getTargetRect(step.target));
+    window.addEventListener("resize", remeasure);
+    window.addEventListener("scroll", remeasure, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", remeasure);
+      window.removeEventListener("scroll", remeasure, true);
+    };
+  }, [index, active, STEPS]);
 
   const finish = () => {
     try { localStorage.setItem(TOUR_KEY, "1"); } catch {}
@@ -273,7 +282,7 @@ export default function OnboardingTour({ forceShow = false }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           style={{
-            position: "absolute",
+            position: "fixed",
             top: targetRect.top - 6,
             left: targetRect.left - 6,
             width: targetRect.width + 12,
