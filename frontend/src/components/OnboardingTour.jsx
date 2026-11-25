@@ -46,7 +46,7 @@ const ALL_STEPS = [
   {
     id: "create",
     title: "5. Add your webinar",
-    body: "Click \"Add from Link\" and paste your Zoom, Luma or event page link. ShowUp fills in the details and writes the full reminder sequence.",
+    body: "Click \"Add from Link\" and paste your Zoom, Luma or event page link. ShowUp fills in the details and writes the full reminder sequence. Then open the webinar and click \"Add contacts\" to add people one by one or from a CSV.",
     target: "[data-testid='create-webinar-btn']",
     position: "bottom",
   },
