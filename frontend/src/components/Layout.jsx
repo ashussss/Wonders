@@ -27,6 +27,7 @@ export default function Layout() {
   const loc = useLocation();
   const nav = useNavigate();
   const [openMobile, setOpenMobile] = useState(false);
+  const restartTour = useRestartTour();
 
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
@@ -162,6 +163,11 @@ export default function Layout() {
             {isDark ? <Sun size={14} /> : <Moon size={14} />}
           </button>
         </div>
+        <button data-testid="take-tour-btn" onClick={restartTour}
+          className="w-full mt-2 text-[11px] font-medium transition-colors hover:text-orange-500"
+          style={{ color: "var(--text-muted)" }}>
+          Take the tour
+        </button>
       </div>
     </>
   );

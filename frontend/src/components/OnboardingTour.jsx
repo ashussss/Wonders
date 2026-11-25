@@ -4,62 +4,91 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const TOUR_KEY = "showup_tour_done";
 
-const STEPS = [
+// Each step points at a real menu item, in the order a new user sets up.
+// Steps whose target isn't on screen (e.g. the client switcher outside agency
+// mode) are skipped, so the tour never points at nothing.
+const ALL_STEPS = [
   {
     id: "welcome",
-    title: "Welcome to ShowUpAI! ⚡",
-    body: "Let's get you set up in 2 minutes. This quick tour will show you everything you need to double your webinar attendance.",
+    title: "Welcome to ShowUp AI",
+    body: "You add a webinar, AI writes every reminder and promo post, you approve, and ShowUp sends them on time. This tour shows where each step lives. It takes about a minute.",
     target: null,
     position: "center",
   },
   {
-    id: "dashboard",
-    title: "Your Control Room",
-    body: "This is your dashboard — see all your webinars, registrants, and attendance rates at a glance.",
-    target: "[data-testid='nav-dashboard']",
+    id: "clients",
+    title: "1. Pick whose work this is",
+    body: "Running webinars for clients? Switch to the client here first. Everything you add or connect then belongs to that client. Use \"Connect link\" to let the client connect their own LinkedIn, Facebook and email.",
+    target: "[data-testid='client-switcher']",
+    position: "right",
+  },
+  {
+    id: "brand",
+    title: "2. Add your logo and colours",
+    body: "Brand Kit: upload your logo and pick colours once. Every email and post image then goes out in your brand.",
+    target: "[data-testid='nav-brand']",
+    position: "right",
+  },
+  {
+    id: "settings",
+    title: "3. Connect your email sender",
+    body: "Settings → Email: paste your Brevo (or SendGrid / Mailchimp) API key and the address you send from. Without this, reminder emails can't go out.",
+    target: "[data-testid='nav-settings']",
+    position: "right",
+  },
+  {
+    id: "integrations",
+    title: "4. Connect LinkedIn and Facebook",
+    body: "Integrations: click Connect and log in. Each card has a \"How to connect\" section with fixes for the usual errors (password, missing Page, Instagram not linked).",
+    target: "[data-testid='nav-integrations']",
     position: "right",
   },
   {
     id: "create",
-    title: "Create Your First Webinar",
-    body: "Click '+ New Webinar' or '🔗 Add from Link' to paste any webinar URL. ShowUpAI will auto-fill the details and generate your 8-touch AI sequence.",
+    title: "5. Add your webinar",
+    body: "Click \"Add from Link\" and paste your Zoom, Luma or event page link. ShowUp fills in the details and writes the full reminder sequence. Then open the webinar and click \"Add contacts\" to add people one by one or from a CSV.",
     target: "[data-testid='create-webinar-btn']",
     position: "bottom",
   },
   {
     id: "approvals",
-    title: "Approve AI Copy",
-    body: "AI writes 8 different touches — confirmation, insight, poll, case study and more. You review and approve before anything goes out.",
+    title: "6. Approve before anything goes out",
+    body: "Approvals: read each email and post, edit if you like, then approve. Nothing is sent without your OK.",
     target: "[data-testid='nav-approvals']",
     position: "right",
   },
   {
-    id: "settings",
-    title: "Connect Your Channels",
-    body: "Go to Settings to connect Brevo (email), Circle.so, WhatsApp and more. Takes 2 minutes — then everything sends automatically.",
-    target: "[data-testid='nav-settings']",
+    id: "schedule",
+    title: "7. See what goes out when",
+    body: "Schedule shows every approved touch on a calendar. Analytics and Email Stats show opens, clicks and who showed up.",
+    target: "[data-testid='nav-schedule']",
     position: "right",
   },
   {
     id: "done",
-    title: "You're ready! 🎉",
-    body: "Create your first webinar and watch your attendance climb. Need help? The tour is always available from the menu.",
+    title: "You're ready",
+    body: "Start with the \"Get set up\" checklist on your dashboard. You can replay this tour any time from \"Take the tour\" at the bottom of the menu.",
     target: null,
     position: "center",
   },
 ];
+
+function visibleSteps() {
+  return ALL_STEPS.filter(s => {
+    if (!s.target) return true;
+    const el = document.querySelector(s.target);
+    return !!el && el.getClientRects().length > 0;
+  });
+}
 
 function getTargetRect(selector) {
   if (!selector) return null;
   const el = document.querySelector(selector);
   if (!el) return null;
   const rect = el.getBoundingClientRect();
-  return {
-    top: rect.top + window.scrollY,
-    left: rect.left + window.scrollX,
-    width: rect.width,
-    height: rect.height,
-  };
+  // Viewport coordinates: the highlight and tooltip are position: fixed, so they
+  // line up with the target no matter which container the tour is rendered in.
+  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
 function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) {
@@ -77,17 +106,17 @@ function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) 
     };
   } else if (step.position === "right" && targetRect) {
     style = {
-      position: "absolute",
-      top: targetRect.top + targetRect.height / 2 - 80,
+      position: "fixed",
+      top: Math.max(16, Math.min(window.innerHeight - 280, targetRect.top + targetRect.height / 2 - 80)),
       left: targetRect.left + targetRect.width + 16,
       zIndex: 10001,
       width: "300px",
     };
   } else if (step.position === "bottom" && targetRect) {
     style = {
-      position: "absolute",
+      position: "fixed",
       top: targetRect.top + targetRect.height + 12,
-      left: Math.max(16, targetRect.left - 80),
+      left: Math.max(16, Math.min(window.innerWidth - 336, targetRect.left - 80)),
       zIndex: 10001,
       width: "320px",
     };
@@ -124,7 +153,7 @@ function TooltipBox({ step, index, total, onNext, onPrev, onSkip, targetRect }) 
 
         {/* Progress dots */}
         <div className="flex gap-1.5 mt-4 mb-3">
-          {STEPS.map((_, i) => (
+          {Array.from({ length: total }).map((_, i) => (
             <div
               key={i}
               className="h-1 rounded-full transition-all"
@@ -173,12 +202,15 @@ export default function OnboardingTour({ forceShow = false }) {
   const [active, setActive] = useState(false);
   const [index, setIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
+  const [STEPS, setSteps] = useState(ALL_STEPS);
 
   useEffect(() => {
-    const done = localStorage.getItem(TOUR_KEY);
+    let done = null;
+    try { done = localStorage.getItem(TOUR_KEY); } catch {}
     if (!done || forceShow) {
       // Small delay so dashboard renders first
-      setTimeout(() => setActive(true), 800);
+      const t = setTimeout(() => { setSteps(visibleSteps()); setIndex(0); setActive(true); }, 800);
+      return () => clearTimeout(t);
     }
   }, [forceShow]);
 
@@ -188,15 +220,27 @@ export default function OnboardingTour({ forceShow = false }) {
     const rect = getTargetRect(step.target);
     setTargetRect(rect);
 
-    // Scroll element into view
+    // Scroll element into view, then re-measure once it has settled.
+    let t;
     if (step.target) {
       const el = document.querySelector(step.target);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        t = setTimeout(() => setTargetRect(getTargetRect(step.target)), 450);
+      }
     }
-  }, [index, active]);
+    const remeasure = () => setTargetRect(getTargetRect(step.target));
+    window.addEventListener("resize", remeasure);
+    window.addEventListener("scroll", remeasure, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", remeasure);
+      window.removeEventListener("scroll", remeasure, true);
+    };
+  }, [index, active, STEPS]);
 
   const finish = () => {
-    localStorage.setItem(TOUR_KEY, "1");
+    try { localStorage.setItem(TOUR_KEY, "1"); } catch {}
     setActive(false);
   };
 
@@ -238,7 +282,7 @@ export default function OnboardingTour({ forceShow = false }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           style={{
-            position: "absolute",
+            position: "fixed",
             top: targetRect.top - 6,
             left: targetRect.left - 6,
             width: targetRect.width + 12,
@@ -267,10 +311,10 @@ export default function OnboardingTour({ forceShow = false }) {
   );
 }
 
-// Hook to restart tour
+// Restart the tour. It lives on the dashboard, so go there.
 export function useRestartTour() {
   return () => {
-    localStorage.removeItem(TOUR_KEY);
-    window.location.reload();
+    try { localStorage.removeItem(TOUR_KEY); } catch {}
+    window.location.href = "/app";
   };
 }
