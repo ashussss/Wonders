@@ -268,6 +268,8 @@ async def get_webinar(wid: str, user=Depends(get_user)):
     w["attendee_count"] = await db.registrants.count_documents({"webinar_id": wid, "attended": True})
     w["attendance_rate"] = round((w["attendee_count"]/w["registrant_count"])*100, 1) if w["registrant_count"] else 0
     w["generation"] = {**(w.get("generation") or {}), "running": generation_running(wid)}
+    import partner_logo
+    w["partner_logo_url"] = partner_logo.logo_path(wid, w.get("partner_logo_hash") or "")
     return w
 
 
@@ -352,23 +354,58 @@ async def public_webinar(wid: str):
             "button_text_color": brand_kit.readable_on(brand["button_color"]) if brand.get("button_color") else ""}
 
 
-@router.post("/webinars/{wid}/registrants/import")
-async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
-    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
-        raise HTTPException(404)
-    inserted = 0
-    deduped = 0
-    for it in items:
-        existing = await db.registrants.find_one({"webinar_id": wid, "email": it.email.lower()})
-        if existing:
-            deduped += 1
+def _clean_contacts(rows: Any) -> tuple:
+    """Validate each row on its own. Before, the endpoints took List[RegistrantIn], so ONE
+    address that email-validator rejects (a typo like a..b@x.com, a reserved domain like
+    .test/.local, "<x@y.com>" pasted from Outlook) failed the whole request with a 422
+    and nobody was added. Now bad rows are skipped and reported back."""
+    if not isinstance(rows, list):
+        raise HTTPException(400, "Send a list of contacts")
+    good: List[RegistrantIn] = []
+    invalid: List[str] = []
+    for r in rows:
+        if isinstance(r, RegistrantIn):
+            good.append(r)
             continue
-        await db.registrants.insert_one({"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": user["id"],
-                                          "name": it.name, "email": it.email.lower(), "phone": it.phone,
-                                          "source": it.source or "linkedin_manual", "attended": False,
-                                          "registered_at": now_iso()})
-        inserted += 1
-    return {"inserted": inserted, "deduped": deduped}
+        if not isinstance(r, dict):
+            invalid.append(str(r)[:80])
+            continue
+        email = str(r.get("email") or "").strip().strip("<>").strip()
+        if email.lower().startswith("mailto:"):
+            email = email[7:]
+        try:
+            good.append(RegistrantIn(name=str(r.get("name") or email).strip()[:120] or email, email=email,
+                                     phone=(str(r["phone"]).strip() or None) if r.get("phone") else None,
+                                     source=str(r.get("source") or "form")[:40]))
+        except Exception:                                  # noqa: BLE001  (pydantic ValidationError)
+            invalid.append(email[:120] or str(r.get("name") or "")[:80])
+    return good, invalid
+
+
+@router.post("/webinars/{wid}/registrants/import")
+async def import_registrants(wid: str, rows: List[Any] = Body(...), user=Depends(get_user)):
+    if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
+        raise HTTPException(404, "Webinar not found in this workspace")
+    items, invalid = _clean_contacts(rows)
+    # One lookup and one insert_many for the whole batch (was 2 round trips per row).
+    seen, fresh = set(), []
+    for it in items:
+        e = it.email.lower()
+        if e not in seen:
+            seen.add(e)
+            fresh.append(it)
+    have = {d["email"] for d in await db.registrants.find(
+        {"webinar_id": wid, "email": {"$in": list(seen)}}, {"_id": 0, "email": 1}).to_list(None)}
+    docs = [{"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": user["id"],
+             "name": it.name, "email": it.email.lower(), "phone": it.phone,
+             "source": it.source or "linkedin_manual", "attended": False,
+             "registered_at": now_iso()} for it in fresh if it.email.lower() not in have]
+    inserted = await invites._insert_many(db.registrants, docs)
+    deduped = len(items) - inserted
+    if inserted:
+        await db.invitees.update_many({"webinar_id": wid, "email": {"$in": [d["email"] for d in docs]}},
+                                      {"$set": {"registered_at": now_iso()}})
+    return {"inserted": inserted, "deduped": deduped, "invalid": invalid}
 
 
 @router.get("/webinars/{wid}/invitees")
@@ -380,17 +417,18 @@ async def list_invitees(wid: str, user=Depends(get_user)):
 
 
 @router.post("/webinars/{wid}/invitees/import")
-async def import_invitees(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+async def import_invitees(wid: str, rows: List[Any] = Body(...), user=Depends(get_user)):
     """Add people who haven't registered yet. They get every email touch except the
     confirmation and the attendee thank-you (invites.INVITE_TOUCHES), with the registration
     link and an unsubscribe link, until they sign up and become registrants."""
     if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
-        raise HTTPException(404)
+        raise HTTPException(404, "Webinar not found in this workspace")
+    items, invalid = _clean_contacts(rows)
     existing = await db.invitees.count_documents({"webinar_id": wid})
     if existing + len(items) > invites.MAX_INVITEES:
         raise HTTPException(400, f"An invite list can hold up to {invites.MAX_INVITEES} people")
     out = await invites.import_invitees(db, wid, user["id"], [{"name": i.name, "email": i.email} for i in items])
-    return {**out, "summary": await invites.summary(db, wid)}
+    return {**out, "invalid": invalid, "summary": await invites.summary(db, wid)}
 
 
 @router.delete("/webinars/{wid}/invitees")
@@ -568,6 +606,42 @@ async def patch_touch(tid: str, data: TouchPatch, user=Depends(get_user)):
                                          custom_instructions=await brand_kit.voice_brief(db, user["id"]))
         await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": {"ai_copy": copy}})
     return {"ok": True}
+
+
+@router.post("/webinars/{wid}/touches/approve-all")
+async def approve_all_touches(wid: str, payload: dict = Body(default={}), user=Depends(get_user)):
+    """Approve every pending touch of a webinar in one go (the variant each one shows).
+
+    Touches whose send time has already passed are left pending unless include_past:
+    approving one with auto-send on sends it to everyone at once, which nobody expects
+    from a bulk button. Touches still being written (no copy yet) are skipped too."""
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not w:
+        raise HTTPException(404)
+    include_past = bool(payload.get("include_past"))
+    only = payload.get("touch_ids")
+    now = datetime.now(timezone.utc).isoformat()
+    q: Dict[str, Any] = {"webinar_id": wid, "owner_id": user["id"], "approval_status": "pending",
+                         "sent_status": {"$ne": "sent"}}
+    if isinstance(only, list) and only:
+        q["id"] = {"$in": [str(x) for x in only][:100]}
+    rows = await db.touches.find(q, {"_id": 0, "id": 1, "touch_num": 1, "scheduled_at": 1,
+                                     "ai_copy": 1, "selected_variant": 1}).to_list(100)
+    ids, past, no_copy = [], [], []
+    for t in rows:
+        if not (t.get("ai_copy") or {}).get("channels"):
+            no_copy.append(t["touch_num"])
+        elif t.get("scheduled_at") and t["scheduled_at"] <= now and not include_past:
+            past.append(t["touch_num"])
+        else:
+            ids.append(t["id"])
+    if ids:
+        await db.touches.update_many({"id": {"$in": ids}, "owner_id": user["id"]},
+                                     {"$set": {"approval_status": "approved", "approved_at": now_iso()}})
+        # A touch never given a variant goes out as the first one ("safe"), as the card shows.
+        await db.touches.update_many({"id": {"$in": ids}, "owner_id": user["id"], "selected_variant": None},
+                                     {"$set": {"selected_variant": 0}})
+    return {"ok": True, "approved": len(ids), "skipped_past": sorted(past), "skipped_no_copy": sorted(no_copy)}
 
 
 @router.post("/touches/{tid}/regenerate")
@@ -834,7 +908,7 @@ async def ai_insights(wid: str, user=Depends(get_user)):
 # ══════════════════════════════════════════════
 # BANNER UPLOAD
 # ══════════════════════════════════════════════
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Form
 from database import social_images_fs
 
 @router.post("/webinars/{wid}/banner")
@@ -942,6 +1016,73 @@ async def delete_banner(wid: str, user=Depends(get_user)):
     await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
                                  {"$unset": {"banner_url": "", "banner_hash": "", "event_theme": ""}})
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════
+# PARTNER LOGO (the company running / co-hosting the webinar)
+# ══════════════════════════════════════════════
+@router.post("/webinars/{wid}/partner-logo")
+async def upload_partner_logo(wid: str, file: UploadFile = File(None), name: str = Form(None),
+                              user=Depends(get_user)):
+    """Second logo on every card and creative of this webinar, next to the Brand Kit logo.
+    Send a file, or only `name` to show the partner's name in text (or rename it)."""
+    import partner_logo
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    if file is None:
+        if name is None:
+            raise HTTPException(400, "Choose a logo image")
+        await db.webinars.update_one({"id": wid, "owner_id": user["id"]},
+                                     {"$set": {"partner_name": name.strip()[:80]}})
+        return {"ok": True, "partner_name": name.strip()[:80],
+                "partner_logo_url": partner_logo.logo_path(wid, w.get("partner_logo_hash") or "")}
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Only image files allowed")
+    data = await file.read()
+    try:
+        out = await partner_logo.store(db, w, data, name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **out}
+
+
+@router.post("/webinars/{wid}/partner-logo/from-url")
+async def partner_logo_from_url(wid: str, payload: dict = Body(default={}), user=Depends(get_user)):
+    import event_art
+    import partner_logo
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    url = (payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "Paste the logo's image link")
+    try:
+        data = await event_art.download_image(url)
+        out = await partner_logo.store(db, w, data, payload.get("name"))
+    except (event_art.BannerError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **out}
+
+
+@router.delete("/webinars/{wid}/partner-logo")
+async def delete_partner_logo(wid: str, user=Depends(get_user)):
+    import partner_logo
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1})
+    if not w:
+        raise HTTPException(404)
+    await partner_logo.clear(db, wid)
+    return {"ok": True}
+
+
+@router.get("/webinars/{wid}/partner-logo.png")
+async def get_partner_logo(wid: str):
+    import partner_logo
+    from fastapi.responses import Response
+    data = await partner_logo.png(db, wid)
+    if not data:
+        raise HTTPException(404)
+    return Response(data, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ══════════════════════════════════════════════

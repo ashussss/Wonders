@@ -56,16 +56,32 @@ def _sched(touch, start, tz="Asia/Kolkata"):
     return asyncio.run(ai.compute_dynamic_schedule(start.isoformat(), touch, tz=tz))
 
 
+def _future_weekday(weekday, days_ahead=30):
+    """A start ~days_ahead out on a fixed weekday, so the test doesn't depend on today's date
+    (warm-ups that land on a weekend move to a weekday)."""
+    start = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).replace(hour=12, minute=30, second=0, microsecond=0)
+    return start + timedelta(days=(weekday - start.weekday()) % 7)
+
+
 def test_schedule_long_lead_time():
-    start = (datetime.now(timezone.utc) + timedelta(days=30)).replace(hour=12, minute=30, second=0, microsecond=0)
+    start = _future_weekday(2)  # Wednesday: 21 days before is a Wednesday too
     t2 = datetime.fromisoformat(_sched(2, start))
-    assert (start.date() - t2.date()).days in (21, 22)
+    assert (start.date() - t2.date()).days == 21
     assert t2.astimezone(touch_render.webinar_tz({"timezone": "Asia/Kolkata"})).hour == 9
     assert datetime.fromisoformat(_sched(8, start)) == start - timedelta(hours=24)
     assert datetime.fromisoformat(_sched(9, start)) == start - timedelta(hours=1)
     assert datetime.fromisoformat(_sched(12, start)) == start
     warm = [datetime.fromisoformat(_sched(n, start)) for n in range(2, 8)]
     assert warm == sorted(warm) and len({w.date() for w in warm}) == 6
+
+
+def test_weekend_warmup_moves_to_weekday():
+    start = _future_weekday(6)  # Sunday: 21 days before is a Sunday, so touch 2 moves to Monday
+    t2 = datetime.fromisoformat(_sched(2, start)).astimezone(touch_render.webinar_tz({"timezone": "Asia/Kolkata"}))
+    assert t2.weekday() == 0 and (start.date() - t2.date()).days == 20
+    for n in range(2, 8):
+        d = datetime.fromisoformat(_sched(n, start)).astimezone(touch_render.webinar_tz({"timezone": "Asia/Kolkata"}))
+        assert d.weekday() < 5
 
 
 def test_schedule_short_lead_time_never_bursts():
@@ -160,3 +176,24 @@ def test_confirmation_sent_on_registration(monkeypatch):
     assert fake.registrants.docs[0]["confirmation_sent_at"]
     # A second call does nothing.
     assert not asyncio.run(routes_delivery.send_confirmation("w1", "r1"))["ok"] and len(sent) == 1
+
+
+def test_first_name_from_messy_names_and_emails():
+    fn = touch_render.first_name
+    assert fn({"name": "ravi kumar"}) == "Ravi"
+    assert fn({"name": "Kumar, Ravi"}) == "Ravi"
+    assert fn({"name": "Dr. Anita Sharma"}) == "Anita"
+    assert fn({"name": "Mr Rahul"}) == "Rahul"
+    assert fn({"first_name": "PRIYA", "name": "x"}) == "Priya"
+    # No name: only a clear first.last address gives a name
+    assert fn({"name": "ravi.kumar@acme.com", "email": "ravi.kumar@acme.com"}) == "Ravi"
+    assert fn({"name": "", "email": "jane_doe@x.com"}) == "Jane"
+    assert fn({"name": "rk88@x.com", "email": "rk88@x.com"}) == ""
+    assert fn({"name": "info@x.com", "email": "info@x.com"}) == ""
+    assert fn({"name": "sales.team@x.com", "email": "sales.team@x.com"}) == ""
+
+
+def test_email_greets_by_first_name_from_email_when_no_name():
+    out = touch_render.render("Hi {{first_name}},", W, "email", {"name": "neha.gupta@x.com", "email": "neha.gupta@x.com"})
+    assert out == "Hi Neha,"
+    assert touch_render.render("Hi {{first_name}},", W, "email", {"name": "info@x.com", "email": "info@x.com"}) == "Hi there,"

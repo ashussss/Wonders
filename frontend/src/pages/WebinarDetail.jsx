@@ -288,6 +288,7 @@ export default function WebinarDetail() {
             </div>
           )}
 
+          <PartnerLogo webinar={w} onChange={reload} />
           <EventCreatives webinar={w} />
 
           {/* Description */}
@@ -520,8 +521,55 @@ function ShowUpScoreCard({ webinar }) {
 
 function PlanTab({ webinar, touches, onChange }) {
   const { isDark } = useTheme();
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const now = new Date().toISOString();
+  const pending = touches.filter(t => t.approval_status === "pending" && t.sent_status !== "sent");
+  const ready = pending.filter(t => t.ai_copy?.channels && Object.keys(t.ai_copy.channels).length);
+  const past = ready.filter(t => t.scheduled_at && t.scheduled_at <= now);
+  const willApprove = ready.length - past.length;
+
+  const approveAll = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/webinars/${webinar.id}/touches/approve-all`, {});
+      let msg = `Approved ${data.approved} touch${data.approved === 1 ? "" : "es"}`;
+      if (data.skipped_past?.length) msg += `. Left ${data.skipped_past.length} whose time has passed (touch ${data.skipped_past.join(", ")}): approve those one by one if you still want them sent now`;
+      if (data.skipped_no_copy?.length) msg += `. ${data.skipped_no_copy.length} still being written`;
+      toast.success(msg, { duration: 8000 });
+      setConfirm(false);
+      onChange();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Couldn't approve. Please try again."); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="space-y-4" data-testid="plan-timeline">
+      {pending.length > 0 && (
+        <div className="rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3"
+          style={{ border: "1px solid var(--border)", background: "var(--bg-surface)" }} data-testid="approve-all-bar">
+          <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {confirm
+              ? <>Approve <strong>{willApprove}</strong> touch{willApprove === 1 ? "" : "es"} with the copy shown on each card?
+                  {past.length > 0 && <> {past.length} whose send time has passed stay pending, so nothing goes out to everyone at once.</>}
+                  {" "}Touches with auto-post on will send at their time.</>
+              : <><strong>{pending.length}</strong> touch{pending.length === 1 ? "" : "es"} waiting for approval. Read them through, then approve all in one go.</>}
+          </div>
+          <div className="flex gap-2">
+            {confirm && (
+              <button onClick={() => setConfirm(false)} disabled={busy}
+                className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                Cancel
+              </button>
+            )}
+            <button onClick={() => (confirm ? approveAll() : setConfirm(true))} disabled={busy || willApprove === 0}
+              data-testid="approve-all-btn"
+              className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 flex items-center gap-2">
+              <Check size={14} /> {busy ? "Approving…" : confirm ? `Yes, approve ${willApprove}` : `Approve all (${willApprove})`}
+            </button>
+          </div>
+        </div>
+      )}
       {touches.map((t, idx) => <TouchCard key={t.id} touch={t} idx={idx} onChange={onChange} webinar={webinar} />)}
     </div>
   );
@@ -547,6 +595,8 @@ function TouchCard({ touch, onChange }) {
   };
   const approve = async () => { await api.patch(`/touches/${touch.id}`, { approval_status: "approved", selected_variant: variant }); toast.success("Approved ✓ — view in Content tab"); onChange("approved"); };
   const reject = async () => { await api.patch(`/touches/${touch.id}`, { approval_status: "rejected" }); onChange(); };
+  // Saved straight away, so "Approve all" sends the version you picked on each card.
+  const pickVariant = (v) => { setVariant(v); api.patch(`/touches/${touch.id}`, { selected_variant: v }).catch(() => {}); };
   const regen = async () => {
     toast.message("Regenerating with Claude…");
     await api.post(`/touches/${touch.id}/regenerate`, { custom_instructions: regenPrompt });
@@ -623,11 +673,11 @@ function TouchCard({ touch, onChange }) {
       {/* Variant */}
       <div className={`px-5 py-3 border-b flex gap-2 items-center ${isDark ? "border-white/[0.04]" : "border-gray-100"}`}>
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-600">Variant:</span>
-        <button data-testid={`touch-${touch.touch_num}-safe`} onClick={() => setVariant(0)}
+        <button data-testid={`touch-${touch.touch_num}-safe`} onClick={() => pickVariant(0)}
           className="text-xs px-3 py-1 rounded-full transition-all font-bold" style={variant === 0 ? { background: "#FFFFFF", color: "#000000" } : { color: "var(--text-muted)" }}>
           Safe / Professional
         </button>
-        <button data-testid={`touch-${touch.touch_num}-casual`} onClick={() => setVariant(1)}
+        <button data-testid={`touch-${touch.touch_num}-casual`} onClick={() => pickVariant(1)}
           className="text-xs px-3 py-1 rounded-full transition-all font-bold" style={variant === 1 ? { background: "#FFFFFF", color: "#000000" } : { color: "var(--text-muted)" }}>
           Casual / Urgent
         </button>
@@ -1591,7 +1641,7 @@ function ManualShare({ touchId, channel }) {
 function EventCreatives({ webinar }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
-  const key = `${webinar.id}:${webinar.banner_hash || ""}:${webinar.title}:${webinar.starts_at}`;
+  const key = `${webinar.id}:${webinar.banner_hash || ""}:${webinar.partner_logo_hash || ""}:${webinar.partner_name || ""}:${webinar.title}:${webinar.starts_at}`;
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -1625,6 +1675,88 @@ function EventCreatives({ webinar }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Second logo on every card and creative: the company running or co-hosting this
+// webinar, next to your own Brand Kit logo (host | partner).
+function PartnerLogo({ webinar, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(webinar.partner_name || "");
+  const [url, setUrl] = useState("");
+  useEffect(() => { setName(webinar.partner_name || ""); }, [webinar.partner_name]);
+  const muted = { color: "var(--text-muted)" };
+  const input = "rounded-lg px-2.5 py-1.5 text-xs focus:outline-none";
+  const inputStyle = { background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-primary)" };
+  const done = (msg) => { toast.success(msg); onChange && onChange(); };
+  const fail = (e) => toast.error(e?.response?.data?.detail || "Couldn't save the logo. Please try again.");
+
+  const upload = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Only image files allowed");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Max 5MB");
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("name", name);
+      await api.post(`/webinars/${webinar.id}/partner-logo`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      done("Partner logo added. Every card and creative now shows both logos.");
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  const fromUrl = async () => {
+    if (!url.trim()) return toast.error("Paste the logo's image link");
+    setBusy(true);
+    try { await api.post(`/webinars/${webinar.id}/partner-logo/from-url`, { url: url.trim(), name }); setUrl(""); done("Partner logo added."); }
+    catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  const saveName = async () => {
+    if ((webinar.partner_name || "") === name.trim()) return;
+    try {
+      const fd = new FormData();
+      fd.append("name", name.trim());
+      await api.post(`/webinars/${webinar.id}/partner-logo`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      done("Saved");
+    } catch (e) { fail(e); }
+  };
+  const remove = async () => {
+    try { await api.delete(`/webinars/${webinar.id}/partner-logo`); setName(""); done("Partner logo removed"); }
+    catch (e) { fail(e); }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl p-4" data-testid="partner-logo" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <span className="text-sm font-bold">Partner logo</span>
+        {(webinar.partner_logo_url || webinar.partner_name) && (
+          <button onClick={remove} className="text-[11px] font-semibold" style={muted}>Remove</button>
+        )}
+      </div>
+      <p className="text-xs mb-3" style={muted}>
+        Running this webinar with another company? Their logo goes next to yours on every card and creative.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {webinar.partner_logo_url && (
+          <img src={`${API_BASE}${webinar.partner_logo_url.replace(/^\/api/, "")}`} alt="Partner logo"
+            className="h-9 max-w-[140px] object-contain rounded" style={{ background: "#fff", padding: 4 }} />
+        )}
+        <input value={name} onChange={e => setName(e.target.value)} onBlur={saveName} placeholder="Company name"
+          className={`${input} w-40`} style={inputStyle} data-testid="partner-name" />
+        <label className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
+          style={{ border: "1px dashed var(--border)", color: "var(--text-secondary)" }}>
+          <Upload size={12} /> {busy ? "Saving…" : webinar.partner_logo_url ? "Change logo" : "Upload logo"}
+          <input type="file" accept="image/*" className="hidden" disabled={busy}
+            onChange={e => { upload(e.target.files?.[0]); e.target.value = ""; }} data-testid="partner-file" />
+        </label>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="or paste logo image link"
+          className={`${input} flex-1 min-w-[160px]`} style={inputStyle} />
+        {url.trim() && (
+          <button onClick={fromUrl} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-50">
+            Use link
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -54,6 +54,18 @@ export default function ApprovalQueue() {
     }
   };
 
+  const approveGroup = async (wid, count) => {
+    try {
+      const { data } = await api.post(`/webinars/${wid}/touches/approve-all`, {});
+      let msg = `Approved ${data.approved} of ${count}`;
+      if (data.skipped_past?.length) msg += `. ${data.skipped_past.length} whose time has passed stay here, approve them one by one if you still want them sent now`;
+      toast.success(msg, { duration: 8000 });
+      load(filterWebinar);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't approve. Please try again.");
+    }
+  };
+
   const reject = async (t) => {
     try {
       await api.patch(`/touches/${t.id}`, { approval_status: "rejected" });
@@ -162,6 +174,10 @@ export default function ApprovalQueue() {
                   {group.touches.length}
                 </span>
               </Link>
+              <button onClick={() => approveGroup(wid, group.touches.length)} data-testid={`q-approve-all-${wid}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors">
+                <Check size={12} /> Approve all {group.touches.length}
+              </button>
               <div className="h-px flex-1" style={{ background: "var(--border)" }} />
             </div>
 
@@ -185,7 +201,7 @@ export default function ApprovalQueue() {
 }
 
 function QueueCard({ t, onApprove, onReject }) {
-  const [variant, setVariant] = useState(0);
+  const [variant, setVariant] = useState(t.selected_variant ?? 0);
   const variantKey = variant === 0 ? "safe" : "casual";
   const aiCh = t.ai_copy?.channels || {};
   const emailCopy = aiCh.email?.[variantKey];
@@ -211,7 +227,7 @@ function QueueCard({ t, onApprove, onReject }) {
         </div>
         <div className="flex items-center gap-1.5">
           {["Safe", "Casual"].map((label, idx) => (
-            <button key={label} onClick={() => setVariant(idx)}
+            <button key={label} onClick={() => { setVariant(idx); api.patch(`/touches/${t.id}`, { selected_variant: idx }).catch(() => {}); }}
               data-testid={`q-${t.id}-${label.toLowerCase()}`}
               className="text-xs px-3 py-1.5 rounded-full transition-all font-bold"
               style={variant === idx

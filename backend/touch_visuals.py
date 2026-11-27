@@ -60,7 +60,8 @@ def card_spec(touch_num: int, kit: Optional[Dict[str, Any]], w: Dict[str, Any],
 def event_brand(w: Dict[str, Any], brand: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """The host's brand (logo, font, name), in the event's colours when the webinar has
     a banner: cards then look like the event they promote."""
-    cb = brand_kit.card_brand(brand)
+    import partner_logo
+    cb = {**brand_kit.card_brand(brand), **partner_logo.card_fields(w)}
     if w.get("event_theme"):
         cb = {**cb, "theme": w["event_theme"]}
     return cb
@@ -161,12 +162,21 @@ def _panel(d, si, t, label, text, top, bottom, label_color, fill, text_kind="sem
     si._text_block(d, text, f, PAD + 40, top + 82, W - 2 * PAD - 80, si._hex(t["fg"]), lh, max_lines=5)
 
 
-def _brand_mark(img, d, si, t, brand: Dict[str, Any], logo_png: Optional[bytes]):
-    """The customer's logo (or name) in the top-right corner, their tagline under it."""
+def _brand_mark(img, d, si, t, brand: Dict[str, Any], logo_png: Optional[bytes],
+                partner_png: Optional[bytes] = None):
+    """The customer's logo (or name) in the top-right corner, their tagline under it.
+    With a webinar partner, both logos side by side: host | partner."""
     from PIL import Image
     bottom = 0
     drawn = False
     tagline = (brand.get("tagline") or "").strip()
+    if partner_png or brand.get("partner_name"):
+        import partner_logo
+        lock = partner_logo.lockup(si, t, brand, logo_png, partner_png, 520, 56 if tagline else 70)
+        if lock is not None:
+            img.alpha_composite(lock, (W - PAD - lock.width, PAD + 25 - lock.height // 2))
+            bottom = PAD + 25 + (lock.height + 1) // 2
+            logo_png, drawn = None, True
     if logo_png:
         try:
             logo = Image.open(io.BytesIO(logo_png)).convert("RGBA")
@@ -200,16 +210,16 @@ def _powered_by(img, d, si, t):
 
 
 def render_card(spec: Dict[str, Any], logo_png: Optional[bytes] = None,
-                fonts: Optional[Dict[str, str]] = None) -> bytes:
+                fonts: Optional[Dict[str, str]] = None, partner_png: Optional[bytes] = None) -> bytes:
     from blog_cover import FONT_OVERRIDE
     token = FONT_OVERRIDE.set(fonts or None)
     try:
-        return _render_card(spec, logo_png)
+        return _render_card(spec, logo_png, partner_png)
     finally:
         FONT_OVERRIDE.reset(token)
 
 
-def _render_card(spec: Dict[str, Any], logo_png: Optional[bytes]) -> bytes:
+def _render_card(spec: Dict[str, Any], logo_png: Optional[bytes], partner_png: Optional[bytes] = None) -> bytes:
     from PIL import Image, ImageDraw
     import social_images as si
 
@@ -217,7 +227,7 @@ def _render_card(spec: Dict[str, Any], logo_png: Optional[bytes]) -> bytes:
     t, accent, on_accent = _colors(spec["seed"], brand.get("theme"))
     img = Image.new("RGBA", (W, H), si._hex(t["bg"]))
     d = ImageDraw.Draw(img)
-    _brand_mark(img, d, si, t, brand, logo_png)
+    _brand_mark(img, d, si, t, brand, logo_png, partner_png)
     y = _tag(d, si, spec["tag"], accent) + 50
     bottom = _footer(d, si, t, accent, spec["footer"])
     if brand.get("powered_by", True):
@@ -302,7 +312,9 @@ async def ensure_visual(db, bucket, t: Dict[str, Any], w: Dict[str, Any],
     try:
         logo = await brand_kit.logo_png(db, owner) if spec["brand"]["logo_hash"] else None
         fonts = await brand_kit.font_paths_async(spec["brand"]["font"])
-        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_card, spec, logo, fonts)
+        import partner_logo
+        partner = await partner_logo.png(db, w["id"]) if spec["brand"].get("partner_hash") else None
+        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_card, spec, logo, fonts, partner)
     except Exception as e:  # noqa: BLE001
         logger.error(f"touch card {t['id']} ({spec['kind']}) failed: {e}", exc_info=True)
         return row

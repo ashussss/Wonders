@@ -310,7 +310,7 @@ class TestPerTouchChannelFiring:
 # ---------- AGENTS.md ----------
 class TestAgentsDoc:
     def test_agents_md_exists_and_valid(self):
-        p = "/app/AGENTS.md"
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "AGENTS.md")
         assert os.path.exists(p)
         with open(p) as f:
             content = f.read()

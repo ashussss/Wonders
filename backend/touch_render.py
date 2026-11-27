@@ -71,12 +71,46 @@ def calendar_url(w: Dict[str, Any]) -> str:
     return f"https://calendar.google.com/calendar/render?{q}"
 
 
-def first_name(registrant: Optional[Dict[str, Any]]) -> str:
-    name = ((registrant or {}).get("name") or "").strip()
-    if not name or "@" in name:
+_TITLES = {"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "madam", "shri", "smt", "sri", "er", "ca", "adv"}
+# Shared inboxes: "Hi Info," reads worse than "Hi there,".
+_ROLE_INBOX = {"info", "admin", "sales", "contact", "hello", "hi", "support", "team", "office", "hr", "jobs",
+               "marketing", "mail", "enquiry", "enquiries", "inquiry", "accounts", "billing", "noreply", "no",
+               "help", "careers", "events", "webinar", "webinars", "the", "my", "mr", "mrs", "dr"}
+
+
+def _nice(word: str) -> str:
+    return word.capitalize() if word.islower() or word.isupper() else word
+
+
+def _first_from_email(email: str) -> str:
+    """ravi.kumar@x.com -> Ravi. Only when the address is clearly first.last style,
+    so rkumar88@ or info@ stay on "Hi there"."""
+    local = (email or "").split("@")[0].lower()
+    parts = [p for p in re.split(r"[._-]+", local) if p]
+    if len(parts) < 2:
         return ""
-    first = name.split()[0]
-    return first.capitalize() if first.islower() or first.isupper() else first
+    first = parts[0]
+    if not first.isalpha() or not 2 <= len(first) <= 15 or first in _ROLE_INBOX:
+        return ""
+    return first.capitalize()
+
+
+def first_name(registrant: Optional[Dict[str, Any]]) -> str:
+    r = registrant or {}
+    explicit = str(r.get("first_name") or "").strip()
+    if explicit and "@" not in explicit:
+        return _nice(explicit.split()[0])
+    name = str(r.get("name") or "").strip()
+    if name and "@" not in name:
+        if "," in name:                       # "Kumar, Ravi" (CRM exports)
+            last, _, rest = name.partition(",")
+            name = rest.strip() or last.strip()
+        for word in name.split():
+            w = word.strip(".,;:()\"'")
+            if not w or w.lower() in _TITLES or not any(ch.isalpha() for ch in w):
+                continue
+            return _nice(w)
+    return _first_from_email(str(r.get("email") or ""))
 
 
 def values(w: Dict[str, Any], registrant: Optional[Dict[str, Any]] = None,

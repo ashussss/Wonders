@@ -53,8 +53,7 @@ def test_original_campaign_passes_brief_facts_and_hook(monkeypatch):
         return None
 
     monkeypatch.setattr(queue, "build_campaign", fake_build)
-    asyncio.get_event_loop().run_until_complete(
-        queue.build_original_campaign("pain_point", seed="2026-11-03-1", visual_format="stat_card"))
+    asyncio.run(queue.build_original_campaign("pain_point", seed="2026-11-03-1", visual_format="stat_card"))
     assert seen["kind"] == "pain_point"
     assert "PILLAR:" in seen["angle_hint"] and "HOOK STYLE:" in seen["angle_hint"]
     assert "SOURCED FACTS (" in seen["fact_block"]

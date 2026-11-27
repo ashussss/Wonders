@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { EMAIL_RE, parseContacts } from "@/lib/contacts";
+import { EMAIL_RE, apiError, cleanEmail, parseContacts } from "@/lib/contacts";
 import { Check, Download, Upload, X } from "@/components/Icons";
 
 const TEMPLATE = "Name,Email,Phone\nJane Doe,jane@example.com,+44 7700 900123\nRavi Kumar,ravi@example.com,\n";
@@ -19,10 +19,11 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
+  const [progress, setProgress] = useState("");
 
   const items = how === "one"
-    ? (EMAIL_RE.test(one.email.trim())
-        ? [{ name: one.name.trim() || one.email.trim(), email: one.email.trim().toLowerCase(), phone: one.phone.trim() || null }]
+    ? (EMAIL_RE.test(cleanEmail(one.email))
+        ? [{ name: one.name.trim() || cleanEmail(one.email), email: cleanEmail(one.email).toLowerCase(), phone: one.phone.trim() || null }]
         : [])
     : parseContacts(text, kind === "invite" ? "invite" : "import");
 
@@ -46,15 +47,35 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
     if (!items.length) return toast.error(how === "one" ? "Enter a valid email address" : "No email addresses found");
     setBusy(true);
     try {
+      // Big CSVs go up in chunks so no single request runs into the server's time limit,
+      // and the button shows how far along it is.
+      const CHUNK = 500;
+      const src = kind === "invite" ? "invite" : "manual";
+      const path = kind === "invite" ? "invitees" : "registrants";
+      const d = { inserted: 0, deduped: 0, already_registered: 0, unsubscribed_before: 0, invalid: [] };
+      for (let i = 0; i < items.length; i += CHUNK) {
+        if (items.length > CHUNK) setProgress(`${Math.min(i + CHUNK, items.length)}/${items.length}`);
+        const { data: r } = await api.post(`/webinars/${webinar.id}/${path}/import`,
+          items.slice(i, i + CHUNK).map(x => ({ ...x, source: src })), { timeout: 120000 });
+        for (const k of ["inserted", "deduped", "already_registered", "unsubscribed_before"]) d[k] += r[k] || 0;
+        d.invalid.push(...(r.invalid || []));
+      }
       let msg;
       if (kind === "invite") {
-        const { data: d } = await api.post(`/webinars/${webinar.id}/invitees/import`, items.map(i => ({ ...i, source: "invite" })));
         msg = `Added ${d.inserted} to the invite list` +
+          (d.deduped ? `, ${d.deduped} were already on it` : "") +
           (d.already_registered ? `, ${d.already_registered} already registered` : "") +
           (d.unsubscribed_before ? `, ${d.unsubscribed_before} had unsubscribed (skipped)` : "");
       } else {
-        const { data: d } = await api.post(`/webinars/${webinar.id}/registrants/import`, items.map(i => ({ ...i, source: "manual" })));
         msg = `Added ${d.inserted} registrant${d.inserted === 1 ? "" : "s"}` + (d.deduped ? `, ${d.deduped} were already there` : "");
+      }
+      const bad = d.invalid || [];
+      if (bad.length) {
+        msg += `. Skipped ${bad.length} invalid email${bad.length === 1 ? "" : "s"}: ${bad.slice(0, 5).join(", ")}${bad.length > 5 ? "…" : ""}`;
+      }
+      if (!d.inserted && bad.length && how === "one") {
+        toast.error(`"${bad[0]}" isn't a valid email address. Check it for typos.`);
+        return;
       }
       toast.success(msg);
       onDone && onDone(kind);
@@ -65,8 +86,8 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
         onClose();
       }
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Couldn't add contacts");
-    } finally { setBusy(false); }
+      toast.error(apiError(e, "Couldn't add contacts. Please try again."));
+    } finally { setBusy(false); setProgress(""); }
   };
 
   const input = "w-full rounded-xl px-3 py-2 text-sm focus:outline-none";
@@ -144,7 +165,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
               className={`${input} font-mono`} style={inputStyle}
               placeholder={"Or paste one person per line:\nJane Doe, jane@example.com\nRavi Kumar, ravi@example.com, +91 98xxxxxx"} />
             <div className="text-xs mt-1" style={muted}>
-              Any column order works; we find the email, phone and name ourselves. A header row is skipped.
+              Any column order works. With a header row (Name or First Name, Email, Phone) we use those columns, so emails greet people by their first name.
               Excel or Google Sheets: File → Download → CSV.
               {text && <b style={{ color: "var(--text-primary)" }}> {items.length} people found.</b>}
             </div>
@@ -169,7 +190,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
           )}
           <button data-testid="contacts-add" disabled={busy || !items.length} onClick={() => add(false)}
             className="px-4 py-2 text-sm rounded-xl font-semibold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-50">
-            {busy ? "Adding…" : how === "one" ? "Add" : `Add ${items.length || ""} people`.replace("  ", " ")}
+            {busy ? (progress ? `Adding ${progress}…` : "Adding…") : how === "one" ? "Add" : `Add ${items.length || ""} people`.replace("  ", " ")}
           </button>
         </div>
       </motion.div>
