@@ -223,7 +223,8 @@ def creative_spec(kind: str, w: Dict[str, Any], brand: Optional[Dict[str, Any]] 
     when = " · ".join(x for x in (v["webinar_date"], v["webinar_time"]) if x)
     host = v.get("speaker") or ""
     link = v.get("registration_link") or ""
-    cb = brand_kit.card_brand(brand)
+    import partner_logo
+    cb = {**brand_kit.card_brand(brand), **partner_logo.card_fields(w)}
     if w.get("event_theme"):
         cb = {**cb, "theme": w["event_theme"]}
     return {"kind": kind, "size": list(SIZES[kind]), "headline": HEADLINES[kind], "cta": CTAS[kind],
@@ -245,11 +246,11 @@ def _short_link(url: str) -> str:
 
 
 def render_creative(spec: Dict[str, Any], banner: Optional[bytes] = None, logo_png: Optional[bytes] = None,
-                    fonts: Optional[Dict[str, str]] = None) -> bytes:
+                    fonts: Optional[Dict[str, str]] = None, partner_png: Optional[bytes] = None) -> bytes:
     from blog_cover import FONT_OVERRIDE
     token = FONT_OVERRIDE.set(fonts or None)
     try:
-        return _render(spec, banner, logo_png)
+        return _render(spec, banner, logo_png, partner_png)
     finally:
         FONT_OVERRIDE.reset(token)
 
@@ -263,7 +264,8 @@ def _cover(img, box_w: int, box_h: int):
     return r.crop((x, y, x + box_w, y + box_h))
 
 
-def _render(spec: Dict[str, Any], banner: Optional[bytes], logo_png: Optional[bytes]) -> bytes:
+def _render(spec: Dict[str, Any], banner: Optional[bytes], logo_png: Optional[bytes],
+            partner_png: Optional[bytes] = None) -> bytes:
     from PIL import Image, ImageDraw
     import social_images as si
     from touch_visuals import _colors
@@ -301,7 +303,10 @@ def _render(spec: Dict[str, Any], banner: Optional[bytes], logo_png: Optional[by
     foot_h = 96
     bottom = Ht - foot_h
     d.line([(pad, bottom), (Wd - pad, bottom)], fill=si._hex(t["muted"], 90), width=2)
-    _foot_brand(img, d, si, t, brand, logo_png, pad, bottom + foot_h // 2)
+    room = Wd - 2 * pad
+    if brand.get("powered_by", True):
+        room -= int(d.textlength(brand_kit.POWERED_BY_LINE, font=si._font("semi", 20))) + 36
+    _foot_brand(img, d, si, t, brand, logo_png, pad, bottom + foot_h // 2, partner_png, max_w=max(200, room))
     if brand.get("powered_by", True):
         f = si._font("semi", 20)
         d.text((Wd - pad, bottom + foot_h // 2), brand_kit.POWERED_BY_LINE, font=f, fill=si._hex(t["muted"]), anchor="rm")
@@ -340,8 +345,14 @@ def _render(spec: Dict[str, Any], banner: Optional[bytes], logo_png: Optional[by
     return si._jpeg(img)
 
 
-def _foot_brand(img, d, si, t, brand, logo_png, x, cy):
+def _foot_brand(img, d, si, t, brand, logo_png, x, cy, partner_png=None, max_w=460):
     from PIL import Image
+    if partner_png or brand.get("partner_name"):
+        import partner_logo
+        lock = partner_logo.lockup(si, t, brand, logo_png, partner_png, max_w, 52)
+        if lock is not None:
+            img.alpha_composite(lock, (x, cy - lock.height // 2))
+            return
     if logo_png:
         try:
             logo = Image.open(io.BytesIO(logo_png)).convert("RGBA")
@@ -380,7 +391,10 @@ async def ensure_creative(db, fs, w: Dict[str, Any], kind: str,
         banner = await banner_bytes(db, fs, w["id"]) if spec["banner"] else None
         logo = await brand_kit.logo_png(db, owner) if spec["brand"].get("logo_hash") else None
         fonts = await brand_kit.font_paths_async(spec["brand"].get("font") or "")
-        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_creative, spec, banner, logo, fonts)
+        import partner_logo
+        partner = await partner_logo.png(db, w["id"]) if spec["brand"].get("partner_hash") else None
+        jpeg = await asyncio.get_running_loop().run_in_executor(None, render_creative, spec, banner, logo,
+                                                                fonts, partner)
     except Exception as e:  # noqa: BLE001
         logger.error(f"creative {kind} for {w['id']} failed: {e}", exc_info=True)
         return row
