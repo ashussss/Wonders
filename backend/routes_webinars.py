@@ -352,10 +352,39 @@ async def public_webinar(wid: str):
             "button_text_color": brand_kit.readable_on(brand["button_color"]) if brand.get("button_color") else ""}
 
 
+def _clean_contacts(rows: Any) -> tuple:
+    """Validate each row on its own. Before, the endpoints took List[RegistrantIn], so ONE
+    address that email-validator rejects (a typo like a..b@x.com, a reserved domain like
+    .test/.local, "<x@y.com>" pasted from Outlook) failed the whole request with a 422
+    and nobody was added. Now bad rows are skipped and reported back."""
+    if not isinstance(rows, list):
+        raise HTTPException(400, "Send a list of contacts")
+    good: List[RegistrantIn] = []
+    invalid: List[str] = []
+    for r in rows:
+        if isinstance(r, RegistrantIn):
+            good.append(r)
+            continue
+        if not isinstance(r, dict):
+            invalid.append(str(r)[:80])
+            continue
+        email = str(r.get("email") or "").strip().strip("<>").strip()
+        if email.lower().startswith("mailto:"):
+            email = email[7:]
+        try:
+            good.append(RegistrantIn(name=str(r.get("name") or email).strip()[:120] or email, email=email,
+                                     phone=(str(r["phone"]).strip() or None) if r.get("phone") else None,
+                                     source=str(r.get("source") or "form")[:40]))
+        except Exception:                                  # noqa: BLE001  (pydantic ValidationError)
+            invalid.append(email[:120] or str(r.get("name") or "")[:80])
+    return good, invalid
+
+
 @router.post("/webinars/{wid}/registrants/import")
-async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+async def import_registrants(wid: str, rows: List[Any] = Body(...), user=Depends(get_user)):
     if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
-        raise HTTPException(404)
+        raise HTTPException(404, "Webinar not found in this workspace")
+    items, invalid = _clean_contacts(rows)
     inserted = 0
     deduped = 0
     for it in items:
@@ -368,7 +397,7 @@ async def import_registrants(wid: str, items: List[RegistrantIn], user=Depends(g
                                           "source": it.source or "linkedin_manual", "attended": False,
                                           "registered_at": now_iso()})
         inserted += 1
-    return {"inserted": inserted, "deduped": deduped}
+    return {"inserted": inserted, "deduped": deduped, "invalid": invalid}
 
 
 @router.get("/webinars/{wid}/invitees")
@@ -380,17 +409,18 @@ async def list_invitees(wid: str, user=Depends(get_user)):
 
 
 @router.post("/webinars/{wid}/invitees/import")
-async def import_invitees(wid: str, items: List[RegistrantIn], user=Depends(get_user)):
+async def import_invitees(wid: str, rows: List[Any] = Body(...), user=Depends(get_user)):
     """Add people who haven't registered yet. They get every email touch except the
     confirmation and the attendee thank-you (invites.INVITE_TOUCHES), with the registration
     link and an unsubscribe link, until they sign up and become registrants."""
     if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
-        raise HTTPException(404)
+        raise HTTPException(404, "Webinar not found in this workspace")
+    items, invalid = _clean_contacts(rows)
     existing = await db.invitees.count_documents({"webinar_id": wid})
     if existing + len(items) > invites.MAX_INVITEES:
         raise HTTPException(400, f"An invite list can hold up to {invites.MAX_INVITEES} people")
     out = await invites.import_invitees(db, wid, user["id"], [{"name": i.name, "email": i.email} for i in items])
-    return {**out, "summary": await invites.summary(db, wid)}
+    return {**out, "invalid": invalid, "summary": await invites.summary(db, wid)}
 
 
 @router.delete("/webinars/{wid}/invitees")
