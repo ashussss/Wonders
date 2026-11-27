@@ -385,18 +385,24 @@ async def import_registrants(wid: str, rows: List[Any] = Body(...), user=Depends
     if not await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1}):
         raise HTTPException(404, "Webinar not found in this workspace")
     items, invalid = _clean_contacts(rows)
-    inserted = 0
-    deduped = 0
+    # One lookup and one insert_many for the whole batch (was 2 round trips per row).
+    seen, fresh = set(), []
     for it in items:
-        existing = await db.registrants.find_one({"webinar_id": wid, "email": it.email.lower()})
-        if existing:
-            deduped += 1
-            continue
-        await db.registrants.insert_one({"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": user["id"],
-                                          "name": it.name, "email": it.email.lower(), "phone": it.phone,
-                                          "source": it.source or "linkedin_manual", "attended": False,
-                                          "registered_at": now_iso()})
-        inserted += 1
+        e = it.email.lower()
+        if e not in seen:
+            seen.add(e)
+            fresh.append(it)
+    have = {d["email"] for d in await db.registrants.find(
+        {"webinar_id": wid, "email": {"$in": list(seen)}}, {"_id": 0, "email": 1}).to_list(None)}
+    docs = [{"id": str(uuid.uuid4()), "webinar_id": wid, "owner_id": user["id"],
+             "name": it.name, "email": it.email.lower(), "phone": it.phone,
+             "source": it.source or "linkedin_manual", "attended": False,
+             "registered_at": now_iso()} for it in fresh if it.email.lower() not in have]
+    inserted = await invites._insert_many(db.registrants, docs)
+    deduped = len(items) - inserted
+    if inserted:
+        await db.invitees.update_many({"webinar_id": wid, "email": {"$in": [d["email"] for d in docs]}},
+                                      {"$set": {"registered_at": now_iso()}})
     return {"inserted": inserted, "deduped": deduped, "invalid": invalid}
 
 

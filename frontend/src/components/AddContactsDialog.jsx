@@ -19,6 +19,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
+  const [progress, setProgress] = useState("");
 
   const items = how === "one"
     ? (EMAIL_RE.test(cleanEmail(one.email))
@@ -46,14 +47,26 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
     if (!items.length) return toast.error(how === "one" ? "Enter a valid email address" : "No email addresses found");
     setBusy(true);
     try {
-      let msg, d;
+      // Big CSVs go up in chunks so no single request runs into the server's time limit,
+      // and the button shows how far along it is.
+      const CHUNK = 500;
+      const src = kind === "invite" ? "invite" : "manual";
+      const path = kind === "invite" ? "invitees" : "registrants";
+      const d = { inserted: 0, deduped: 0, already_registered: 0, unsubscribed_before: 0, invalid: [] };
+      for (let i = 0; i < items.length; i += CHUNK) {
+        if (items.length > CHUNK) setProgress(`${Math.min(i + CHUNK, items.length)}/${items.length}`);
+        const { data: r } = await api.post(`/webinars/${webinar.id}/${path}/import`,
+          items.slice(i, i + CHUNK).map(x => ({ ...x, source: src })), { timeout: 120000 });
+        for (const k of ["inserted", "deduped", "already_registered", "unsubscribed_before"]) d[k] += r[k] || 0;
+        d.invalid.push(...(r.invalid || []));
+      }
+      let msg;
       if (kind === "invite") {
-        ({ data: d } = await api.post(`/webinars/${webinar.id}/invitees/import`, items.map(i => ({ ...i, source: "invite" }))));
         msg = `Added ${d.inserted} to the invite list` +
+          (d.deduped ? `, ${d.deduped} were already on it` : "") +
           (d.already_registered ? `, ${d.already_registered} already registered` : "") +
           (d.unsubscribed_before ? `, ${d.unsubscribed_before} had unsubscribed (skipped)` : "");
       } else {
-        ({ data: d } = await api.post(`/webinars/${webinar.id}/registrants/import`, items.map(i => ({ ...i, source: "manual" }))));
         msg = `Added ${d.inserted} registrant${d.inserted === 1 ? "" : "s"}` + (d.deduped ? `, ${d.deduped} were already there` : "");
       }
       const bad = d.invalid || [];
@@ -74,7 +87,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
       }
     } catch (e) {
       toast.error(apiError(e, "Couldn't add contacts. Please try again."));
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(""); }
   };
 
   const input = "w-full rounded-xl px-3 py-2 text-sm focus:outline-none";
@@ -177,7 +190,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
           )}
           <button data-testid="contacts-add" disabled={busy || !items.length} onClick={() => add(false)}
             className="px-4 py-2 text-sm rounded-xl font-semibold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-50">
-            {busy ? "Adding…" : how === "one" ? "Add" : `Add ${items.length || ""} people`.replace("  ", " ")}
+            {busy ? (progress ? `Adding ${progress}…` : "Adding…") : how === "one" ? "Add" : `Add ${items.length || ""} people`.replace("  ", " ")}
           </button>
         </div>
       </motion.div>

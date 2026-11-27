@@ -40,28 +40,54 @@ def new_invitee(wid: str, owner_id: str, name: str, email: str) -> Dict[str, Any
 
 async def import_invitees(db, wid: str, owner_id: str, items: List[Dict[str, str]]) -> Dict[str, int]:
     """Add people to a webinar's invite list. Skips duplicates, people already
-    registered, and anyone who unsubscribed from this host before."""
+    registered, and anyone who unsubscribed from this host before.
+
+    Three lookups and one insert_many for the whole batch. It used to be up to four
+    round trips per row, so an 1,800-row CSV took minutes and the request timed out
+    with "Adding..." on screen and nothing saved."""
     inserted = deduped = registered = suppressed = 0
-    seen = set()
+    rows: Dict[str, Dict[str, str]] = {}
     for it in items:
         email = (it.get("email") or "").strip().lower()
-        if not email or email in seen:
-            deduped += 1 if email else 0
+        if not email:
             continue
-        seen.add(email)
-        if await db.invitees.find_one({"webinar_id": wid, "email": email}):
+        if email in rows:
             deduped += 1
             continue
-        if await db.registrants.find_one({"webinar_id": wid, "email": email}):
+        rows[email] = it
+    emails = list(rows)
+    on_list = {d["email"] for d in await db.invitees.find(
+        {"webinar_id": wid, "email": {"$in": emails}}, {"_id": 0, "email": 1}).to_list(None)}
+    regs = {d["email"] for d in await db.registrants.find(
+        {"webinar_id": wid, "email": {"$in": emails}}, {"_id": 0, "email": 1}).to_list(None)}
+    unsub = {d["email"] for d in await db.invitees.find(
+        {"owner_id": owner_id, "email": {"$in": emails}, "unsubscribed": True}, {"_id": 0, "email": 1}).to_list(None)}
+    docs = []
+    for email, it in rows.items():
+        if email in on_list:
+            deduped += 1
+        elif email in regs:
             registered += 1
-            continue
-        if await db.invitees.find_one({"owner_id": owner_id, "email": email, "unsubscribed": True}):
+        elif email in unsub:
             suppressed += 1
-            continue
-        await db.invitees.insert_one(new_invitee(wid, owner_id, it.get("name") or "", email))
-        inserted += 1
+        else:
+            docs.append(new_invitee(wid, owner_id, it.get("name") or "", email))
+    inserted = await _insert_many(db.invitees, docs)
+    deduped += len(docs) - inserted
     return {"inserted": inserted, "deduped": deduped, "already_registered": registered,
             "unsubscribed_before": suppressed}
+
+
+async def _insert_many(coll, docs: List[Dict[str, Any]]) -> int:
+    """Unordered insert_many; a row that races a unique index is skipped, not fatal."""
+    if not docs:
+        return 0
+    from pymongo.errors import BulkWriteError
+    try:
+        r = await coll.insert_many(docs, ordered=False)
+        return len(r.inserted_ids)
+    except BulkWriteError as e:
+        return int((e.details or {}).get("nInserted", 0))
 
 
 async def invite_targets(db, t: Dict[str, Any]) -> List[Dict[str, Any]]:

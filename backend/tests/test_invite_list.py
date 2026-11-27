@@ -25,6 +25,9 @@ def _match(d, q):
         if isinstance(v, dict) and "$ne" in v:
             if d.get(k) == v["$ne"]:
                 return False
+        elif isinstance(v, dict) and "$in" in v:
+            if d.get(k) not in v["$in"]:
+                return False
         elif d.get(k) != v:
             return False
     return True
@@ -35,7 +38,7 @@ class _Cursor:
         self.docs = docs
 
     async def to_list(self, n):
-        return [dict(d) for d in self.docs[:n]]
+        return [dict(d) for d in (self.docs if n is None else self.docs[:n])]
 
 
 class _Coll:
@@ -50,6 +53,10 @@ class _Coll:
 
     async def insert_one(self, doc):
         self.docs.append(dict(doc))
+
+    async def insert_many(self, docs, ordered=True):
+        self.docs.extend(dict(d) for d in docs)
+        return type("R", (), {"inserted_ids": [d.get("id") for d in docs]})()
 
     async def update_one(self, q, upd, upsert=False):
         for d in self.docs:

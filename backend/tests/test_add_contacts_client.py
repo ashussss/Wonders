@@ -62,3 +62,26 @@ def test_single_contact_in_client_workspace(env):
     d, client, h = env
     r = client.post("/api/webinars/w1/registrants/import", json=[{"name": "", "email": "one@example.com"}], headers=h)
     assert r.status_code == 200 and r.json()["inserted"] == 1
+
+
+@pytest.mark.parametrize("path", ["invitees", "registrants"])
+def test_big_csv_is_one_bulk_insert(env, path):
+    """1,800 rows: every row lands, re-sending dedupes, and it's done in bulk."""
+    d, client, h = env
+    rows = [{"name": f"P{i}", "email": f"p{i}@example.com"} for i in range(1800)]
+    rows.append({"name": "dup", "email": "p1@example.com"})
+    r = client.post(f"/api/webinars/w1/{path}/import", json=rows, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["inserted"] == 1800
+    coll = getattr(d, path)
+    assert asyncio.run(coll.count_documents({"webinar_id": "w1"})) == 1800
+    again = client.post(f"/api/webinars/w1/{path}/import", json=rows[:10], headers=h).json()
+    assert again["inserted"] == 0 and again["deduped"] == 10
+
+
+def test_imported_registrant_leaves_invite_list(env):
+    d, client, h = env
+    client.post("/api/webinars/w1/invitees/import", json=[{"name": "A", "email": "a@example.com"}], headers=h)
+    client.post("/api/webinars/w1/registrants/import", json=[{"name": "A", "email": "a@example.com"}], headers=h)
+    inv = asyncio.run(d.invitees.find_one({"email": "a@example.com"}))
+    assert inv["registered_at"]

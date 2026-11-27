@@ -15,9 +15,28 @@ import routes_webinars  # noqa: E402
 from models import RegistrantIn  # noqa: E402
 
 
+def _m(d, q):
+    return all((d.get(k) in v["$in"]) if isinstance(v, dict) else d.get(k) == v for k, v in q.items())
+
+
+class _Cursor:
+    def __init__(self, docs):
+        self.docs = docs
+
+    async def to_list(self, n):
+        return [dict(d) for d in self.docs]
+
+
 class _Coll:
     def __init__(self, docs=None):
         self.docs = docs or []
+
+    def find(self, q, proj=None):
+        return _Cursor([d for d in self.docs if _m(d, q)])
+
+    async def insert_many(self, docs, ordered=True):
+        self.docs.extend(docs)
+        return type("R", (), {"inserted_ids": [d["id"] for d in docs]})()
 
     async def find_one(self, q, proj=None):
         return next((dict(d) for d in self.docs if all(d.get(k) == v for k, v in q.items())), None)
@@ -39,6 +58,7 @@ class _DB:
         self.webinars = _Coll([{"id": "w1", "owner_id": "owner"}])
         self.registrants = _Coll([{"id": "r1", "webinar_id": "w1", "owner_id": "owner",
                                    "email": "a@b.com", "attended": False}])
+        self.invitees = _Coll()
 
 
 @pytest.fixture
