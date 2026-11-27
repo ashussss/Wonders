@@ -165,7 +165,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
               className={`${input} font-mono`} style={inputStyle}
               placeholder={"Or paste one person per line:\nJane Doe, jane@example.com\nRavi Kumar, ravi@example.com, +91 98xxxxxx"} />
             <div className="text-xs mt-1" style={muted}>
-              Any column order works; we find the email, phone and name ourselves. A header row is skipped.
+              Any column order works. With a header row (Name or First Name, Email, Phone) we use those columns, so emails greet people by their first name.
               Excel or Google Sheets: File → Download → CSV.
               {text && <b style={{ color: "var(--text-primary)" }}> {items.length} people found.</b>}
             </div>

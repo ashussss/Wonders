@@ -160,3 +160,24 @@ def test_confirmation_sent_on_registration(monkeypatch):
     assert fake.registrants.docs[0]["confirmation_sent_at"]
     # A second call does nothing.
     assert not asyncio.run(routes_delivery.send_confirmation("w1", "r1"))["ok"] and len(sent) == 1
+
+
+def test_first_name_from_messy_names_and_emails():
+    fn = touch_render.first_name
+    assert fn({"name": "ravi kumar"}) == "Ravi"
+    assert fn({"name": "Kumar, Ravi"}) == "Ravi"
+    assert fn({"name": "Dr. Anita Sharma"}) == "Anita"
+    assert fn({"name": "Mr Rahul"}) == "Rahul"
+    assert fn({"first_name": "PRIYA", "name": "x"}) == "Priya"
+    # No name: only a clear first.last address gives a name
+    assert fn({"name": "ravi.kumar@acme.com", "email": "ravi.kumar@acme.com"}) == "Ravi"
+    assert fn({"name": "", "email": "jane_doe@x.com"}) == "Jane"
+    assert fn({"name": "rk88@x.com", "email": "rk88@x.com"}) == ""
+    assert fn({"name": "info@x.com", "email": "info@x.com"}) == ""
+    assert fn({"name": "sales.team@x.com", "email": "sales.team@x.com"}) == ""
+
+
+def test_email_greets_by_first_name_from_email_when_no_name():
+    out = touch_render.render("Hi {{first_name}},", W, "email", {"name": "neha.gupta@x.com", "email": "neha.gupta@x.com"})
+    assert out == "Hi Neha,"
+    assert touch_render.render("Hi {{first_name}},", W, "email", {"name": "info@x.com", "email": "info@x.com"}) == "Hi there,"
