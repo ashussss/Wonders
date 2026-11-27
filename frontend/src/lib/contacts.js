@@ -2,6 +2,18 @@
 // the field with mostly digits, and the rest is the name. A header row has no email,
 // so it's skipped. Quoted CSV fields ("Doe, Jane") are handled.
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "<jane@x.com>" (pasted from Outlook) and "mailto:jane@x.com" are still Jane.
+export const cleanEmail = (s) => String(s || "").trim().replace(/^<|>$/g, "").replace(/^mailto:/i, "").trim();
+
+// FastAPI sends detail as a string, or (422) a list of {msg, loc}. Toasting the raw list
+// threw inside the toast, so the user saw nothing at all when an add failed.
+export function apiError(e, fallback) {
+  const d = e?.response?.data?.detail;
+  if (typeof d === "string" && d) return d;
+  if (Array.isArray(d) && d.length) return d.map(x => (x && x.msg) || String(x)).slice(0, 3).join("; ");
+  if (!e?.response) return "Can't reach ShowUp right now. Try again in a minute.";
+  return fallback;
+}
 export function splitCsvLine(line) {
   const out = []; let cur = ""; let q = false;
   for (const ch of line) {
@@ -15,7 +27,7 @@ export function splitCsvLine(line) {
 export function parseContacts(text, source) {
   const seen = new Set();
   return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
-    const cells = splitCsvLine(l).filter(Boolean);
+    const cells = splitCsvLine(l).map(cleanEmail).filter(Boolean);
     const email = cells.find(c => EMAIL_RE.test(c));
     if (!email) return null;
     const phone = cells.find(c => c !== email && /^\+?[\d\s()-]{7,}$/.test(c));

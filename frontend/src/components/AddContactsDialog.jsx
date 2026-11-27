@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { EMAIL_RE, parseContacts } from "@/lib/contacts";
+import { EMAIL_RE, apiError, cleanEmail, parseContacts } from "@/lib/contacts";
 import { Check, Download, Upload, X } from "@/components/Icons";
 
 const TEMPLATE = "Name,Email,Phone\nJane Doe,jane@example.com,+44 7700 900123\nRavi Kumar,ravi@example.com,\n";
@@ -21,8 +21,8 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
   const [result, setResult] = useState("");
 
   const items = how === "one"
-    ? (EMAIL_RE.test(one.email.trim())
-        ? [{ name: one.name.trim() || one.email.trim(), email: one.email.trim().toLowerCase(), phone: one.phone.trim() || null }]
+    ? (EMAIL_RE.test(cleanEmail(one.email))
+        ? [{ name: one.name.trim() || cleanEmail(one.email), email: cleanEmail(one.email).toLowerCase(), phone: one.phone.trim() || null }]
         : [])
     : parseContacts(text, kind === "invite" ? "invite" : "import");
 
@@ -46,15 +46,23 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
     if (!items.length) return toast.error(how === "one" ? "Enter a valid email address" : "No email addresses found");
     setBusy(true);
     try {
-      let msg;
+      let msg, d;
       if (kind === "invite") {
-        const { data: d } = await api.post(`/webinars/${webinar.id}/invitees/import`, items.map(i => ({ ...i, source: "invite" })));
+        ({ data: d } = await api.post(`/webinars/${webinar.id}/invitees/import`, items.map(i => ({ ...i, source: "invite" }))));
         msg = `Added ${d.inserted} to the invite list` +
           (d.already_registered ? `, ${d.already_registered} already registered` : "") +
           (d.unsubscribed_before ? `, ${d.unsubscribed_before} had unsubscribed (skipped)` : "");
       } else {
-        const { data: d } = await api.post(`/webinars/${webinar.id}/registrants/import`, items.map(i => ({ ...i, source: "manual" })));
+        ({ data: d } = await api.post(`/webinars/${webinar.id}/registrants/import`, items.map(i => ({ ...i, source: "manual" }))));
         msg = `Added ${d.inserted} registrant${d.inserted === 1 ? "" : "s"}` + (d.deduped ? `, ${d.deduped} were already there` : "");
+      }
+      const bad = d.invalid || [];
+      if (bad.length) {
+        msg += `. Skipped ${bad.length} invalid email${bad.length === 1 ? "" : "s"}: ${bad.slice(0, 5).join(", ")}${bad.length > 5 ? "…" : ""}`;
+      }
+      if (!d.inserted && bad.length && how === "one") {
+        toast.error(`"${bad[0]}" isn't a valid email address. Check it for typos.`);
+        return;
       }
       toast.success(msg);
       onDone && onDone(kind);
@@ -65,7 +73,7 @@ export default function AddContactsDialog({ webinar, initialKind = "invite", onC
         onClose();
       }
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Couldn't add contacts");
+      toast.error(apiError(e, "Couldn't add contacts. Please try again."));
     } finally { setBusy(false); }
   };
 
