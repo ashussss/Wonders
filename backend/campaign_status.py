@@ -22,8 +22,11 @@ LI_STATS_TTL = timedelta(minutes=30)
 
 def touch_state(t: Dict[str, Any], auto_send: bool, now_iso: str) -> str:
     """One word the UI can colour: sent, failed, sending, queued, scheduled, manual,
-    needs_approval, missed, rejected, on_registration."""
+    needs_approval, missed, rejected, on_registration, limit_wait (daily email limit
+    reached, the rest of the list goes out the next day)."""
     s = t.get("sent_status") or "planned"
+    if t.get("invite_backlog") and s == "planned":
+        return "limit_wait"
     if s in ("sent", "failed", "sending", "queued"):
         return s
     if t.get("approval_status") == "rejected":
@@ -39,7 +42,7 @@ def touch_state(t: Dict[str, Any], auto_send: bool, now_iso: str) -> str:
 
 
 def email_counts(log: List[Dict[str, Any]], progress: Optional[Dict[str, Any]]) -> Dict[str, int]:
-    out = {"invite_sent": 0, "invite_failed": 0, "invite_total": 0, "reg_sent": 0, "reg_failed": 0}
+    out = {"invite_sent": 0, "invite_failed": 0, "invite_total": 0, "invite_held": 0, "reg_sent": 0, "reg_failed": 0}
     for d in log or []:
         if d.get("channel") != "email":
             continue
@@ -47,6 +50,7 @@ def email_counts(log: List[Dict[str, Any]], progress: Optional[Dict[str, Any]]) 
             out["invite_sent"] += int(d.get("invite_sent") or 0)
             out["invite_failed"] += int(d.get("invite_failed") or 0)
             out["invite_total"] += int(d.get("invite_total") or 0)
+            out["invite_held"] += int(d.get("invite_held") or 0)
         elif str(d.get("recipient") or "").startswith("invite list"):
             # Older log line: "invite list: 12 sent, 3 failed (...)"
             import re
@@ -112,6 +116,7 @@ async def build(db, w: Dict[str, Any], settings: Dict[str, Any], auto_send_fn) -
                          "registrants": reg_count if "email" in chans else 0},
             "email": email_counts(log, t.get("send_progress")),
             "progress": t.get("send_progress"),
+            "resume_at": t.get("retry_at") if t.get("invite_backlog") else None,
             "posts": posts(log),
             "linkedin_stats": t.get("li_stats") or {},
             "errors": errors(log),
@@ -122,6 +127,7 @@ async def build(db, w: Dict[str, Any], settings: Dict[str, Any], auto_send_fn) -
                     "timezone": w.get("timezone") or "UTC"},
         "contacts": {**inv, "registrants": reg_count},
         "email_provider": (settings.get("email_provider") or "Brevo"),
+        "email_daily_limit": int(settings.get("email_daily_limit") or 0),
         "linkedin_connected": bool(settings.get("linkedin_member_token") or settings.get("linkedin_marketing_token")),
         "facebook_connected": bool(settings.get("meta_graph_token") and settings.get("meta_page_id")),
         "next_send": {"touch_num": nxt["touch_num"], "name": nxt["name"], "at": nxt["scheduled_at"]} if nxt else None,
@@ -130,7 +136,7 @@ async def build(db, w: Dict[str, Any], settings: Dict[str, Any], auto_send_fn) -
             "emails_failed": sum(x["email"]["invite_failed"] + x["email"]["reg_failed"] for x in touches),
             "posts_live": sum(1 for x in touches for p in x["posts"] if p["ok"]),
             "touches_sent": sum(1 for x in touches if x["state"] == "sent"),
-            "touches_left": sum(1 for x in touches if x["state"] in ("scheduled", "manual", "needs_approval")),
+            "touches_left": sum(1 for x in touches if x["state"] in ("scheduled", "manual", "needs_approval", "limit_wait")),
         },
         "touches": touches,
     }

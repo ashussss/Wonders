@@ -10,6 +10,7 @@ import { toast } from "sonner";
 const STATE = {
   sent:            { label: "Sent",              color: "#10B981" },
   sending:         { label: "Sending now",       color: "#3B82F6" },
+  limit_wait:      { label: "Daily limit, continues tomorrow", color: "#3B82F6" },
   failed:          { label: "Failed",            color: "#EF4444" },
   scheduled:       { label: "Scheduled",         color: "#8B5CF6" },
   manual:          { label: "Approved, send by hand", color: "#F59E0B" },
@@ -58,6 +59,15 @@ function EmailCell({ t }) {
         <div className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ background: "var(--bg-sunken)" }}>
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "#3B82F6" }} />
         </div>
+      </div>
+    );
+  }
+  if (t.state === "limit_wait") {
+    return (
+      <div className="text-xs min-w-[140px]">
+        <span style={{ color: "#10B981" }} className="font-semibold">{sent} sent</span>
+        {failed > 0 && <span style={{ color: "#EF4444" }} className="font-semibold"> · {failed} failed</span>}
+        <div style={{ color: "var(--text-muted)" }}>{(e.invite_held || 0).toLocaleString()} waiting for the next day's limit</div>
       </div>
     );
   }
@@ -190,6 +200,7 @@ export function CampaignStatus({ webinar }) {
                         <div style={{ color: "var(--text-primary)" }}>{fmtInTz(t.sent_at && t.state === "sent" ? t.sent_at : t.scheduled_at, tz)}</div>
                         {localTz && localTz !== tz && <div style={{ color: "var(--text-muted)" }}>{fmtInTz(t.sent_at && t.state === "sent" ? t.sent_at : t.scheduled_at, localTz)}</div>}
                         {t.state === "sent" && <div style={{ color: "var(--text-muted)" }}>sent</div>}
+                        {t.state === "limit_wait" && t.resume_at && <div style={{ color: "#3B82F6" }}>continues {fmtInTz(t.resume_at, tz)}</div>}
                       </>
                     ) : <span style={{ color: "var(--text-muted)" }}>when someone registers</span>}
                   </td>

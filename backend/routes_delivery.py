@@ -19,6 +19,7 @@ from showup_score import render_showup_score
 from crypto_utils import decrypt_settings
 from touch_render import PERSONAL_CHANNELS, link_labels, render
 import brand_kit
+import email_quota
 import invites
 import touch_visuals
 
@@ -423,6 +424,9 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     ai_ch = (t.get("ai_copy") or {}).get("channels") or {}
     variant_key = "casual" if t.get("selected_variant") == 1 else "safe"
     delivery_log: List[Dict[str, Any]] = []
+    # Picking up an invite list held back by the daily email limit: posts and registrant
+    # emails already went out with the first run, so only the rest of the list goes now.
+    resume = bool(t.get("invite_backlog"))
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
     regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
     invitees = await invites.invite_targets(db, t)
@@ -448,6 +452,8 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             ig_image_url = f"{public_backend_url}/api/webinars/{t['webinar_id']}/social-image.png"
 
     for ch in t.get("channels") or []:
+        if resume and ch != "email":
+            continue
         c = ai_ch.get(ch, {}).get(variant_key) or {}
         subject = c.get("subject") or w["title"]
         body = c.get("body") or ""
@@ -464,7 +470,10 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
                 ic = ai_ch.get("email_invite", {}).get(variant_key) or {}
                 i_subject, i_body = (ic.get("subject") or subject, ic["body"]) if ic.get("body") else (subject, body)
                 delivery_log.append(await _email_invitees(invitees, w, settings, i_subject, i_body, card_url, labels,
-                                                          touch_id=t.get("id", "")))
+                                                          touch_id=t.get("id", ""),
+                                                          scheduled_at=t.get("scheduled_at")))
+            if resume:
+                continue
             if not regs:
                 if not (ch == "email" and (invitees or invite_done)):
                     delivery_log.append({"channel": ch, "ok": False,
@@ -480,6 +489,8 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
                                            link_labels=labels)
                 delivery_log.append({"channel": ch, "recipient": r.get("email") or r.get("phone"),
                                       "ok": res.get("ok"), "detail": res.get("detail")})
+                if ch == "email" and res.get("ok"):
+                    await email_quota.use(db, w.get("owner_id") or "", settings)
         else:
             res = await send_dispatch(ch, settings, to_email=None, to_phone=None,
                                        subject=render(subject, w, ch), body=render(body, w, ch),
@@ -492,25 +503,39 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
                     entry["url"] = url
             delivery_log.append(entry)
     ok_any = any(d.get("ok") for d in delivery_log)
-    return {"ok": ok_any, "log": delivery_log}
+    out: Dict[str, Any] = {"ok": ok_any, "log": delivery_log}
+    held = next((d for d in delivery_log if d.get("invite_held")), None)
+    if held:
+        out.update(invite_held=held["invite_held"], resume_at=held["resume_at"])
+    if resume:
+        # Keep the first run's post and registrant lines; swap in the new invite-list line.
+        out["log"] = [d for d in (t.get("delivery_log") or []) if "invite_total" not in d
+                      and not str(d.get("recipient") or "").startswith("invite list")] + delivery_log
+        out["ok"] = True
+    return out
 
 
 async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], settings: Dict[str, Any],
                           subject: str, body: str, card_url, labels: Dict[str, str],
-                          touch_id: str = "") -> Dict[str, Any]:
+                          touch_id: str = "", scheduled_at: str = "") -> Dict[str, Any]:
     """Send a warm-up email to the invite list: join links become the registration page,
     and each email carries its own unsubscribe link. Logged as one summary line so a
     big list doesn't flood the touch's delivery log.
 
     Each invitee records the touches it got (sent_touches) and its last error, so the
     Contacts view shows per-person status and a resumed send skips people already
-    emailed. touch.send_progress is updated as the list goes out, for the Status tab."""
+    emailed. touch.send_progress is updated as the list goes out, for the Status tab.
+
+    With a daily email limit (settings.email_daily_limit) it stops at the limit; the
+    rest are "held" and the caller resumes the touch the next day (email_quota)."""
     host = (settings.get("_brand") or {}).get("name") or settings.get("sendgrid_sender_name") or "the host"
     reason = invites.INVITE_FOOTER.format(host=host)
     prior = await db.invitees.count_documents({"webinar_id": w["id"], "sent_touches": touch_id}) if touch_id else 0
     total = prior + len(invitees)
-    sent = failed = 0
+    sent = failed = held = 0
     errors: List[str] = []
+    owner = w.get("owner_id") or ""
+    left = await email_quota.remaining(db, owner, settings)
 
     async def progress(done: bool = False) -> None:
         if touch_id:
@@ -519,6 +544,9 @@ async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], set
 
     await progress()
     for i, r in enumerate(invitees, 1):
+        if left is not None and left <= 0:
+            held = len(invitees) - i + 1
+            break
         res = await send_dispatch("email", settings, to_email=r["email"], to_phone=None,
                                   subject=render(subject, w, "email", r, invite=True),
                                   body=render(body, w, "email", r, invite=True),
@@ -526,6 +554,9 @@ async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], set
                                   unsubscribe_url=invites.unsubscribe_url(r["id"]), unsubscribe_reason=reason)
         if res.get("ok"):
             sent += 1
+            if left is not None:
+                left -= 1
+            await email_quota.use(db, owner, settings)
             upd: Dict[str, Any] = {"$inc": {"sends": 1}, "$set": {"last_sent_at": now_iso()},
                                    "$unset": {"last_error": ""}}
             if touch_id:
@@ -542,8 +573,13 @@ async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], set
             await progress()
     await progress(done=True)
     detail = f"invite list: {prior + sent} sent, {failed} failed" + (f" ({'; '.join(errors)})" if errors else "")
-    return {"channel": "email", "recipient": f"invite list ({total})", "ok": sent > 0 or prior > 0,
-            "detail": detail, "invite_sent": prior + sent, "invite_failed": failed, "invite_total": total}
+    out = {"channel": "email", "recipient": f"invite list ({total})", "ok": sent > 0 or prior > 0 or held > 0,
+           "detail": detail, "invite_sent": prior + sent, "invite_failed": failed, "invite_total": total}
+    if held:
+        out["invite_held"] = held
+        out["resume_at"] = email_quota.resume_at(scheduled_at)
+        out["detail"] += f", {held} waiting for tomorrow's daily limit"
+    return out
 
 
 def post_url(channel: str, external_id: str) -> str:
@@ -677,10 +713,10 @@ async def send_now(tid: str, request: Request, user=Depends(get_user)):
     await db.touches.update_one({"id": tid, "owner_id": user["id"]},
                                 {"$set": {"sent_status": "sending", "sending_started_at": now_iso()}})
     result = await _deliver_touch(t, settings, public_backend_url=public_url)
-    await db.touches.update_one({"id": tid, "owner_id": user["id"]},
-                                  {"$set": {"sent_status": "sent" if result["ok"] else "failed",
-                                            "sent_at": now_iso(),
-                                            "delivery_log": result.get("log", [])}})
+    upd = {"sent_status": "sent" if result["ok"] else "failed", "sent_at": now_iso(),
+           "delivery_log": result.get("log", [])}
+    upd.update(_backlog_update(result))
+    await db.touches.update_one({"id": tid, "owner_id": user["id"]}, {"$set": upd})
     return result
 
 
@@ -690,6 +726,25 @@ def touch_auto_send(t: Dict[str, Any], settings: Dict[str, Any]) -> bool:
     if t.get("auto_send") is not None:
         return bool(t["auto_send"])
     return bool((settings.get("per_touch_auto_send") or {}).get(str(t["touch_num"]), False))
+
+
+def _backlog_update(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Touch fields after a run: if the daily email limit held part of the invite list
+    back, the touch stays planned and resumes the next day; otherwise it is done."""
+    if result.get("invite_held"):
+        return {"sent_status": "planned", "invite_backlog": True, "retry_at": result["resume_at"],
+                "sent_at": now_iso(), "delivery_log": result.get("log", [])}
+    return {"invite_backlog": False}
+
+
+async def _superseded(t: Dict[str, Any], now: str) -> bool:
+    """A held-back list stops once the next invite touch is due: those people get that
+    newer email instead (fewest-emails-first puts them at the front of it)."""
+    newer = await db.touches.find_one({
+        "webinar_id": t["webinar_id"], "owner_id": t.get("owner_id", ""), "approval_status": "approved",
+        "touch_num": {"$in": sorted(invites.INVITE_TOUCHES)}, "channels": "email",
+        "scheduled_at": {"$gt": t.get("scheduled_at") or "", "$lte": now}}, {"_id": 0, "id": 1})
+    return bool(newer)
 
 
 MAX_SEND_ATTEMPTS = 3
@@ -712,7 +767,12 @@ async def scheduler_tick():
                                        {"_id": 0}).to_list(200)
     for t in candidates:
         settings = await _user_settings_decrypted(t["owner_id"])
-        if touch_auto_send(t, settings):
+        if t.get("invite_backlog") and await _superseded(t, now):
+            await db.touches.update_one({"id": t["id"], "owner_id": t.get("owner_id", "")},
+                                        {"$set": {"sent_status": "sent", "invite_backlog": False,
+                                                  "backlog_superseded": True}})
+            continue
+        if touch_auto_send(t, settings) or t.get("invite_backlog"):
             # Claim it first, so a second tick or a Send-now can't start the same send.
             claimed = await db.touches.update_one(
                 {"id": t["id"], "sent_status": t.get("sent_status"),
@@ -730,6 +790,7 @@ async def scheduler_tick():
                 # Nothing went out at all, so a retry can't double-post. Try again shortly.
                 upd.update(sent_status="planned", sent_at=None,
                            retry_at=(datetime.now(timezone.utc) + RETRY_DELAY).isoformat())
+            upd.update(_backlog_update(result))
             await db.touches.update_one({"id": t["id"], "owner_id": t.get("owner_id", "")}, {"$set": upd})
             if result.get("ok"):
                 sent_count += 1

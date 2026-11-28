@@ -73,6 +73,7 @@ class LeadMagnetPatch(BaseModel):
 
 class SettingsIn(BaseModel):
     email_provider: Optional[str] = None
+    email_daily_limit: Optional[int] = None   # emails per day (UTC); 0 = no limit
     brevo_api_key: Optional[str] = None
     brevo_sender_email: Optional[EmailStr] = None
     brevo_sender_name: Optional[str] = None

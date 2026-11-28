@@ -74,6 +74,8 @@ export default function Settings() {
           <option value="Mailchimp">Mailchimp (Mandrill)</option>
           <option value="BuzzAI">Buzz.ai</option>
         </select></Row>
+        <Row label="Daily email limit"><input data-testid="set-email_daily_limit" type="number" min="0" value={s.email_daily_limit ?? ""} onChange={e=>set("email_daily_limit", e.target.value === "" ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))} placeholder="0 = no limit" className="input"/></Row>
+        <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Emails your plan allows per day (Brevo free: 300, so use about 280). Big invite lists then go out in daily batches, people who have had the fewest emails first. 0 means no limit.</p>
         {/* Only the chosen provider's fields. Emails go out through that one provider; anything else, or nothing, means Brevo (senders.send_email). */}
         {!["sendgrid", "mailchimp", "buzzai"].includes(provider) && <>
           <Field label="Brevo API Key" k="brevo_api_key" s={s} set={set} hint="Starts with 'xkeysib-'. Brevo → SMTP & API → API keys."/>

@@ -103,7 +103,10 @@ async def invite_targets(db, t: Dict[str, Any]) -> List[Dict[str, Any]]:
         return []
     regs = await db.registrants.find({"webinar_id": t["webinar_id"]}, {"_id": 0, "email": 1}).to_list(20000)
     taken = {(r.get("email") or "").lower() for r in regs}
-    return [r for r in rows if r.get("email") and r["email"] not in taken]
+    out = [r for r in rows if r.get("email") and r["email"] not in taken]
+    # Fewest emails first: with a daily limit, everyone is reached before anyone gets a second.
+    out.sort(key=lambda r: (int(r.get("sends") or 0), r.get("added_at") or ""))
+    return out
 
 
 async def mark_registered(db, wid: str, email: str) -> None:

@@ -30,6 +30,9 @@ def _val_match(dv, v):
             elif op == "$lte":
                 if dv is None or dv > x:
                     return False
+            elif op == "$gt":
+                if dv is None or dv <= x:
+                    return False
             else:
                 raise AssertionError(op)
         return True
@@ -86,6 +89,10 @@ class _Coll:
                     if v not in d[k]:
                         d[k].append(v)
                 return type("R", (), {"modified_count": 1})()
+        if upsert:
+            d = {k: v for k, v in q.items() if not isinstance(v, dict)}
+            self.docs.append(d)
+            return await self.update_one(q, upd)
         return type("R", (), {"modified_count": 0})()
 
     async def update_many(self, q, upd):
@@ -103,6 +110,7 @@ class _DB:
         self.registrants = _Coll()
         self.invitees = _Coll()
         self.touches = _Coll()
+        self.email_quota = _Coll()
 
 
 def _setup(monkeypatch, db, fail=()):
@@ -235,3 +243,81 @@ def test_older_invite_log_lines_still_count():
     c = cs.email_counts([{"channel": "email", "recipient": "invite list (5)", "ok": True,
                           "detail": "invite list: 4 sent, 1 failed"}], None)
     assert (c["invite_sent"], c["invite_failed"]) == (4, 1)
+
+
+def _sched(monkeypatch, settings_doc):
+    async def settings(uid):
+        return dict(settings_doc)
+    monkeypatch.setattr(routes_delivery, "_user_settings_decrypted", settings)
+
+
+def test_daily_limit_sends_in_batches_fewest_emails_first(monkeypatch):
+    import email_quota
+    db = _DB()
+    _people(db, 5)
+    db.invitees.docs[0]["sends"] = 3                      # already had emails: goes last
+    sent = _setup(monkeypatch, db)
+    _sched(monkeypatch, {"email_daily_limit": 2})
+    db.webinars.docs[0]["starts_at"] = "2999-01-01T00:00:00Z"
+    db.touches.docs.append(_touch(scheduled_at="2026-01-01T15:00:00+00:00",
+                                  channels=["email", "linkedin_personal"]))
+    asyncio.run(routes_delivery.scheduler_tick())
+    t = db.touches.docs[0]
+    assert sent == ["p1@s.org", "p2@s.org"]
+    assert t["sent_status"] == "planned" and t["invite_backlog"] and t["retry_at"].endswith("15:00:00+00:00")
+    assert any(d["channel"] == "linkedin_personal" for d in t["delivery_log"])
+    assert asyncio.run(email_quota.used_today(db, "u1")) == 2
+    # Status tab says it is waiting for tomorrow, with 3 still to go.
+    out = asyncio.run(cs.build(db, W, {}, lambda t, s: True))
+    row = out["touches"][0]
+    assert row["state"] == "limit_wait" and row["email"]["invite_held"] == 3 and row["resume_at"]
+
+    # Next day: the quota is fresh, the rest goes out, the post is not made again.
+    sent.clear()
+    db.email_quota.docs.clear()
+    t["retry_at"] = "2026-01-02T15:00:00+00:00"
+    asyncio.run(routes_delivery.scheduler_tick())
+    assert sent == ["p3@s.org", "p4@s.org"]
+    assert sum(1 for d in t["delivery_log"] if d["channel"] == "linkedin_personal") == 1
+    inv = [d for d in t["delivery_log"] if "invite_total" in d]
+    assert len(inv) == 1 and inv[0]["invite_sent"] == 4 and inv[0]["invite_held"] == 1
+    sent.clear()
+    db.email_quota.docs.clear()
+    t["retry_at"] = "2026-01-03T15:00:00+00:00"
+    asyncio.run(routes_delivery.scheduler_tick())
+    assert sent == ["p0@s.org"] and t["sent_status"] == "sent" and not t["invite_backlog"]
+
+
+def test_held_list_stops_when_next_touch_is_due(monkeypatch):
+    db = _DB()
+    _people(db, 3)
+    sent = _setup(monkeypatch, db)
+    _sched(monkeypatch, {"email_daily_limit": 1})
+    db.webinars.docs[0]["starts_at"] = "2999-01-01T00:00:00Z"
+    db.touches.docs.append(_touch(scheduled_at="2026-01-01T15:00:00+00:00", sent_status="planned",
+                                  invite_backlog=True, retry_at="2026-01-02T15:00:00+00:00"))
+    db.touches.docs.append(_touch(id="t4", touch_num=4, scheduled_at="2026-01-02T09:00:00+00:00"))
+    asyncio.run(routes_delivery.scheduler_tick())
+    old, new = db.touches.docs
+    assert old["sent_status"] == "sent" and old["backlog_superseded"]
+    assert len(sent) == 1 and new["invite_backlog"]
+
+
+def test_no_limit_means_everyone_at_once(monkeypatch):
+    db = _DB()
+    _people(db, 4)
+    sent = _setup(monkeypatch, db)
+    _sched(monkeypatch, {})
+    db.webinars.docs[0]["starts_at"] = "2999-01-01T00:00:00Z"
+    db.touches.docs.append(_touch(scheduled_at="2026-01-01T15:00:00+00:00"))
+    asyncio.run(routes_delivery.scheduler_tick())
+    assert len(sent) == 4 and db.touches.docs[0]["sent_status"] == "sent"
+
+
+def test_resume_time_is_next_day_at_touch_time():
+    import email_quota
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 29, 15, 40, tzinfo=timezone.utc)
+    assert email_quota.resume_at("2026-11-29T15:00:00+00:00", now) == "2026-11-30T15:00:00+00:00"
+    late = datetime(2026, 11, 29, 23, 50, tzinfo=timezone.utc)
+    assert email_quota.resume_at("2026-11-29T23:30:00+00:00", late) == "2026-11-30T23:30:00+00:00"
