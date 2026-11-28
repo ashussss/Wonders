@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import AdHocPostDialog from "@/components/AdHocPostDialog";
 import { toast } from "sonner";
 import AddContactsDialog from "@/components/AddContactsDialog";
+import { CampaignStatus, InviteContacts } from "@/components/CampaignStatus";
 
 const CHANNELS = ["email","linkedin","linkedin_personal","facebook","instagram","whatsapp","circle"];
 
@@ -384,15 +385,16 @@ export default function WebinarDetail() {
 
         {/* Tabs */}
         <div className={`border-b mb-7 flex gap-6 ${isDark ? "border-white/[0.06]" : "border-gray-200"}`}>
-          {[["plan","Send Plan"], ["content","Content"], ["registrants","Registrants"], ["leadmagnets","Lead Magnets"]].map(([k, l]) => (
+          {[["plan","Send Plan"], ["status","Status"], ["content","Content"], ["registrants","Contacts"], ["leadmagnets","Lead Magnets"]].map(([k, l]) => (
             <button key={k} data-testid={`tab-${k}`} onClick={() => setTab(k)}
-              className={`pb-3 -mb-px text-sm font-semibold border-b-2 transition-all ${tab === k ? "border-white text-white" : isDark ? "border-transparent text-gray-600 hover:text-gray-300" : "border-transparent text-gray-400 hover:text-gray-700"}`}>
+              className={`pb-3 -mb-px text-sm font-semibold border-b-2 transition-all ${tab === k ? (isDark ? "border-white text-white" : "border-gray-900 text-gray-900") : isDark ? "border-transparent text-gray-600 hover:text-gray-300" : "border-transparent text-gray-400 hover:text-gray-700"}`}>
               {l}
             </button>
           ))}
         </div>
 
         {tab === "plan" && <PlanTab webinar={w} touches={touches} onChange={(signal) => { reload(); if(signal === "approved") setTab("content"); }} />}
+        {tab === "status" && <CampaignStatus webinar={w} />}
         {tab === "registrants" && <RegistrantsTab key={contactsVer} webinar={w} regs={registrants} onChange={reload} />}
         {tab === "leadmagnets" && <LeadMagnetsTab webinar={w} lm={lm} onChange={reload} />}
         {w.attendee_count > 0 && tab === "plan" && <ShowUpScoreCard webinar={w} />}
@@ -795,7 +797,10 @@ function InviteList({ webinar }) {
   const { isDark } = useTheme();
   const [summary, setSummary] = useState(null);
   const [open, setOpen] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const [ver, setVer] = useState(0);
   const load = async () => {
+    setVer(v => v + 1);
     try { const r = await api.get(`/webinars/${webinar.id}/invitees`); setSummary(r.data.summary); } catch { /* ignore */ }
   };
   useEffect(() => { load(); }, [webinar.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -820,13 +825,20 @@ function InviteList({ webinar }) {
           </div>
         </div>
         <div className="flex gap-3">
+          {s.total > 0 && (
+            <button data-testid="toggle-invite-contacts" onClick={() => setShowList(v => !v)}
+              className="text-sm font-semibold transition-colors" style={{ color: "var(--text-secondary)" }}>
+              {showList ? "Hide contacts" : "View contacts"}
+            </button>
+          )}
           {s.total > 0 && <button onClick={clear} className="text-xs text-gray-500 hover:text-gray-300">Clear</button>}
           <button data-testid="open-invite-import" onClick={() => setOpen(true)}
-            className="text-sm text-white font-semibold hover:text-gray-200 flex items-center gap-1.5 transition-colors">
+            className="text-sm font-semibold flex items-center gap-1.5 transition-colors" style={{ color: "var(--text-primary)" }}>
             <Upload size={13} /> Add people
           </button>
         </div>
       </div>
+      {showList && s.total > 0 && <InviteContacts key={ver} webinar={webinar} />}
       <AnimatePresence>
         {open && <AddContactsDialog webinar={webinar} initialKind="invite" onClose={() => setOpen(false)} onDone={() => load()} />}
       </AnimatePresence>

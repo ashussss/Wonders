@@ -426,6 +426,9 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
     ics_bytes = build_ics(w) if t["touch_num"] == 1 else None
     regs = await db.registrants.find(_touch_audience(t), {"_id": 0}).to_list(5000)
     invitees = await invites.invite_targets(db, t)
+    # A resumed send whose list already went out still logs the invite-list result.
+    invite_done = bool(t.get("id")) and not invitees and t.get("touch_num") in invites.INVITE_TOUCHES and \
+        await db.invitees.count_documents({"webinar_id": t["webinar_id"], "sent_touches": t["id"]}) > 0
     brand = await brand_kit.resolve(db, w.get("owner_id") or t.get("owner_id") or "", public_backend_url)
     settings = {**settings, "_brand": brand}
     labels = link_labels(w, brand.get("cta_label") or "")
@@ -456,13 +459,14 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             score_url = f"{public_backend_url}/api/webinars/{t['webinar_id']}/showup-score.png"
             body = body + f"\n\nYour ShowUp Score from the session, if you want to share it: {score_url}"
         if ch in PERSONAL_CHANNELS:
-            if ch == "email" and invitees:
+            if ch == "email" and (invitees or invite_done):
                 # Their own copy (written for people who haven't registered), else the registrant email.
                 ic = ai_ch.get("email_invite", {}).get(variant_key) or {}
                 i_subject, i_body = (ic.get("subject") or subject, ic["body"]) if ic.get("body") else (subject, body)
-                delivery_log.append(await _email_invitees(invitees, w, settings, i_subject, i_body, card_url, labels))
+                delivery_log.append(await _email_invitees(invitees, w, settings, i_subject, i_body, card_url, labels,
+                                                          touch_id=t.get("id", "")))
             if not regs:
-                if not (ch == "email" and invitees):
+                if not (ch == "email" and (invitees or invite_done)):
                     delivery_log.append({"channel": ch, "ok": False,
                                           "detail": "No recipients in audience — share the registration link first"})
                 continue
@@ -480,21 +484,41 @@ async def _deliver_touch(t: Dict[str, Any], settings: Dict[str, Any], public_bac
             res = await send_dispatch(ch, settings, to_email=None, to_phone=None,
                                        subject=render(subject, w, ch), body=render(body, w, ch),
                                        image_url=ig_image_url if ch == "instagram" else card_url)
-            delivery_log.append({"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")})
+            entry = {"channel": ch, "ok": res.get("ok"), "detail": res.get("detail")}
+            if res.get("ok") and res.get("external_id"):
+                entry["external_id"] = res["external_id"]
+                url = post_url(ch, res["external_id"])
+                if url:
+                    entry["url"] = url
+            delivery_log.append(entry)
     ok_any = any(d.get("ok") for d in delivery_log)
     return {"ok": ok_any, "log": delivery_log}
 
 
 async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], settings: Dict[str, Any],
-                          subject: str, body: str, card_url, labels: Dict[str, str]) -> Dict[str, Any]:
+                          subject: str, body: str, card_url, labels: Dict[str, str],
+                          touch_id: str = "") -> Dict[str, Any]:
     """Send a warm-up email to the invite list: join links become the registration page,
     and each email carries its own unsubscribe link. Logged as one summary line so a
-    big list doesn't flood the touch's delivery log."""
+    big list doesn't flood the touch's delivery log.
+
+    Each invitee records the touches it got (sent_touches) and its last error, so the
+    Contacts view shows per-person status and a resumed send skips people already
+    emailed. touch.send_progress is updated as the list goes out, for the Status tab."""
     host = (settings.get("_brand") or {}).get("name") or settings.get("sendgrid_sender_name") or "the host"
     reason = invites.INVITE_FOOTER.format(host=host)
+    prior = await db.invitees.count_documents({"webinar_id": w["id"], "sent_touches": touch_id}) if touch_id else 0
+    total = prior + len(invitees)
     sent = failed = 0
     errors: List[str] = []
-    for r in invitees:
+
+    async def progress(done: bool = False) -> None:
+        if touch_id:
+            await db.touches.update_one({"id": touch_id}, {"$set": {"send_progress": {
+                "sent": prior + sent, "failed": failed, "total": total, "done": done, "updated_at": now_iso()}}})
+
+    await progress()
+    for i, r in enumerate(invitees, 1):
         res = await send_dispatch("email", settings, to_email=r["email"], to_phone=None,
                                   subject=render(subject, w, "email", r, invite=True),
                                   body=render(body, w, "email", r, invite=True),
@@ -502,13 +526,34 @@ async def _email_invitees(invitees: List[Dict[str, Any]], w: Dict[str, Any], set
                                   unsubscribe_url=invites.unsubscribe_url(r["id"]), unsubscribe_reason=reason)
         if res.get("ok"):
             sent += 1
-            await db.invitees.update_one({"id": r["id"]}, {"$inc": {"sends": 1}, "$set": {"last_sent_at": now_iso()}})
+            upd: Dict[str, Any] = {"$inc": {"sends": 1}, "$set": {"last_sent_at": now_iso()},
+                                   "$unset": {"last_error": ""}}
+            if touch_id:
+                upd["$addToSet"] = {"sent_touches": touch_id}
+            await db.invitees.update_one({"id": r["id"]}, upd)
         else:
             failed += 1
+            err = (res.get("detail") or "Send failed")[:200]
+            await db.invitees.update_one({"id": r["id"]}, {"$inc": {"fails": 1},
+                                                          "$set": {"last_error": err, "last_failed_at": now_iso()}})
             if len(errors) < 3:
-                errors.append(f"{r['email']}: {(res.get('detail') or '')[:80]}")
-    detail = f"invite list: {sent} sent, {failed} failed" + (f" ({'; '.join(errors)})" if errors else "")
-    return {"channel": "email", "recipient": f"invite list ({len(invitees)})", "ok": sent > 0, "detail": detail}
+                errors.append(f"{r['email']}: {err[:80]}")
+        if i % 25 == 0:
+            await progress()
+    await progress(done=True)
+    detail = f"invite list: {prior + sent} sent, {failed} failed" + (f" ({'; '.join(errors)})" if errors else "")
+    return {"channel": "email", "recipient": f"invite list ({total})", "ok": sent > 0 or prior > 0,
+            "detail": detail, "invite_sent": prior + sent, "invite_failed": failed, "invite_total": total}
+
+
+def post_url(channel: str, external_id: str) -> str:
+    """Public link to a post the touch made, for the Status tab."""
+    ch = {"linkedin_page": "linkedin", "facebook_page": "facebook"}.get(channel, channel)
+    if ch in ("linkedin", "linkedin_personal") and external_id.startswith("urn:li:"):
+        return f"https://www.linkedin.com/feed/update/{external_id}/"
+    if ch == "facebook" and external_id:
+        return f"https://www.facebook.com/{external_id}"
+    return ""
 
 
 # Places no API can post to (LinkedIn company pages without Community Management
@@ -625,8 +670,12 @@ async def send_now(tid: str, request: Request, user=Depends(get_user)):
         raise HTTPException(404)
     if t.get("approval_status") != "approved":
         raise HTTPException(400, "Touch must be approved before sending")
+    if t.get("sent_status") == "sending":
+        raise HTTPException(409, "This touch is being sent right now")
     settings = await _user_settings_decrypted(user["id"])
     public_url = os.environ.get("PUBLIC_BACKEND_URL") or str(request.base_url).rstrip("/")
+    await db.touches.update_one({"id": tid, "owner_id": user["id"]},
+                                {"$set": {"sent_status": "sending", "sending_started_at": now_iso()}})
     result = await _deliver_touch(t, settings, public_backend_url=public_url)
     await db.touches.update_one({"id": tid, "owner_id": user["id"]},
                                   {"$set": {"sent_status": "sent" if result["ok"] else "failed",
@@ -645,18 +694,32 @@ def touch_auto_send(t: Dict[str, Any], settings: Dict[str, Any]) -> bool:
 
 MAX_SEND_ATTEMPTS = 3
 RETRY_DELAY = timedelta(minutes=15)
+SENDING_STALE_AFTER = timedelta(minutes=30)
 
 
 async def scheduler_tick():
     now = datetime.now(timezone.utc).isoformat()
     sent_count = 0
-    candidates = await db.touches.find({"approval_status": "approved", "sent_status": "planned",
-                                          "scheduled_at": {"$lte": now},
-                                          "$or": [{"retry_at": None}, {"retry_at": {"$lte": now}}]},
-                                         {"_id": 0}).to_list(200)
+    stale = (datetime.now(timezone.utc) - SENDING_STALE_AFTER).isoformat()
+    candidates = await db.touches.find({"approval_status": "approved", "scheduled_at": {"$lte": now},
+                                        "$or": [
+                                            {"sent_status": "planned",
+                                             "$or": [{"retry_at": None}, {"retry_at": {"$lte": now}}]},
+                                            # A send cut off by a restart: resume it (people already
+                                            # emailed are skipped, see invites.invite_targets).
+                                            {"sent_status": "sending", "sending_started_at": {"$lte": stale}},
+                                        ]},
+                                       {"_id": 0}).to_list(200)
     for t in candidates:
         settings = await _user_settings_decrypted(t["owner_id"])
         if touch_auto_send(t, settings):
+            # Claim it first, so a second tick or a Send-now can't start the same send.
+            claimed = await db.touches.update_one(
+                {"id": t["id"], "sent_status": t.get("sent_status"),
+                 "sending_started_at": t.get("sending_started_at")},
+                {"$set": {"sent_status": "sending", "sending_started_at": now_iso()}})
+            if not claimed.modified_count:
+                continue
             public_url = os.environ.get("PUBLIC_BACKEND_URL", "")
             result = await _deliver_touch(t, settings, public_backend_url=public_url)
             attempts = int(t.get("send_attempts") or 0) + 1
@@ -1027,3 +1090,26 @@ Return ONLY JSON: {{"slides": [{{"heading": "max 40 chars", "body": "max 120 cha
         "base64": f"data:application/zip;base64,{b64}",
         "filename": f"carousel-{w.get('title','webinar')[:30]}.zip"
     }
+
+
+# ---------- Campaign status (Status tab) ----------
+@router.get("/webinars/{wid}/campaign-status")
+async def campaign_status(wid: str, user=Depends(get_user)):
+    """Schedule, email results, live send progress and posts for every touch of a webinar."""
+    import campaign_status as cs
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 0})
+    if not w:
+        raise HTTPException(404)
+    settings = await _user_settings_decrypted(user["id"])
+    return await cs.build(db, w, settings, touch_auto_send)
+
+
+@router.post("/webinars/{wid}/linkedin-stats/refresh")
+async def linkedin_stats_refresh(wid: str, user=Depends(get_user)):
+    """Re-read likes/comments of this webinar's LinkedIn posts (cached 30 min per touch)."""
+    import campaign_status as cs
+    w = await db.webinars.find_one({"id": wid, "owner_id": user["id"]}, {"_id": 1})
+    if not w:
+        raise HTTPException(404)
+    settings = await _user_settings_decrypted(user["id"])
+    return {"ok": True, "refreshed": await cs.refresh_linkedin_stats(db, user["id"], wid, settings)}
