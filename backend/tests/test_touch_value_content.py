@@ -121,6 +121,9 @@ class _Coll:
         if upsert:
             self.docs.append({**q, **upd.get("$set", {})})
 
+    async def count_documents(self, q):
+        return 0
+
     def find(self, q, proj=None):
         docs = self.docs
 

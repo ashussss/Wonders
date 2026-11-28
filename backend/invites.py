@@ -94,13 +94,19 @@ async def invite_targets(db, t: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Invitees a warm-up touch should email: not unsubscribed, not registered."""
     if t.get("touch_num") not in INVITE_TOUCHES or "email" not in (t.get("channels") or []):
         return []
-    rows = await db.invitees.find({"webinar_id": t["webinar_id"], "unsubscribed": {"$ne": True},
-                                   "registered_at": None}, {"_id": 0}).to_list(MAX_INVITEES)
+    # sent_touches makes a resumed send (restart mid-list, retry) skip people already emailed.
+    q: Dict[str, Any] = {"webinar_id": t["webinar_id"], "unsubscribed": {"$ne": True}, "registered_at": None}
+    if t.get("id"):
+        q["sent_touches"] = {"$ne": t["id"]}
+    rows = await db.invitees.find(q, {"_id": 0}).to_list(MAX_INVITEES)
     if not rows:
         return []
     regs = await db.registrants.find({"webinar_id": t["webinar_id"]}, {"_id": 0, "email": 1}).to_list(20000)
     taken = {(r.get("email") or "").lower() for r in regs}
-    return [r for r in rows if r.get("email") and r["email"] not in taken]
+    out = [r for r in rows if r.get("email") and r["email"] not in taken]
+    # Fewest emails first: with a daily limit, everyone is reached before anyone gets a second.
+    out.sort(key=lambda r: (int(r.get("sends") or 0), r.get("added_at") or ""))
+    return out
 
 
 async def mark_registered(db, wid: str, email: str) -> None:
